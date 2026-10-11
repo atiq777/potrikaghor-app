@@ -1,0 +1,1 @@
+# potrikaghor-app
