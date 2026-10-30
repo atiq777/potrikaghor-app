@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
 import org.json.JSONTokener
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -25,11 +27,114 @@ class ArticleExtractor {
         .followSslRedirects(true)
         .build()
 
+    companion object {
+        const val PLACEHOLDER_LOADING = "মূল পত্রিকার পাতা থেকে বিস্তারিত সংবাদ লোড হচ্ছে..."
+        const val PLACEHOLDER_WEBVIEW = "এই সংবাদের পূর্ণাঙ্গ পাঠ্য সরাসরি ওয়েবসাইট ভিউতে পড়ুন। উপরের আইকনে ট্যাপ করে ওয়েবসাইট ভিউ ও রিডার মোড পরিবর্তন করতে পারবেন।"
+        const val PLACEHOLDER_OFFLINE = "ইন্টারনেট সংযোগ না থাকায় অথবা পৃষ্ঠাটি লোড হতে সমস্যা হওয়ায় পূর্ণ লেখাটি আনা সম্ভব হয়নি। আপনি মূল ওয়েবসাইটে পড়তে পারেন।"
+
+        /**
+         * JavaScript snippet that extracts live rendered article title, lead image, and visible
+         * paragraphs directly from the WebView DOM (works with SPA/React newspapers like Prothom Alo,
+         * Daily Star, Jugantor, Kalbela, Somoy, etc.).
+         */
+        val LIVE_DOM_EXTRACTION_JS: String = """
+            (function() {
+                try {
+                    var title = '';
+                    var ogTitle = document.querySelector('meta[property="og:title"]');
+                    if (ogTitle && ogTitle.content) title = ogTitle.content.trim();
+                    if (!title || title.toLowerCase().indexOf('google news') !== -1) {
+                        var h1 = document.querySelector('article h1, main h1, h1');
+                        if (h1 && h1.innerText) title = h1.innerText.trim();
+                    }
+                    if (!title) title = (document.title || '').trim();
+
+                    var image = '';
+                    var ogImg = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]');
+                    if (ogImg && ogImg.content) image = ogImg.content.trim();
+                    if (!image) {
+                        var artImg = document.querySelector('article img[src^="http"], main img[src^="http"]');
+                        if (artImg && artImg.src) image = artImg.src.trim();
+                    }
+
+                    var paras = [];
+                    var seen = {};
+                    function addText(txt) {
+                        if (!txt) return;
+                        var lines = txt.split(/\n+/);
+                        for (var i = 0; i < lines.length; i++) {
+                            var clean = lines[i].replace(/\s+/g, ' ').trim();
+                            if (clean.length > 28 && !seen[clean]) {
+                                seen[clean] = true;
+                                paras.push(clean);
+                            }
+                        }
+                    }
+
+                    // 1. JSON-LD articleBody if present in DOM
+                    var ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+                    for (var s = 0; s < ldScripts.length; s++) {
+                        try {
+                            var data = JSON.parse(ldScripts[s].textContent || '{}');
+                            var items = Array.isArray(data) ? data : (data['@graph'] ? data['@graph'] : [data]);
+                            for (var k = 0; k < items.length; k++) {
+                                if (items[k] && items[k].articleBody) {
+                                    addText(items[k].articleBody);
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    // 2. Newspaper-specific and semantic article containers
+                    var selectors = [
+                        '.story-element-text',
+                        '[itemprop="articleBody"] p',
+                        '[itemprop="articleBody"]',
+                        'article p',
+                        '.article-content p',
+                        '.entry-content p',
+                        '.post-content p',
+                        '.news-content p',
+                        '.details-content p',
+                        '.dtl_content p',
+                        '.news-details p',
+                        'main p',
+                        'p'
+                    ];
+                    for (var j = 0; j < selectors.length; j++) {
+                        var nodes = document.querySelectorAll(selectors[j]);
+                        for (var n = 0; n < nodes.length; n++) {
+                            var el = nodes[n];
+                            if (el.closest && el.closest('nav, header, footer, aside, .related-news, .comments, script, style')) continue;
+                            addText(el.innerText || el.textContent || '');
+                        }
+                        if (paras.length >= 4) break;
+                    }
+
+                    // 3. Fallback to article or main innerText if paragraphs are still sparse
+                    if (paras.length < 2) {
+                        var mainContainer = document.querySelector('article, [itemprop="articleBody"], main');
+                        if (mainContainer && mainContainer.innerText) {
+                            addText(mainContainer.innerText);
+                        }
+                    }
+
+                    return JSON.stringify({
+                        title: title,
+                        image: image,
+                        url: window.location.href || '',
+                        paragraphs: paras
+                    });
+                } catch (err) {
+                    return JSON.stringify({ error: err.toString() });
+                }
+            })();
+        """.trimIndent()
+    }
+
     suspend fun extractArticle(url: String, fallbackTitle: String = "", source: String = ""): CleanArticle =
         withContext(Dispatchers.IO) {
             if (url.contains("news.google.com")) {
-                // Google News URLs require client-side JS redirection in WebView.
-                // Return clean fallback until WebView resolves the publisher page DOM.
                 val cleanTitle = fallbackTitle.ifEmpty { source.ifEmpty { "সংবাদ" } }
                 return@withContext CleanArticle(
                     title = cleanTitle,
@@ -38,7 +143,7 @@ class ArticleExtractor {
                     leadImageUrl = null,
                     paragraphs = listOf(
                         cleanTitle,
-                        "মূল পত্রিকার পাতা থেকে বিস্তারিত সংবাদ লোড হচ্ছে..."
+                        PLACEHOLDER_LOADING
                     ),
                     plainText = cleanTitle
                 )
@@ -64,7 +169,7 @@ class ArticleExtractor {
             parseHtml(html, url, fallbackTitle, source)
         }
 
-    fun decodeJsEvaluatedHtml(jsResult: String?): String {
+    fun decodeJsEvaluatedString(jsResult: String?): String {
         if (jsResult.isNullOrBlank() || jsResult == "null") return ""
         return try {
             JSONTokener(jsResult).nextValue()?.toString() ?: ""
@@ -77,6 +182,193 @@ class ArticleExtractor {
         }
     }
 
+    fun parseLiveDomJson(
+        rawJsResult: String?,
+        url: String,
+        fallbackTitle: String,
+        source: String
+    ): CleanArticle? {
+        val jsonStr = decodeJsEvaluatedString(rawJsResult)
+        if (jsonStr.isBlank()) return null
+        return try {
+            val obj = JSONObject(jsonStr)
+            if (obj.has("error")) return null
+
+            val safeFallbackTitle = fallbackTitle.takeIf { !isGenericGoogleTitle(it) }.orEmpty()
+            val rawTitle = obj.optString("title", "").trim()
+            val resolvedTitle = rawTitle
+                .takeIf { it.isNotEmpty() && !isGenericGoogleTitle(it) }
+                ?: safeFallbackTitle.ifEmpty { source.ifEmpty { "সংবাদ" } }
+
+            val rawImg = obj.optString("image", "").trim()
+            val leadImage = rawImg.takeIf {
+                (it.startsWith("http://") || it.startsWith("https://")) && !isGenericGoogleImage(it)
+            }
+
+            val resolvedUrl = obj.optString("url", "").takeIf { it.startsWith("http") } ?: url
+
+            val paragraphs = mutableListOf<String>()
+            val arr: JSONArray? = obj.optJSONArray("paragraphs")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val p = unescape(arr.optString(i, "")).trim()
+                    if (isValidParagraph(p) && !paragraphs.contains(p)) {
+                        paragraphs.add(p)
+                    }
+                }
+            }
+
+            if (paragraphs.isEmpty()) return null
+
+            CleanArticle(
+                title = resolvedTitle,
+                source = source,
+                url = resolvedUrl,
+                leadImageUrl = leadImage,
+                paragraphs = paragraphs,
+                plainText = paragraphs.joinToString("\n\n")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun hasSubstantiveContent(article: CleanArticle?): Boolean {
+        if (article == null) return false
+        val realParagraphs = article.paragraphs.filter { p ->
+            !isPlaceholderText(p) && p != article.title && p.length > 30
+        }
+        return realParagraphs.isNotEmpty()
+    }
+
+    fun isPlaceholderText(text: String): Boolean {
+        val t = text.trim()
+        return t == PLACEHOLDER_LOADING ||
+            t == PLACEHOLDER_WEBVIEW ||
+            t == PLACEHOLDER_OFFLINE ||
+            t.contains("বিস্তারিত সংবাদ লোড হচ্ছে") ||
+            t.contains("পূর্ণাঙ্গ পাঠ্য সরাসরি ওয়েবসাইট ভিউতে পড়ুন") ||
+            t.contains("পূর্ণ লেখাটি আনা সম্ভব হয়নি")
+    }
+
+    /**
+     * Generates a factual, extractive 3-5 bullet summary from the article's real paragraphs.
+     * Supports both Bengali (।) and English (.) sentences and ranks sentences by keyword
+     * relevance and information density.
+     */
+    fun generateSmartSummary(article: CleanArticle?, fallbackTitle: String): List<String> {
+        val headline = article?.title
+            ?.takeIf { it.isNotBlank() && !isGenericGoogleTitle(it) }
+            ?: fallbackTitle.trim()
+
+        val realParagraphs = article?.paragraphs
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() && !isPlaceholderText(it) && !isGenericGoogleTitle(it) }
+            .orEmpty()
+
+        val bodyText = realParagraphs.joinToString("\n")
+        if (bodyText.length < 80) {
+            return if (headline.isNotBlank()) {
+                listOf(headline)
+            } else {
+                listOf("সংবাদটির মূল অংশ লোড হচ্ছে, অনুগ্রহ করে কয়েক মুহূর্ত অপেক্ষা করুন।")
+            }
+        }
+
+        // Split sentences on Bengali Danda (।), question/exclamation marks, newlines, or English period followed by space
+        val rawSentences = bodyText
+            .split(Regex("(?<=[।!?])\\s+|(?<=\\.)\\s+(?=[A-Z0-9\u0980-\u09FF])|\n+"))
+            .map { it.replace(Regex("\\s+"), " ").trim() }
+            .filter { s ->
+                s.length in 30..320 &&
+                    !isPlaceholderText(s) &&
+                    !s.equals(headline, ignoreCase = true)
+            }
+            .distinct()
+
+        if (rawSentences.isEmpty()) {
+            return realParagraphs.take(3).map { if (it.length > 220) it.take(217) + "..." else it }
+        }
+
+        if (rawSentences.size <= 4) {
+            return rawSentences
+        }
+
+        // Extract significant keywords from the headline to score sentence relevance
+        val headlineWords = headline
+            .split(Regex("[\\s,।.!?'\"“”‘’\\-:;()]+"))
+            .map { it.trim().lowercase() }
+            .filter { it.length >= 3 }
+            .toSet()
+
+        data class ScoredSentence(val index: Int, val text: String, val score: Double)
+
+        val scored = rawSentences.mapIndexed { idx, sentence ->
+            var score = 0.0
+            // Lead sentences in journalism carry the core 5W1H facts
+            if (idx == 0) score += 4.0
+            else if (idx == 1) score += 2.5
+            else if (idx <= 4) score += 1.5
+
+            // Keyword overlap with headline
+            val lower = sentence.lowercase()
+            headlineWords.forEach { w ->
+                if (lower.contains(w)) score += 1.8
+            }
+
+            // Sentences containing numbers/dates/statistics often hold concrete facts
+            if (sentence.contains(Regex("[0-9০-৯]+"))) {
+                score += 1.0
+            }
+
+            // Prefer well-formed medium-length sentences
+            if (sentence.length in 55..200) {
+                score += 1.0
+            }
+
+            ScoredSentence(idx, sentence, score)
+        }
+
+        return scored
+            .sortedByDescending { it.score }
+            .take(4)
+            .sortedBy { it.index }
+            .map { it.text }
+    }
+
+    /**
+     * Builds clean, natural text for Text-to-Speech (TTS), filtering out any UI placeholder strings.
+     */
+    fun buildTtsSpeechText(article: CleanArticle?, fallbackTitle: String): String {
+        val headline = article?.title
+            ?.takeIf { it.isNotBlank() && !isGenericGoogleTitle(it) }
+            ?: fallbackTitle.trim()
+
+        val realParagraphs = article?.paragraphs
+            ?.map { it.trim() }
+            ?.filter {
+                it.isNotBlank() &&
+                    !isPlaceholderText(it) &&
+                    !isGenericGoogleTitle(it) &&
+                    !it.equals(headline, ignoreCase = true)
+            }
+            .orEmpty()
+
+        return buildString {
+            if (headline.isNotBlank()) {
+                append(headline)
+                if (!headline.endsWith("।") && !headline.endsWith(".") && !headline.endsWith("?") && !headline.endsWith("!")) {
+                    append("। ")
+                } else {
+                    append(" ")
+                }
+            }
+            if (realParagraphs.isNotEmpty()) {
+                append(realParagraphs.joinToString(" "))
+            }
+        }.trim()
+    }
+
     fun parseHtml(html: String, url: String, fallbackTitle: String, source: String): CleanArticle {
         val safeFallbackTitle = fallbackTitle.takeIf { !isGenericGoogleTitle(it) }.orEmpty()
 
@@ -86,7 +378,7 @@ class ArticleExtractor {
                 title = resolvedTitle,
                 source = source,
                 url = url,
-                paragraphs = listOf("ইন্টারনেট সংযোগ না থাকায় অথবা পৃষ্ঠাটি লোড হতে সমস্যা হওয়ায় পূর্ণ লেখাটি আনা সম্ভব হয়নি। আপনি মূল ওয়েবসাইটে পড়তে পারেন।"),
+                paragraphs = listOf(PLACEHOLDER_OFFLINE),
                 plainText = resolvedTitle
             )
         }
@@ -156,7 +448,7 @@ class ArticleExtractor {
                 }
         }
 
-        // 4. Remove script, style, nav, header, footer, noscript and extract <p> tags
+        // 4. Remove script, style, nav, header, footer, noscript and extract <p> and story-element blocks
         val clean = html
             .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), " ")
             .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), " ")
@@ -167,10 +459,10 @@ class ArticleExtractor {
             .replace(Regex("<iframe[^>]*>.*?</iframe>", RegexOption.DOT_MATCHES_ALL), " ")
             .replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), " ")
 
-        val pMat = Pattern.compile("<p[^>]*>(.*?)</p>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(clean)
+        val pMat = Pattern.compile("<(?:p|div[^>]*class=[\"'][^\"']*story-element-text[^\"']*[\"'])[^>]*>(.*?)</(?:p|div)>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(clean)
         while (pMat.find()) {
             val rawP = pMat.group(1) ?: continue
-            val text = unescape(stripTags(rawP)).trim()
+            val text = unescape(stripTags(rawP)).replace(Regex("\\s+"), " ").trim()
             if (isValidParagraph(text) && !paragraphs.contains(text)) {
                 paragraphs.add(text)
             }
@@ -180,7 +472,7 @@ class ArticleExtractor {
             if (safeFallbackTitle.isNotEmpty()) {
                 paragraphs.add(safeFallbackTitle)
             }
-            paragraphs.add("এই সংবাদের পূর্ণাঙ্গ পাঠ্য সরাসরি ওয়েবসাইট ভিউতে পড়ুন। উপরের আইকনে ট্যাপ করে ওয়েবসাইট ভিউ ও রিডার মোড পরিবর্তন করতে পারবেন।")
+            paragraphs.add(PLACEHOLDER_WEBVIEW)
         }
 
         val plainText = paragraphs.joinToString("\n\n")
@@ -214,12 +506,14 @@ class ArticleExtractor {
     private fun isValidParagraph(text: String): Boolean {
         if (text.length <= 25) return false
         if (isGenericGoogleTitle(text)) return false
+        if (isPlaceholderText(text)) return false
         val lower = text.lowercase()
         if (lower.contains("all rights reserved") ||
             lower.contains("কপিরাইট") ||
             lower.contains("google news") ||
             lower.contains("enable javascript") ||
-            lower.contains("privacy policy")
+            lower.contains("privacy policy") ||
+            lower.contains("terms of use")
         ) {
             return false
         }

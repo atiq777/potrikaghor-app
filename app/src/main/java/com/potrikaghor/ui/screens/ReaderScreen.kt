@@ -2,6 +2,7 @@ package com.potrikaghor.ui.screens
 
 import android.content.Intent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -121,7 +122,7 @@ fun ReaderScreen(
     }
 
     // Open in Website View by default so news opens directly on the publisher's site,
-    // with Clean Reader Mode accessible via the top toolbar button.
+    // with Clean Reader Mode, AI Summary, and TTS accessible via the top toolbar.
     var isCleanReaderMode by remember { mutableStateOf(false) }
     var cleanArticle by remember { mutableStateOf<CleanArticle?>(null) }
     var isExtracting by remember { mutableStateOf(true) }
@@ -137,15 +138,139 @@ fun ReaderScreen(
 
     // Reader styling options
     var readerFontSize by remember { mutableIntStateOf(appState.articleFontSize) }
-    var readerLineHeight by remember { mutableFloatStateOf(appState.articleLineHeight) }
-    var readerThemeStyle by remember { mutableStateOf(appState.themeStyle) } // amoled, normal, sepia
+    val readerLineHeight by remember { mutableFloatStateOf(appState.articleLineHeight) }
+    val readerThemeStyle by remember { mutableStateOf(appState.themeStyle) } // amoled, normal, sepia
 
     // TTS state
     var tts: TextToSpeech? by remember { mutableStateOf(null) }
+    var isTtsReady by remember { mutableStateOf(false) }
     var isTtsPlaying by remember { mutableStateOf(false) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
 
     val isBookmarked = appState.bookmarks.any { it.url == currentWebUrl || it.url == initialUrl }
+
+    // Helper to extract live article content from the currently rendered WebView DOM
+    fun extractLiveFromWebView(wv: WebView?, onComplete: ((CleanArticle?) -> Unit)? = null) {
+        if (wv == null) {
+            onComplete?.invoke(cleanArticle)
+            return
+        }
+        val liveUrl = wv.url ?: currentWebUrl
+        if (liveUrl.contains("news.google.com")) {
+            onComplete?.invoke(cleanArticle)
+            return
+        }
+        wv.evaluateJavascript(ArticleExtractor.LIVE_DOM_EXTRACTION_JS) { rawJs ->
+            scope.launch(Dispatchers.Default) {
+                val domArticle = extractor.parseLiveDomJson(
+                    rawJsResult = rawJs,
+                    url = liveUrl,
+                    fallbackTitle = fallbackHeadline,
+                    source = paper.bn
+                )
+                withContext(Dispatchers.Main) {
+                    if (domArticle != null && extractor.hasSubstantiveContent(domArticle)) {
+                        cleanArticle = domArticle
+                        isExtracting = false
+                        onComplete?.invoke(domArticle)
+                    } else {
+                        // Fallback: evaluate full outerHTML if structured DOM extraction returned empty
+                        wv.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawHtmlJs ->
+                            val decodedHtml = extractor.decodeJsEvaluatedString(rawHtmlJs)
+                            if (decodedHtml.length > 200) {
+                                scope.launch(Dispatchers.Default) {
+                                    val parsed = extractor.parseHtml(
+                                        html = decodedHtml,
+                                        url = liveUrl,
+                                        fallbackTitle = fallbackHeadline,
+                                        source = paper.bn
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        if (extractor.hasSubstantiveContent(parsed) || cleanArticle == null) {
+                                            cleanArticle = parsed
+                                        }
+                                        isExtracting = false
+                                        onComplete?.invoke(cleanArticle)
+                                    }
+                                }
+                            } else {
+                                isExtracting = false
+                                onComplete?.invoke(cleanArticle)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Helper to configure TTS language and speak article chunks reliably
+    fun startTtsPlayback(articleToRead: CleanArticle?) {
+        val engine = tts
+        if (engine == null || !isTtsReady) {
+            Toast.makeText(
+                context,
+                "টেক্সট-টু-স্পিচ ইঞ্জিন প্রস্তুত হচ্ছে, অনুগ্রহ করে আবার চেষ্টা করুন",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val fullText = extractor.buildTtsSpeechText(articleToRead, fallbackHeadline)
+        if (fullText.isBlank()) {
+            Toast.makeText(context, "পড়ে শোনানোর মতো পাঠ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Detect whether text contains Bengali characters
+        val hasBengali = Regex("[\u0980-\u09FF]").containsMatchIn(fullText)
+        if (hasBengali) {
+            val localesToTry = listOf(
+                Locale("bn", "BD"),
+                Locale("bn", "IN"),
+                Locale("bn")
+            )
+            var bnSupported = false
+            for (loc in localesToTry) {
+                val avail = engine.isLanguageAvailable(loc)
+                if (avail >= TextToSpeech.LANG_AVAILABLE) {
+                    engine.language = loc
+                    bnSupported = true
+                    break
+                }
+            }
+            if (!bnSupported) {
+                val res = engine.setLanguage(Locale("bn", "BD"))
+                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    val resIn = engine.setLanguage(Locale("bn", "IN"))
+                    if (resIn == TextToSpeech.LANG_MISSING_DATA || resIn == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        Toast.makeText(
+                            context,
+                            "আপনার ফোনের TTS সেটিংসে বাংলা ভয়েস ডাউনলোড করা নেই",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        } else {
+            val res = engine.setLanguage(Locale.US)
+            if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                engine.language = Locale.ENGLISH
+            }
+        }
+
+        engine.setSpeechRate(ttsSpeed)
+
+        val chunks = splitTextIntoTtsChunks(fullText)
+        if (chunks.isEmpty()) return
+
+        isTtsPlaying = true
+        chunks.forEachIndexed { index, chunk ->
+            val queueMode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            val utteranceId = if (index == chunks.lastIndex) "potrikaghor_tts_last" else "potrikaghor_tts_$index"
+            engine.speak(chunk, queueMode, null, utteranceId)
+        }
+    }
 
     // Safety timeout for Google News redirection overlay
     LaunchedEffect(isRedirectingGoogleNews) {
@@ -162,16 +287,49 @@ fun ReaderScreen(
         }
     }
 
-    // Initialize TTS
-    DisposableEffect(Unit) {
+    // Initialize TTS with UtteranceProgressListener
+    DisposableEffect(context) {
         var ttsInstance: TextToSpeech? = null
-        ttsInstance = TextToSpeech(context) { status ->
+        ttsInstance = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val bnLocale = Locale("bn", "BD")
-                val res = ttsInstance?.setLanguage(bnLocale)
+                isTtsReady = true
+                val bnBd = Locale("bn", "BD")
+                val bnIn = Locale("bn", "IN")
+                val res = ttsInstance?.setLanguage(bnBd)
                 if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    ttsInstance?.language = Locale.ENGLISH
+                    val resIn = ttsInstance?.setLanguage(bnIn)
+                    if (resIn == TextToSpeech.LANG_MISSING_DATA || resIn == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        ttsInstance?.language = Locale.US
+                    }
                 }
+                ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        scope.launch(Dispatchers.Main) {
+                            isTtsPlaying = true
+                        }
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        if (utteranceId == "potrikaghor_tts_last") {
+                            scope.launch(Dispatchers.Main) {
+                                isTtsPlaying = false
+                            }
+                        }
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        scope.launch(Dispatchers.Main) {
+                            isTtsPlaying = false
+                        }
+                    }
+
+                    override fun onError(utteranceId: String?, errorCode: Int) {
+                        scope.launch(Dispatchers.Main) {
+                            isTtsPlaying = false
+                        }
+                    }
+                })
             }
         }
         tts = ttsInstance
@@ -198,18 +356,16 @@ fun ReaderScreen(
             )
             isExtracting = false
         } else if (!currentWebUrl.contains("news.google.com")) {
-            isExtracting = cleanArticle == null
+            isExtracting = !extractor.hasSubstantiveContent(cleanArticle)
             val extracted = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
-            // Only overwrite if we don't already have a richer DOM-extracted article for this URL
-            if (cleanArticle == null || cleanArticle!!.paragraphs.size <= 2) {
+            if (!extractor.hasSubstantiveContent(cleanArticle) || cleanArticle?.url != currentWebUrl) {
                 cleanArticle = extracted
             }
             isExtracting = false
-            if (isBookmarked) {
+            if (isBookmarked && extractor.hasSubstantiveContent(cleanArticle)) {
                 appRepo.saveBookmarkOfflineContent(currentWebUrl, (cleanArticle ?: extracted).plainText)
             }
         } else {
-            // Still on news.google.com waiting for WebView JS redirect
             cleanArticle = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
             isExtracting = true
         }
@@ -268,12 +424,12 @@ fun ReaderScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        PaperAvatar(paper = paper, size = 32.dp)
-                        Spacer(modifier = Modifier.width(10.dp))
+                        PaperAvatar(paper = paper, size = 30.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
                                 text = paper.bn,
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -281,6 +437,7 @@ fun ReaderScreen(
                             Text(
                                 text = displayHost,
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -297,24 +454,29 @@ fun ReaderScreen(
                     }
                 },
                 actions = {
+                    // AI Summary button in TopAppBar (accessible in BOTH Website View and Clean Reader Mode)
+                    IconButton(
+                        onClick = {
+                            val nextState = !showAiSummary
+                            showAiSummary = nextState
+                            if (nextState) {
+                                extractLiveFromWebView(webViewRef)
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = "সংক্ষেপে পড়ুন",
+                            tint = if (showAiSummary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
                     // Toggle Clean Reader vs Website View
                     IconButton(onClick = {
                         val switchingToClean = !isCleanReaderMode
                         isCleanReaderMode = switchingToClean
-                        // Refresh clean article from live WebView DOM when switching to Clean Reader Mode
                         if (switchingToClean) {
-                            webViewRef?.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawJs ->
-                                val decodedHtml = extractor.decodeJsEvaluatedHtml(rawJs)
-                                if (decodedHtml.length > 200 && !currentWebUrl.contains("news.google.com")) {
-                                    scope.launch(Dispatchers.Default) {
-                                        val parsed = extractor.parseHtml(decodedHtml, currentWebUrl, fallbackHeadline, paper.bn)
-                                        withContext(Dispatchers.Main) {
-                                            cleanArticle = parsed
-                                            isExtracting = false
-                                        }
-                                    }
-                                }
-                            }
+                            extractLiveFromWebView(webViewRef)
                         }
                     }) {
                         Icon(
@@ -325,11 +487,26 @@ fun ReaderScreen(
                     }
 
                     // TTS button
-                    IconButton(onClick = { showTtsControls = !showTtsControls }) {
+                    IconButton(
+                        onClick = {
+                            val openingControls = !showTtsControls
+                            showTtsControls = openingControls
+                            if (openingControls && !isTtsPlaying) {
+                                // Extract latest DOM text and start speaking right away
+                                if (extractor.hasSubstantiveContent(cleanArticle)) {
+                                    startTtsPlayback(cleanArticle)
+                                } else {
+                                    extractLiveFromWebView(webViewRef) { updatedArticle ->
+                                        startTtsPlayback(updatedArticle ?: cleanArticle)
+                                    }
+                                }
+                            }
+                        }
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = "টেক্সট টু স্পিচ",
-                            tint = if (isTtsPlaying) FlagRed else MaterialTheme.colorScheme.onSurface
+                            contentDescription = "খবর শুনুন (টেক্সট টু স্পিচ)",
+                            tint = if (isTtsPlaying || showTtsControls) FlagRed else MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -412,7 +589,7 @@ fun ReaderScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -423,10 +600,13 @@ fun ReaderScreen(
                                             tts?.stop()
                                             isTtsPlaying = false
                                         } else {
-                                            val text = cleanArticle?.plainText?.ifEmpty { fallbackHeadline } ?: fallbackHeadline
-                                            tts?.setSpeechRate(ttsSpeed)
-                                            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "potrikaghor_tts")
-                                            isTtsPlaying = true
+                                            if (extractor.hasSubstantiveContent(cleanArticle)) {
+                                                startTtsPlayback(cleanArticle)
+                                            } else {
+                                                extractLiveFromWebView(webViewRef) { updatedArticle ->
+                                                    startTtsPlayback(updatedArticle ?: cleanArticle)
+                                                }
+                                            }
                                         }
                                     }
                                 ) {
@@ -444,6 +624,12 @@ fun ReaderScreen(
                                 ) {
                                     Icon(Icons.Filled.Stop, contentDescription = "বন্ধ করুন")
                                 }
+                                Text(
+                                    text = if (isTtsPlaying) "পড়ে শোনানো হচ্ছে..." else "শুনতে Play চাপুন",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
                             }
 
                             // Speed selection
@@ -456,6 +642,9 @@ fun ReaderScreen(
                                             .clickable {
                                                 ttsSpeed = spd
                                                 tts?.setSpeechRate(spd)
+                                                if (isTtsPlaying) {
+                                                    startTtsPlayback(cleanArticle)
+                                                }
                                             },
                                         shape = RoundedCornerShape(8.dp),
                                         color = if (ttsSpeed == spd) MaterialTheme.colorScheme.primary else Color.Transparent
@@ -473,17 +662,16 @@ fun ReaderScreen(
                     }
                 }
 
-                // AI News Summary Drawer/Card
+                // AI News Summary Drawer/Card (works in both Website View and Clean Reader Mode)
                 AnimatedVisibility(visible = showAiSummary) {
                     val summaryBullets = remember(cleanArticle, fallbackHeadline) {
-                        val text = cleanArticle?.plainText?.takeIf { it.isNotBlank() } ?: fallbackHeadline
-                        generateLocalSummary(text)
+                        extractor.generateSmartSummary(cleanArticle, fallbackHeadline)
                     }
 
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
@@ -512,10 +700,14 @@ fun ReaderScreen(
                                     Text("লুকান", color = MaterialTheme.colorScheme.onPrimaryContainer)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             summaryBullets.forEach { bullet ->
                                 Row(modifier = Modifier.padding(vertical = 3.dp)) {
-                                    Text("• ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    Text(
+                                        text = "• ",
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
                                     Text(
                                         text = bullet,
                                         style = MaterialTheme.typography.bodyMedium,
@@ -601,23 +793,11 @@ fun ReaderScreen(
                                         if (!resolvedUrl.contains("news.google.com")) {
                                             isRedirectingGoogleNews = false
 
-                                            // Extract live rendered HTML from the publisher's page for Clean Reader Mode, AI Summary & TTS
-                                            view?.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawJs ->
-                                                val decodedHtml = extractor.decodeJsEvaluatedHtml(rawJs)
-                                                if (decodedHtml.length > 200) {
-                                                    scope.launch(Dispatchers.Default) {
-                                                        val parsed = extractor.parseHtml(
-                                                            html = decodedHtml,
-                                                            url = resolvedUrl,
-                                                            fallbackTitle = fallbackHeadline,
-                                                            source = paper.bn
-                                                        )
-                                                        withContext(Dispatchers.Main) {
-                                                            cleanArticle = parsed
-                                                            isExtracting = false
-                                                        }
-                                                    }
-                                                }
+                                            // Extract live rendered DOM immediately and once more after JS settles
+                                            extractLiveFromWebView(view)
+                                            scope.launch {
+                                                delay(1400L)
+                                                extractLiveFromWebView(view)
                                             }
                                         } else {
                                             // If still on news.google.com, help click any direct external article anchor if present
@@ -752,7 +932,13 @@ fun ReaderScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Surface(
-                                            modifier = Modifier.clickable { showAiSummary = !showAiSummary },
+                                            modifier = Modifier.clickable {
+                                                val next = !showAiSummary
+                                                showAiSummary = next
+                                                if (next) {
+                                                    extractLiveFromWebView(webViewRef)
+                                                }
+                                            },
                                             shape = RoundedCornerShape(16.dp),
                                             color = MaterialTheme.colorScheme.primaryContainer
                                         ) {
@@ -885,11 +1071,43 @@ fun ReaderScreen(
     }
 }
 
-// Factual local extractive summary without hallucination
-fun generateLocalSummary(text: String): List<String> {
-    if (text.length < 100) {
-        return listOf(text.take(200))
+/**
+ * Splits long Bengali or English article text into sentence chunks <= 260 characters
+ * so Android TextToSpeech can speak long articles smoothly without cutting off.
+ */
+private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 260): List<String> {
+    val rawSentences = text
+        .split(Regex("(?<=[।.!?\\n])\\s+"))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    val chunks = mutableListOf<String>()
+    var current = StringBuilder()
+
+    for (sentence in rawSentences) {
+        if (sentence.length > maxChunkLen) {
+            if (current.isNotEmpty()) {
+                chunks.add(current.toString().trim())
+                current = StringBuilder()
+            }
+            var start = 0
+            while (start < sentence.length) {
+                val end = (start + maxChunkLen).coerceAtMost(sentence.length)
+                chunks.add(sentence.substring(start, end).trim())
+                start = end
+            }
+        } else if (current.length + sentence.length + 1 > maxChunkLen) {
+            if (current.isNotEmpty()) {
+                chunks.add(current.toString().trim())
+            }
+            current = StringBuilder(sentence)
+        } else {
+            if (current.isNotEmpty()) current.append(" ")
+            current.append(sentence)
+        }
     }
-    val sentences = text.split(Regex("[।!?\n]+")).map { it.trim() }.filter { it.length > 25 }
-    return sentences.take(4).ifEmpty { listOf(text.take(200)) }
+    if (current.isNotEmpty()) {
+        chunks.add(current.toString().trim())
+    }
+    return chunks
 }
