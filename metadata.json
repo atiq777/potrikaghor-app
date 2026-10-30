@@ -1,0 +1,8 @@
+{
+  "name": "পত্রিকাঘর",
+  "description": "বাংলাদেশ ও বিশ্বের ২৪০+ পত্রিকা এক জায়গায়। শীর্ষ খবর, কভারেজ তুলনা, বুকমার্ক ও ইন-অ্যাপ রিডার।",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
