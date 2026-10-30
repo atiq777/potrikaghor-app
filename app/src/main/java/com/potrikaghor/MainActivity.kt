@@ -93,9 +93,10 @@ class MainActivity : ComponentActivity() {
         val url = intent?.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_URL)
         if (!url.isNullOrEmpty()) {
             val source = intent.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_SOURCE) ?: "সংবাদ"
+            val title = intent.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_TITLE) ?: ""
             val paper = appRepo.allPapers.firstOrNull { it.bn == source || it.en == source }
                 ?: Paper(source, "", url, "online")
-            pendingNotificationScreen.value = Screen.Reader(paper, url)
+            pendingNotificationScreen.value = Screen.Reader(paper, url, title)
             intent.removeExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_URL)
         }
     }
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
 sealed class Screen {
     object Main : Screen()
-    data class Reader(val paper: Paper, val url: String) : Screen()
+    data class Reader(val paper: Paper, val url: String, val articleTitle: String = "") : Screen()
     object Search : Screen()
 }
 
@@ -123,7 +124,7 @@ fun PotrikaghorApp(
     var showAddPaperDialog by remember { mutableStateOf(false) }
     var paperToFixUrl by remember { mutableStateOf<Paper?>(null) }
 
-    // Open Clean Reader Mode directly when a breaking news notification is tapped
+    // Open Reader when a breaking news notification is tapped
     LaunchedEffect(notificationTarget) {
         if (notificationTarget != null) {
             currentScreen = notificationTarget
@@ -169,6 +170,7 @@ fun PotrikaghorApp(
             ReaderScreen(
                 paper = screen.paper,
                 initialUrl = screen.url,
+                initialTitle = screen.articleTitle,
                 appRepo = appRepo,
                 onBack = { currentScreen = Screen.Main }
             )
@@ -178,8 +180,8 @@ fun PotrikaghorApp(
                 appRepo = appRepo,
                 newsRepo = newsRepo,
                 onBack = { currentScreen = Screen.Main },
-                onOpenReader = { paper, url ->
-                    currentScreen = Screen.Reader(paper, url)
+                onOpenReader = { paper, url, title ->
+                    currentScreen = Screen.Reader(paper, url, title)
                 }
             )
         }
@@ -203,7 +205,7 @@ fun PotrikaghorApp(
                         0 -> PersonalHomeScreen(
                             appRepo = appRepo,
                             newsRepo = newsRepo,
-                            onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) },
+                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) },
                             onOpenSearch = { currentScreen = Screen.Search },
                             onOpenSettings = { selectedTab = 4 }
                         )
@@ -216,11 +218,11 @@ fun PotrikaghorApp(
                         2 -> CoverageScreen(
                             appRepo = appRepo,
                             newsRepo = newsRepo,
-                            onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) }
+                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
                         )
                         3 -> BookmarksScreen(
                             appRepo = appRepo,
-                            onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) }
+                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
                         )
                         4 -> SettingsScreen(
                             appRepo = appRepo,

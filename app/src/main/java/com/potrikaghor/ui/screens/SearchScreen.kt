@@ -63,7 +63,7 @@ fun SearchScreen(
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
     onBack: () -> Unit,
-    onOpenReader: (Paper, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -180,7 +180,7 @@ fun SearchScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 5.dp)
-                                .clickable { onOpenReader(paper, item.link) },
+                                .clickable { onOpenReader(paper, item.link, item.title) },
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)

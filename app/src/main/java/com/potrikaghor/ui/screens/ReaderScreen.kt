@@ -1,10 +1,11 @@
 package com.potrikaghor.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import android.speech.tts.TextToSpeech
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -16,7 +17,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,10 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,11 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Language
@@ -49,14 +44,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,6 +69,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -97,14 +91,15 @@ import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.ShareCardDialog
 import com.potrikaghor.ui.theme.AmoledBackground
-import com.potrikaghor.ui.theme.AmoledSurface
 import com.potrikaghor.ui.theme.FlagRed
-import com.potrikaghor.ui.theme.InkColor
-import com.potrikaghor.ui.theme.PaperColor
 import com.potrikaghor.ui.theme.SepiaBackground
 import com.potrikaghor.ui.theme.SepiaText
 import com.potrikaghor.ui.util.BengaliUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URI
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,19 +107,30 @@ import java.util.Locale
 fun ReaderScreen(
     paper: Paper,
     initialUrl: String,
+    initialTitle: String = "",
     appRepo: AppStateRepository,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appState by appRepo.state.collectAsState()
+    val extractor = remember { ArticleExtractor() }
 
-    var isCleanReaderMode by remember { mutableStateOf(true) }
+    val fallbackHeadline = remember(initialTitle, paper.bn) {
+        initialTitle.trim().ifEmpty { paper.bn }
+    }
+
+    // Open in Website View by default so news opens directly on the publisher's site,
+    // with Clean Reader Mode accessible via the top toolbar button.
+    var isCleanReaderMode by remember { mutableStateOf(false) }
     var cleanArticle by remember { mutableStateOf<CleanArticle?>(null) }
     var isExtracting by remember { mutableStateOf(true) }
 
     var webProgress by remember { mutableIntStateOf(0) }
     var currentWebUrl by remember { mutableStateOf(initialUrl) }
+    var isRedirectingGoogleNews by remember { mutableStateOf(initialUrl.contains("news.google.com")) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
     var showShareDialog by remember { mutableStateOf(false) }
     var showAiSummary by remember { mutableStateOf(false) }
     var showTtsControls by remember { mutableStateOf(false) }
@@ -139,11 +145,21 @@ fun ReaderScreen(
     var isTtsPlaying by remember { mutableStateOf(false) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
 
-    val isBookmarked = appState.bookmarks.any { it.url == currentWebUrl }
+    val isBookmarked = appState.bookmarks.any { it.url == currentWebUrl || it.url == initialUrl }
+
+    // Safety timeout for Google News redirection overlay
+    LaunchedEffect(isRedirectingGoogleNews) {
+        if (isRedirectingGoogleNews) {
+            delay(6500L)
+            isRedirectingGoogleNews = false
+        }
+    }
 
     // Track recently read paper
     LaunchedEffect(paper.url) {
-        appRepo.addRecent(paper.url)
+        if (!paper.url.contains("news.google.com")) {
+            appRepo.addRecent(paper.url)
+        }
     }
 
     // Initialize TTS
@@ -151,7 +167,6 @@ fun ReaderScreen(
         var ttsInstance: TextToSpeech? = null
         ttsInstance = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                // Try Bengali (Bangladesh / India)
                 val bnLocale = Locale("bn", "BD")
                 val res = ttsInstance?.setLanguage(bnLocale)
                 if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -166,26 +181,50 @@ fun ReaderScreen(
         }
     }
 
-    // Extract clean article
+    // Extract clean article via HTTP when URL changes (for direct non-Google News URLs or offline bookmarks)
     LaunchedEffect(currentWebUrl) {
-        isExtracting = true
-        // Check if we have offline bookmarked content already
-        val savedOffline = appState.bookmarks.firstOrNull { it.url == currentWebUrl }?.offlineContent
+        val savedOffline = appState.bookmarks.firstOrNull {
+            it.url == currentWebUrl || it.url == initialUrl
+        }?.offlineContent
+
         if (!savedOffline.isNullOrEmpty()) {
-            cleanArticle = ArticleExtractor().parseHtml(savedOffline, currentWebUrl, paper.bn, paper.bn)
+            cleanArticle = CleanArticle(
+                title = fallbackHeadline,
+                source = paper.bn,
+                url = currentWebUrl,
+                leadImageUrl = null,
+                paragraphs = savedOffline.split("\n\n").filter { it.isNotBlank() },
+                plainText = savedOffline
+            )
             isExtracting = false
-        } else {
-            val extracted = ArticleExtractor().extractArticle(currentWebUrl, paper.bn, paper.bn)
-            cleanArticle = extracted
-            isExtracting = false
-            // Auto save for offline if bookmarked
-            if (isBookmarked && savedOffline.isNullOrEmpty()) {
-                appRepo.saveBookmarkOfflineContent(currentWebUrl, extracted.plainText)
+        } else if (!currentWebUrl.contains("news.google.com")) {
+            isExtracting = cleanArticle == null
+            val extracted = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
+            // Only overwrite if we don't already have a richer DOM-extracted article for this URL
+            if (cleanArticle == null || cleanArticle!!.paragraphs.size <= 2) {
+                cleanArticle = extracted
             }
+            isExtracting = false
+            if (isBookmarked) {
+                appRepo.saveBookmarkOfflineContent(currentWebUrl, (cleanArticle ?: extracted).plainText)
+            }
+        } else {
+            // Still on news.google.com waiting for WebView JS redirect
+            cleanArticle = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
+            isExtracting = true
         }
     }
 
     BackHandler {
+        val wv = webViewRef
+        if (!isCleanReaderMode && wv != null && wv.canGoBack()) {
+            val backList = wv.copyBackForwardList()
+            val prevUrl = backList.getItemAtIndex(backList.currentIndex - 1)?.url ?: ""
+            if (prevUrl.isNotEmpty() && !prevUrl.contains("news.google.com")) {
+                wv.goBack()
+                return@BackHandler
+            }
+        }
         tts?.stop()
         onBack()
     }
@@ -203,7 +242,6 @@ fun ReaderScreen(
         label = "readingProgress"
     )
 
-    // Background color based on reader theme
     val readerBgColor = when (readerThemeStyle) {
         "amoled" -> AmoledBackground
         "sepia" -> SepiaBackground
@@ -214,6 +252,15 @@ fun ReaderScreen(
         "amoled" -> Color.White
         "sepia" -> SepiaText
         else -> MaterialTheme.colorScheme.onBackground
+    }
+
+    val displayHost = remember(currentWebUrl, paper.host) {
+        try {
+            val h = URI(currentWebUrl).host?.removePrefix("www.") ?: ""
+            if (h.isNotEmpty() && !h.contains("news.google.com")) h else paper.host.takeIf { !it.contains("news.google.com") } ?: paper.bn
+        } catch (_: Exception) {
+            paper.host
+        }
     }
 
     Scaffold(
@@ -232,7 +279,7 @@ fun ReaderScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = paper.host,
+                                text = displayHost,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -250,11 +297,29 @@ fun ReaderScreen(
                     }
                 },
                 actions = {
-                    // Toggle Clean Reader vs WebView
-                    IconButton(onClick = { isCleanReaderMode = !isCleanReaderMode }) {
+                    // Toggle Clean Reader vs Website View
+                    IconButton(onClick = {
+                        val switchingToClean = !isCleanReaderMode
+                        isCleanReaderMode = switchingToClean
+                        // Refresh clean article from live WebView DOM when switching to Clean Reader Mode
+                        if (switchingToClean) {
+                            webViewRef?.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawJs ->
+                                val decodedHtml = extractor.decodeJsEvaluatedHtml(rawJs)
+                                if (decodedHtml.length > 200 && !currentWebUrl.contains("news.google.com")) {
+                                    scope.launch(Dispatchers.Default) {
+                                        val parsed = extractor.parseHtml(decodedHtml, currentWebUrl, fallbackHeadline, paper.bn)
+                                        withContext(Dispatchers.Main) {
+                                            cleanArticle = parsed
+                                            isExtracting = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }) {
                         Icon(
                             imageVector = if (isCleanReaderMode) Icons.Outlined.Language else Icons.Outlined.MenuBook,
-                            contentDescription = if (isCleanReaderMode) "ওয়েবসাইট ভিউ" else "রিডার মোড",
+                            contentDescription = if (isCleanReaderMode) "ওয়েবসাইট ভিউ" else "ক্লিন রিডার মোড",
                             tint = if (isCleanReaderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -273,11 +338,15 @@ fun ReaderScreen(
                         onClick = {
                             if (isBookmarked) {
                                 appRepo.removeBookmark(currentWebUrl)
+                                appRepo.removeBookmark(initialUrl)
                                 Toast.makeText(context, "বুকমার্ক সরানো হয়েছে", Toast.LENGTH_SHORT).show()
                             } else {
+                                val resolvedTitle = cleanArticle?.title
+                                    ?.takeIf { !it.equals("Google News", ignoreCase = true) }
+                                    ?: fallbackHeadline
                                 val b = Bookmark(
                                     url = currentWebUrl,
-                                    title = cleanArticle?.title ?: paper.bn,
+                                    title = resolvedTitle,
                                     paperUrl = paper.url,
                                     savedAt = System.currentTimeMillis(),
                                     folder = "পরে পড়ব",
@@ -354,7 +423,7 @@ fun ReaderScreen(
                                             tts?.stop()
                                             isTtsPlaying = false
                                         } else {
-                                            val text = cleanArticle?.plainText ?: paper.bn
+                                            val text = cleanArticle?.plainText?.ifEmpty { fallbackHeadline } ?: fallbackHeadline
                                             tts?.setSpeechRate(ttsSpeed)
                                             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "potrikaghor_tts")
                                             isTtsPlaying = true
@@ -406,8 +475,8 @@ fun ReaderScreen(
 
                 // AI News Summary Drawer/Card
                 AnimatedVisibility(visible = showAiSummary) {
-                    val summaryBullets = remember(cleanArticle) {
-                        val text = cleanArticle?.plainText ?: ""
+                    val summaryBullets = remember(cleanArticle, fallbackHeadline) {
+                        val text = cleanArticle?.plainText?.takeIf { it.isNotBlank() } ?: fallbackHeadline
                         generateLocalSummary(text)
                     }
 
@@ -458,163 +527,40 @@ fun ReaderScreen(
                     }
                 }
 
-                if (isCleanReaderMode) {
-                    // CLEAN READER MODE
-                    if (isExtracting) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("ক্লিন রিডার মোডে সাজানো হচ্ছে...", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    } else if (cleanArticle != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(readerScrollState)
-                                .padding(horizontal = 20.dp, vertical = 14.dp)
-                        ) {
-                            // Quick control pill: Font size & AI summary button
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    modifier = Modifier.clickable { showAiSummary = !showAiSummary },
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.AutoAwesome,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "সংক্ষেপে পড়ুন",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = {
-                                            if (readerFontSize > 14) {
-                                                readerFontSize -= 2
-                                                appRepo.setArticleFontSize(readerFontSize)
-                                            }
-                                        }
-                                    ) {
-                                        Text("A-", fontWeight = FontWeight.Bold, color = readerTextColor)
-                                    }
-                                    Text(
-                                        text = BengaliUtils.bnDigits(readerFontSize),
-                                        fontSize = 13.sp,
-                                        color = readerTextColor
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            if (readerFontSize < 28) {
-                                                readerFontSize += 2
-                                                appRepo.setArticleFontSize(readerFontSize)
-                                            }
-                                        }
-                                    ) {
-                                        Text("A+", fontWeight = FontWeight.Bold, color = readerTextColor)
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Article Headline
-                            Text(
-                                text = cleanArticle!!.title,
-                                style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontFamily = FontFamily.Serif,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = (readerFontSize * 1.35f).sp,
-                                    lineHeight = (readerFontSize * 1.8f).sp
-                                ),
-                                color = readerTextColor
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = paper.bn,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = " • ${BengaliUtils.bnToday()}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
-
-                            // Lead Image (if present)
-                            if (!cleanArticle!!.leadImageUrl.isNullOrEmpty()) {
-                                AsyncImage(
-                                    model = cleanArticle!!.leadImageUrl,
-                                    contentDescription = cleanArticle!!.title,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(220.dp)
-                                        .clip(RoundedCornerShape(14.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                            }
-
-                            // Article Paragraphs
-                            cleanArticle!!.paragraphs.forEach { paragraph ->
-                                Text(
-                                    text = paragraph,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontSize = readerFontSize.sp,
-                                        lineHeight = (readerFontSize * readerLineHeight).sp
-                                    ),
-                                    color = readerTextColor
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-                            }
-
-                            Spacer(modifier = Modifier.height(30.dp))
-                        }
-                    }
-                } else {
-                    // ORIGINAL WEBVIEW MODE
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Keep WebView mounted so Google News JS redirects complete reliably
+                    // and switching between Website View and Clean Reader Mode is instant.
                     AndroidView(
                         factory = { ctx ->
                             WebView(ctx).apply {
+                                webViewRef = this
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
+                                settings.databaseEnabled = true
+                                settings.loadsImagesAutomatically = true
+                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                                 settings.loadWithOverviewMode = true
                                 settings.useWideViewPort = true
+                                settings.setSupportMultipleWindows(false)
+                                settings.javaScriptCanOpenWindowsAutomatically = true
                                 settings.textZoom = appState.readerZoom
-                                if (appState.readerDesktop) {
-                                    settings.userAgentString =
-                                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                                settings.userAgentString = if (appState.readerDesktop) {
+                                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                                } else {
+                                    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                                 }
 
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                         webProgress = newProgress
+                                        val loadedUrl = view?.url ?: ""
+                                        if (loadedUrl.isNotEmpty() && !loadedUrl.contains("news.google.com") && newProgress >= 45) {
+                                            currentWebUrl = loadedUrl
+                                            isRedirectingGoogleNews = false
+                                        }
                                     }
                                 }
 
@@ -623,6 +569,9 @@ fun ReaderScreen(
                                         val u = request?.url?.toString() ?: return false
                                         if (u.startsWith("http://") || u.startsWith("https://")) {
                                             currentWebUrl = u
+                                            if (!u.contains("news.google.com")) {
+                                                isRedirectingGoogleNews = false
+                                            }
                                             return false
                                         }
                                         return try {
@@ -630,25 +579,74 @@ fun ReaderScreen(
                                             ctx.startActivity(intent)
                                             true
                                         } catch (_: Exception) {
-                                            false
+                                            true
+                                        }
+                                    }
+
+                                    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                        super.doUpdateVisitedHistory(view, url, isReload)
+                                        if (!url.isNullOrEmpty()) {
+                                            currentWebUrl = url
+                                            if (!url.contains("news.google.com")) {
+                                                isRedirectingGoogleNews = false
+                                            }
                                         }
                                     }
 
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
-                                        currentWebUrl = url ?: currentWebUrl
+                                        val resolvedUrl = url ?: currentWebUrl
+                                        currentWebUrl = resolvedUrl
+
+                                        if (!resolvedUrl.contains("news.google.com")) {
+                                            isRedirectingGoogleNews = false
+
+                                            // Extract live rendered HTML from the publisher's page for Clean Reader Mode, AI Summary & TTS
+                                            view?.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawJs ->
+                                                val decodedHtml = extractor.decodeJsEvaluatedHtml(rawJs)
+                                                if (decodedHtml.length > 200) {
+                                                    scope.launch(Dispatchers.Default) {
+                                                        val parsed = extractor.parseHtml(
+                                                            html = decodedHtml,
+                                                            url = resolvedUrl,
+                                                            fallbackTitle = fallbackHeadline,
+                                                            source = paper.bn
+                                                        )
+                                                        withContext(Dispatchers.Main) {
+                                                            cleanArticle = parsed
+                                                            isExtracting = false
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // If still on news.google.com, help click any direct external article anchor if present
+                                            view?.evaluateJavascript(
+                                                "(function() {" +
+                                                    "var links = document.querySelectorAll('a[href^=\"http\"]');" +
+                                                    "for (var i = 0; i < links.length; i++) {" +
+                                                    "  var h = links[i].href;" +
+                                                    "  if (h && h.indexOf('google.com') === -1 && h.indexOf('gstatic.com') === -1) {" +
+                                                    "    window.location.replace(h); break;" +
+                                                    "  }" +
+                                                    "}" +
+                                                    "})();",
+                                                null
+                                            )
+                                        }
+
                                         // Inject night mode or ad hiding if enabled
                                         if (appState.readerNight) {
                                             view?.evaluateJavascript(
                                                 "document.documentElement.style.filter = 'invert(1) hue-rotate(180deg)';" +
-                                                        "document.body.style.backgroundColor = '#121212';",
+                                                    "document.body.style.backgroundColor = '#121212';",
                                                 null
                                             )
                                         }
                                         if (appState.hideAds) {
                                             view?.evaluateJavascript(
                                                 "const selectors = ['[class*=\"ad-\"]', '[id*=\"ad-\"]', '.adsbygoogle', '.floating-ad', '#header-ad'];" +
-                                                        "selectors.forEach(s => document.querySelectorAll(s).forEach(e => e.style.display = 'none'));",
+                                                    "selectors.forEach(s => document.querySelectorAll(s).forEach(e => e.style.display = 'none'));",
                                                 null
                                             )
                                         }
@@ -658,8 +656,220 @@ fun ReaderScreen(
                                 loadUrl(initialUrl)
                             }
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .alpha(if (isCleanReaderMode || isRedirectingGoogleNews) 0f else 1f)
                     )
+
+                    // Friendly redirect overlay while Google News resolves the target newspaper page
+                    if (!isCleanReaderMode && isRedirectingGoogleNews) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                PaperAvatar(paper = paper, size = 52.dp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                if (initialTitle.isNotBlank()) {
+                                    Text(
+                                        text = initialTitle,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontFamily = FontFamily.Serif,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp),
+                                    strokeWidth = 3.dp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "${paper.bn}-এর মূল পাতায় নিয়ে যাওয়া হচ্ছে...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    // CLEAN READER MODE OVERLAY
+                    if (isCleanReaderMode) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(readerBgColor)
+                        ) {
+                            if (isExtracting && (cleanArticle == null || currentWebUrl.contains("news.google.com"))) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(24.dp)
+                                    ) {
+                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = "ক্লিন রিডার মোডে সাজানো হচ্ছে...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = readerTextColor
+                                        )
+                                        if (initialTitle.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = initialTitle,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = readerTextColor.copy(alpha = 0.75f),
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 2
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (cleanArticle != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(readerScrollState)
+                                        .padding(horizontal = 20.dp, vertical = 14.dp)
+                                ) {
+                                    // Quick control pill: Font size & AI summary button
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.clickable { showAiSummary = !showAiSummary },
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.AutoAwesome,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "সংক্ষেপে পড়ুন",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                            }
+                                        }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    if (readerFontSize > 14) {
+                                                        readerFontSize -= 2
+                                                        appRepo.setArticleFontSize(readerFontSize)
+                                                    }
+                                                }
+                                            ) {
+                                                Text("A-", fontWeight = FontWeight.Bold, color = readerTextColor)
+                                            }
+                                            Text(
+                                                text = BengaliUtils.bnDigits(readerFontSize),
+                                                fontSize = 13.sp,
+                                                color = readerTextColor
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    if (readerFontSize < 28) {
+                                                        readerFontSize += 2
+                                                        appRepo.setArticleFontSize(readerFontSize)
+                                                    }
+                                                }
+                                            ) {
+                                                Text("A+", fontWeight = FontWeight.Bold, color = readerTextColor)
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    // Article Headline
+                                    Text(
+                                        text = cleanArticle!!.title.takeIf { !it.equals("Google News", ignoreCase = true) }
+                                            ?: fallbackHeadline,
+                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                            fontFamily = FontFamily.Serif,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = (readerFontSize * 1.35f).sp,
+                                            lineHeight = (readerFontSize * 1.8f).sp
+                                        ),
+                                        color = readerTextColor
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = paper.bn,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = " • ${BengaliUtils.bnToday()}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
+
+                                    // Lead Image (if present and not a Google News icon)
+                                    if (!cleanArticle!!.leadImageUrl.isNullOrEmpty()) {
+                                        AsyncImage(
+                                            model = cleanArticle!!.leadImageUrl,
+                                            contentDescription = cleanArticle!!.title,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(220.dp)
+                                                .clip(RoundedCornerShape(14.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                    }
+
+                                    // Article Paragraphs
+                                    cleanArticle!!.paragraphs.forEach { paragraph ->
+                                        Text(
+                                            text = paragraph,
+                                            style = MaterialTheme.typography.bodyLarge.copy(
+                                                fontSize = readerFontSize.sp,
+                                                lineHeight = (readerFontSize * readerLineHeight).sp
+                                            ),
+                                            color = readerTextColor
+                                        )
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                    }
+
+                                    Spacer(modifier = Modifier.height(30.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -668,7 +878,7 @@ fun ReaderScreen(
     if (showShareDialog) {
         ShareCardDialog(
             paper = paper,
-            title = cleanArticle?.title ?: paper.bn,
+            title = cleanArticle?.title?.takeIf { !it.equals("Google News", ignoreCase = true) } ?: fallbackHeadline,
             url = currentWebUrl,
             onDismiss = { showShareDialog = false }
         )
@@ -681,5 +891,5 @@ fun generateLocalSummary(text: String): List<String> {
         return listOf(text.take(200))
     }
     val sentences = text.split(Regex("[।!?\n]+")).map { it.trim() }.filter { it.length > 25 }
-    return sentences.take(4)
+    return sentences.take(4).ifEmpty { listOf(text.take(200)) }
 }

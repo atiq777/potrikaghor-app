@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for real Android Breaking News notifications with multi-paper story detection (3+ sources), periodic background checks, runtime permission flow, manual test trigger in Settings, and direct deep-linking into Clean Reader Mode.",
-  "updatedAt":  "2026-10-30T00:09:41.699434177Z",
+  "summary":  "Implementation plan to fix 'My News' articles showing blank 'Google News' placeholder by defaulting to the real newspaper Website View with seamless Google News redirect resolution and DOM-backed Clean Reader extraction.",
+  "updatedAt":  "2026-10-30T14:45:34.313568348Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

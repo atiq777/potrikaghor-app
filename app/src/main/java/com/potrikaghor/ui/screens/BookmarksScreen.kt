@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun BookmarksScreen(
     appRepo: AppStateRepository,
-    onOpenReader: (Paper, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit
 ) {
     val appState by appRepo.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -168,7 +168,7 @@ fun BookmarksScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 5.dp)
-                                .clickable { onOpenReader(paper, bookmark.url) },
+                                .clickable { onOpenReader(paper, bookmark.url, bookmark.title) },
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)

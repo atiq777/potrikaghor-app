@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
 fun CoverageScreen(
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
-    onOpenReader: (Paper, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var isIntl by remember { mutableStateOf(false) }
@@ -219,7 +219,7 @@ fun CoverageScreen(
 fun CoverageDetailCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
-    onOpenReader: (Paper, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -266,7 +266,7 @@ fun CoverageDetailCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenReader(paper, itm.link) }
+                        .clickable { onOpenReader(paper, itm.link, itm.title) }
                         .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.Top
                 ) {

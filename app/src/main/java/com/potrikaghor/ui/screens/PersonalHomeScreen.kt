@@ -80,7 +80,7 @@ import kotlinx.coroutines.launch
 fun PersonalHomeScreen(
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
-    onOpenReader: (Paper, String) -> Unit,
+    onOpenReader: (Paper, String, String) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -229,7 +229,7 @@ fun PersonalHomeScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 6.dp)
-                                    .clickable { onOpenReader(recentPaper, recentPaper.openUrl) },
+                                    .clickable { onOpenReader(recentPaper, recentPaper.openUrl, recentPaper.bn) },
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -304,7 +304,7 @@ fun PersonalHomeScreen(
                                     Card(
                                         modifier = Modifier
                                             .width(280.dp)
-                                            .clickable { onOpenReader(paper, item.link) },
+                                            .clickable { onOpenReader(paper, item.link, item.title) },
                                         shape = RoundedCornerShape(16.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = MaterialTheme.colorScheme.surface
@@ -381,7 +381,7 @@ fun PersonalHomeScreen(
 fun SmartStoryCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
-    onOpenReader: (Paper, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val mainItem = coverage.items.firstOrNull() ?: return
@@ -393,7 +393,8 @@ fun SmartStoryCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable { onOpenReader(paper, mainItem.link, mainItem.title) },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -456,7 +457,7 @@ fun SmartStoryCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Serif,
-                modifier = Modifier.clickable { onOpenReader(paper, mainItem.link) }
+                modifier = Modifier.clickable { onOpenReader(paper, mainItem.link, mainItem.title) }
             )
 
             // Expanded view of all newspapers' versions
@@ -482,7 +483,7 @@ fun SmartStoryCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenReader(relPaper, rel.link) }
+                                .clickable { onOpenReader(relPaper, rel.link, rel.title) }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.Top
                         ) {
