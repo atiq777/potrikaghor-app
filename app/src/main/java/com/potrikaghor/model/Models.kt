@@ -61,7 +61,8 @@ data class NewsItem(
     val time: Long? = null,
     val categoryId: String = "all",
     val related: List<NewsItem> = emptyList(),
-    val snippet: String = ""
+    val snippet: String = "",
+    val imageUrl: String? = null
 )
 
 data class Coverage(

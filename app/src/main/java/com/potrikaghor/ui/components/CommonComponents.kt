@@ -1,55 +1,50 @@
 package com.potrikaghor.ui.components
 
-import android.content.Context
-import android.content.Intent
-import android.graphics.Bitmap
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Newspaper
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Newspaper
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -57,19 +52,38 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.potrikaghor.data.ImagePipelineDiagnostic
+import com.potrikaghor.data.NewsRepository
+import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.theme.AmoledCard
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.theme.InkColor
-import com.potrikaghor.ui.theme.PaperColor
 import com.potrikaghor.ui.util.BengaliUtils
+
+private object SharedCoilLoaderHolder {
+    @Volatile
+    private var instance: ImageLoader? = null
+
+    fun get(context: android.content.Context, newsRepo: NewsRepository): ImageLoader {
+        return instance ?: synchronized(this) {
+            instance ?: ImageLoader.Builder(context.applicationContext)
+                .okHttpClient(newsRepo.imageHttpClient)
+                .respectCacheHeaders(false)
+                .crossfade(true)
+                .build()
+                .also { instance = it }
+        }
+    }
+}
 
 @Composable
 fun PaperAvatar(
@@ -88,7 +102,7 @@ fun PaperAvatar(
             .shadow(4.dp, RoundedCornerShape(size * 0.28f)),
         shape = RoundedCornerShape(size * 0.28f),
         color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Box(
@@ -110,6 +124,10 @@ fun PaperAvatar(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(paper.logoUrl)
+                        .memoryCacheKey(paper.logoUrl)
+                        .diskCacheKey(paper.logoUrl)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
                         .crossfade(true)
                         .build(),
                     contentDescription = paper.bn,
@@ -121,6 +139,349 @@ fun PaperAvatar(
             }
         }
     }
+}
+
+/**
+ * Displays a rectangular article cover/thumbnail image for visual news cards (e.g. 16:9 top cards
+ * or 4:3 horizontal feed thumbnails).
+ * - Maintains consistent dimensions across loading, success, and fallback states to prevent layout jumping.
+ * - Shows a subtle shimmer while resolving or loading.
+ * - Uses memory + disk caching via Coil and NewsRepository.
+ * - Falls back cleanly to the newspaper's logo (or a neutral placeholder if unavailable) on missing/broken URLs.
+ */
+@Composable
+fun ArticleCoverImage(
+    item: NewsItem,
+    paper: Paper,
+    newsRepo: NewsRepository,
+    modifier: Modifier = Modifier,
+    fallbackItems: List<NewsItem> = emptyList(),
+    shape: RoundedCornerShape = RoundedCornerShape(12.dp),
+    fallbackAvatarSize: Dp = 36.dp
+) {
+    val context = LocalContext.current
+    val imageLoader = remember(context, newsRepo) { SharedCoilLoaderHolder.get(context, newsRepo) }
+    val itemKey = remember(item.link, item.title) {
+        item.link.ifBlank { "${item.source}:${item.title}" }
+    }
+
+    var resolvedImageUrl by remember(itemKey) {
+        mutableStateOf(
+            newsRepo.getCachedArticleImage(item, fallbackItems)?.takeIf {
+                newsRepo.isValidArticleImageUrl(it, item.link)
+            }
+        )
+    }
+    var isResolving by remember(itemKey) {
+        mutableStateOf(resolvedImageUrl == null && !newsRepo.isLookupFailed(item, fallbackItems))
+    }
+    var imageLoadFailed by remember(itemKey, resolvedImageUrl) {
+        mutableStateOf(false)
+    }
+    var isCoilLoading by remember(itemKey, resolvedImageUrl) {
+        mutableStateOf(true)
+    }
+    var triedHttpsUpgrade by remember(itemKey) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(itemKey) {
+        if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item, fallbackItems)) {
+            isResolving = true
+            val fetched = newsRepo.resolveArticleImage(item, fallbackItems)
+            resolvedImageUrl = fetched?.takeIf { newsRepo.isValidArticleImageUrl(it, item.link) }
+            isResolving = false
+        }
+    }
+
+    Surface(
+        modifier = modifier.clip(shape),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            when {
+                isResolving -> {
+                    ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
+                }
+
+                !resolvedImageUrl.isNullOrBlank() && !imageLoadFailed -> {
+                    val imageUrl = resolvedImageUrl!!
+                    if (isCoilLoading) {
+                        ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
+                    }
+
+                    AsyncImage(
+                        model = remember(imageUrl) {
+                            ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .addHeader("User-Agent", NewsRepository.BROWSER_USER_AGENT)
+                                .addHeader("Accept", NewsRepository.IMAGE_ACCEPT_HEADER)
+                                .memoryCacheKey(imageUrl)
+                                .diskCacheKey(imageUrl)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build()
+                        },
+                        imageLoader = imageLoader,
+                        contentDescription = item.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        onState = { state ->
+                            when (state) {
+                                is AsyncImagePainter.State.Loading -> {
+                                    isCoilLoading = true
+                                }
+                                is AsyncImagePainter.State.Success -> {
+                                    isCoilLoading = false
+                                    NewsRepository.logArticleImagePipeline(
+                                        ImagePipelineDiagnostic(
+                                            title = item.title,
+                                            source = item.source,
+                                            originalArticleUrl = item.link,
+                                            rssImageUrl = item.imageUrl,
+                                            extractedImageUrl = imageUrl,
+                                            resolvedPublisherUrl = item.link.takeIf { !it.contains("news.google.com") },
+                                            isHttp200Valid = true,
+                                            httpStatusDetail = "HTTP 200 (source=${state.result.dataSource})",
+                                            loadStatus = "COIL_LOAD_SUCCESS"
+                                        )
+                                    )
+                                }
+                                is AsyncImagePainter.State.Error -> {
+                                    val err = state.result.throwable
+                                    if (imageUrl.startsWith("http://") && !triedHttpsUpgrade) {
+                                        triedHttpsUpgrade = true
+                                        resolvedImageUrl = "https://" + imageUrl.removePrefix("http://")
+                                    } else {
+                                        isCoilLoading = false
+                                        imageLoadFailed = true
+                                        NewsRepository.logArticleImagePipeline(
+                                            ImagePipelineDiagnostic(
+                                                title = item.title,
+                                                source = item.source,
+                                                originalArticleUrl = item.link,
+                                                rssImageUrl = item.imageUrl,
+                                                extractedImageUrl = imageUrl,
+                                                resolvedPublisherUrl = item.link.takeIf { !it.contains("news.google.com") },
+                                                isHttp200Valid = false,
+                                                httpStatusDetail = "COIL_ERROR: ${err.javaClass.simpleName}: ${err.message}",
+                                                loadStatus = "COIL_LOAD_FAILURE_FALLBACK_TO_LOGO"
+                                            )
+                                        )
+                                    }
+                                }
+                                else -> {}
+                            }
+                        }
+                    )
+                }
+
+                else -> {
+                    val hasSourceIdentity = paper.logoUrl.isNotEmpty() ||
+                        (paper.bn.isNotBlank() && paper.bn != "অজানা উৎস") ||
+                        paper.en.isNotBlank()
+
+                    if (hasSourceIdentity) {
+                        PaperAvatar(
+                            paper = paper,
+                            size = fallbackAvatarSize
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Article,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.size(fallbackAvatarSize * 0.8f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Displays a compact square thumbnail for secondary rows, falling back to [PaperAvatar].
+ */
+@Composable
+fun ArticleThumbnail(
+    item: NewsItem,
+    paper: Paper,
+    newsRepo: NewsRepository,
+    size: Dp = 32.dp,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val imageLoader = remember(context, newsRepo) { SharedCoilLoaderHolder.get(context, newsRepo) }
+    val itemKey = remember(item.link, item.title) {
+        item.link.ifBlank { "${item.source}:${item.title}" }
+    }
+
+    var resolvedImageUrl by remember(itemKey) {
+        mutableStateOf(
+            newsRepo.getCachedArticleImage(item)?.takeIf {
+                newsRepo.isValidArticleImageUrl(it, item.link)
+            }
+        )
+    }
+    var isResolving by remember(itemKey) {
+        mutableStateOf(resolvedImageUrl == null && !newsRepo.isLookupFailed(item))
+    }
+    var imageLoadFailed by remember(itemKey, resolvedImageUrl) {
+        mutableStateOf(false)
+    }
+    var isCoilLoading by remember(itemKey, resolvedImageUrl) {
+        mutableStateOf(true)
+    }
+    var triedHttpsUpgrade by remember(itemKey) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(itemKey) {
+        if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item)) {
+            isResolving = true
+            val fetched = newsRepo.resolveArticleImage(item)
+            resolvedImageUrl = fetched?.takeIf { newsRepo.isValidArticleImageUrl(it, item.link) }
+            isResolving = false
+        }
+    }
+
+    val cornerShape = RoundedCornerShape(size * 0.28f)
+
+    when {
+        isResolving -> {
+            ThumbnailShimmerPlaceholder(
+                size = size,
+                shape = cornerShape,
+                modifier = modifier
+            )
+        }
+
+        !resolvedImageUrl.isNullOrBlank() && !imageLoadFailed -> {
+            val imageUrl = resolvedImageUrl!!
+            Surface(
+                modifier = modifier
+                    .size(size)
+                    .aspectRatio(1f)
+                    .shadow(4.dp, cornerShape),
+                shape = cornerShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (isCoilLoading) {
+                        ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
+                    }
+
+                    AsyncImage(
+                        model = remember(imageUrl) {
+                            ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .addHeader("User-Agent", NewsRepository.BROWSER_USER_AGENT)
+                                .addHeader("Accept", NewsRepository.IMAGE_ACCEPT_HEADER)
+                                .memoryCacheKey(imageUrl)
+                                .diskCacheKey(imageUrl)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build()
+                        },
+                        imageLoader = imageLoader,
+                        contentDescription = item.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(cornerShape),
+                        contentScale = ContentScale.Crop,
+                        onState = { state ->
+                            when (state) {
+                                is AsyncImagePainter.State.Loading -> {
+                                    isCoilLoading = true
+                                }
+                                is AsyncImagePainter.State.Success -> {
+                                    isCoilLoading = false
+                                }
+                                is AsyncImagePainter.State.Error -> {
+                                    val err = state.result.throwable
+                                    if (imageUrl.startsWith("http://") && !triedHttpsUpgrade) {
+                                        triedHttpsUpgrade = true
+                                        resolvedImageUrl = "https://" + imageUrl.removePrefix("http://")
+                                    } else {
+                                        isCoilLoading = false
+                                        imageLoadFailed = true
+                                        NewsRepository.logDiag(
+                                            "THUMBNAIL_COIL_ERROR | title=\"${item.title.take(40)}\" | url=\"$imageUrl\" | error=\"${err.message}\""
+                                        )
+                                    }
+                                }
+                                else -> {}
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        else -> {
+            PaperAvatar(
+                paper = paper,
+                size = size,
+                modifier = modifier
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThumbnailShimmerPlaceholder(
+    size: Dp,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .size(size)
+            .aspectRatio(1f)
+            .shadow(4.dp, shape),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
+    }
+}
+
+@Composable
+private fun ThumbnailShimmerBox(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "thumbShimmer")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 320f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "thumbShimmerOffset"
+    )
+
+    val baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+    val highlightColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+
+    val brush = Brush.linearGradient(
+        colors = listOf(baseColor, highlightColor, baseColor),
+        start = Offset(translateAnim - 160f, translateAnim - 160f),
+        end = Offset(translateAnim, translateAnim)
+    )
+
+    Box(modifier = modifier.background(brush))
 }
 
 data class NavItemSpec(

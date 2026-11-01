@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +69,7 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.components.ArticleCoverImage
 import com.potrikaghor.ui.components.EmptyState
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
@@ -303,7 +305,7 @@ fun PersonalHomeScreen(
 
                                     Card(
                                         modifier = Modifier
-                                            .width(280.dp)
+                                            .width(264.dp)
                                             .clickable { onOpenReader(paper, item.link, item.title) },
                                         shape = RoundedCornerShape(16.dp),
                                         colors = CardDefaults.cardColors(
@@ -314,33 +316,60 @@ fun PersonalHomeScreen(
                                             MaterialTheme.colorScheme.outlineVariant
                                         )
                                     ) {
-                                        Column(modifier = Modifier.padding(14.dp)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                PaperAvatar(paper = paper, size = 26.dp)
-                                                Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            ArticleCoverImage(
+                                                item = item,
+                                                paper = paper,
+                                                newsRepo = newsRepo,
+                                                fallbackItems = item.related,
+                                                shape = RoundedCornerShape(12.dp),
+                                                fallbackAvatarSize = 38.dp,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(16f / 9f)
+                                            )
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
                                                 Text(
                                                     text = item.source,
                                                     style = MaterialTheme.typography.labelMedium,
                                                     fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary,
                                                     maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
                                                 )
-                                                Spacer(modifier = Modifier.weight(1f))
                                                 if (item.time != null) {
                                                     Text(
-                                                        text = BengaliUtils.bnAgo(item.time),
+                                                        text = " • ${BengaliUtils.bnAgo(item.time)}",
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
-                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+
                                             Text(
                                                 text = item.title,
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    lineHeight = 20.sp
+                                                ),
                                                 fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Serif,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                minLines = 3,
                                                 maxLines = 3,
-                                                overflow = TextOverflow.Ellipsis
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
                                             )
                                         }
                                     }
@@ -368,6 +397,7 @@ fun PersonalHomeScreen(
                         SmartStoryCard(
                             coverage = cov,
                             appRepo = appRepo,
+                            newsRepo = newsRepo,
                             onOpenReader = onOpenReader
                         )
                     }
@@ -381,6 +411,7 @@ fun PersonalHomeScreen(
 fun SmartStoryCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
+    newsRepo: NewsRepository,
     onOpenReader: (Paper, String, String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -389,6 +420,9 @@ fun SmartStoryCard(
         ?: Paper(mainItem.source, "", mainItem.link, "online")
 
     val multiCoverage = coverage.count > 1
+    val siblingItems = remember(coverage.items, mainItem) {
+        coverage.items.drop(1) + mainItem.related
+    }
 
     Card(
         modifier = Modifier
@@ -401,71 +435,104 @@ fun SmartStoryCard(
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                PaperAvatar(paper = paper, size = 32.dp)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = mainItem.source,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (mainItem.time != null) {
-                        Text(
-                            text = BengaliUtils.bnAgo(mainItem.time),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                ArticleCoverImage(
+                    item = mainItem,
+                    paper = paper,
+                    newsRepo = newsRepo,
+                    fallbackItems = siblingItems,
+                    shape = RoundedCornerShape(12.dp),
+                    fallbackAvatarSize = 34.dp,
+                    modifier = Modifier
+                        .width(118.dp)
+                        .aspectRatio(4f / 3f)
+                )
 
-                if (multiCoverage) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.clickable { expanded = !expanded }
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
+                        Text(
+                            text = mainItem.source,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (mainItem.time != null) {
                             Text(
-                                text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                text = " • ${BengaliUtils.bnAgo(mainItem.time)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
                             )
-                            Icon(
-                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(5.dp))
+
+                    Text(
+                        text = mainItem.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.clickable { onOpenReader(paper, mainItem.link, mainItem.title) }
+                    )
+
+                    if (multiCoverage) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.clickable { expanded = !expanded }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = mainItem.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Serif,
-                modifier = Modifier.clickable { onOpenReader(paper, mainItem.link, mainItem.title) }
-            )
 
             // Expanded view of all newspapers' versions
             AnimatedVisibility(visible = expanded && multiCoverage) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp)
+                        .padding(top = 10.dp)
                 ) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Text(
@@ -483,11 +550,15 @@ fun SmartStoryCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable { onOpenReader(relPaper, rel.link, rel.title) }
-                                .padding(vertical = 6.dp),
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.Top
                         ) {
-                            PaperAvatar(paper = relPaper, size = 22.dp)
+                            PaperAvatar(
+                                paper = relPaper,
+                                size = 22.dp
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
