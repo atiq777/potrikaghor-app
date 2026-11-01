@@ -1,0 +1,14 @@
+# Keystore files - never commit private signing keys
+*.jks
+release-keystore.jks
+my-upload-key.jks
+debug.keystore
+
+# Gradle & Android build outputs
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
