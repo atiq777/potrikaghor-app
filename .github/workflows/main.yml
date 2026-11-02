@@ -25,33 +25,33 @@ jobs:
 
       - name: Decode persistent release keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.RELEASE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.RELEASE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.RELEASE_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: Missing required GitHub Actions signing secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)."
             exit 1
           fi
-          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "${GITHUB_WORKSPACE}/release-keystore.jks"
-          if [ ! -s "${GITHUB_WORKSPACE}/release-keystore.jks" ]; then
-            echo "Error: Decoded release-keystore.jks is empty or invalid."
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "${GITHUB_WORKSPACE}/release-keystore.p12"
+          if [ ! -s "${GITHUB_WORKSPACE}/release-keystore.p12" ]; then
+            echo "Error: Decoded release-keystore.p12 is empty or invalid."
             exit 1
           fi
 
       - name: Build Release APK
         env:
-          KEYSTORE_FILE: ${{ github.workspace }}/release-keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.RELEASE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.RELEASE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.RELEASE_KEY_PASSWORD }}
+          KEYSTORE_FILE: ${{ github.workspace }}/release-keystore.p12
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: gradle assembleRelease --no-daemon
 
       - name: Clean up temporary release keystore
         if: always()
-        run: rm -f "${GITHUB_WORKSPACE}/release-keystore.jks"
+        run: rm -f "${GITHUB_WORKSPACE}/release-keystore.p12"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

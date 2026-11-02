@@ -9,23 +9,15 @@ android {
     compileSdk = 36
 
     val releaseKeystorePath = System.getenv("KEYSTORE_FILE")
-        ?: System.getenv("RELEASE_KEYSTORE_FILE")
         ?: project.findProperty("KEYSTORE_FILE")?.toString()
-        ?: project.findProperty("RELEASE_KEYSTORE_FILE")?.toString()
-        ?: "${rootDir}/release-keystore.jks"
+        ?: "${rootDir}/release-keystore.p12"
     val releaseKeystoreFile = file(releaseKeystorePath)
     val releaseKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
-        ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
         ?: project.findProperty("KEYSTORE_PASSWORD")?.toString()
-        ?: project.findProperty("RELEASE_KEYSTORE_PASSWORD")?.toString()
     val releaseKeyAlias = System.getenv("KEY_ALIAS")
-        ?: System.getenv("RELEASE_KEY_ALIAS")
         ?: project.findProperty("KEY_ALIAS")?.toString()
-        ?: project.findProperty("RELEASE_KEY_ALIAS")?.toString()
     val releaseKeyPassword = System.getenv("KEY_PASSWORD")
-        ?: System.getenv("RELEASE_KEY_PASSWORD")
         ?: project.findProperty("KEY_PASSWORD")?.toString()
-        ?: project.findProperty("RELEASE_KEY_PASSWORD")?.toString()
     val hasReleaseSigning = releaseKeystoreFile.exists() &&
         !releaseKeystorePassword.isNullOrBlank() &&
         !releaseKeyAlias.isNullOrBlank() &&
@@ -54,12 +46,11 @@ android {
             keyPassword = "android"
         }
         create("release") {
-            if (hasReleaseSigning) {
-                storeFile = releaseKeystoreFile
-                storePassword = releaseKeystorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
-            }
+            storeFile = releaseKeystoreFile
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+            storeType = "PKCS12"
         }
     }
 
@@ -70,11 +61,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")

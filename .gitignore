@@ -1,5 +1,7 @@
 # Keystore files - never commit private signing keys
+*.p12
 *.jks
+release-keystore.p12
 release-keystore.jks
 my-upload-key.jks
 debug.keystore
