@@ -660,10 +660,15 @@ fun SmartStoryCard(
     newsRepo: NewsRepository,
     onOpenReader: (Paper, String, String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val mainItem = coverage.items.firstOrNull() ?: return
-    val paper = appRepo.allPapers.firstOrNull { it.bn == mainItem.source || it.en == mainItem.source }
-        ?: Paper(mainItem.source, "", mainItem.link, "online")
+    var expanded by remember(mainItem.link, mainItem.title) {
+        mutableStateOf(false)
+    }
+    val paper = remember(mainItem.source, mainItem.link) {
+        appRepo.allPapers.firstOrNull {
+            it.bn == mainItem.source || it.en == mainItem.source
+        } ?: Paper(mainItem.source, "", mainItem.link, "online")
+    }
 
     val multiCoverage = coverage.count > 1
     val siblingItems = remember(coverage.items, mainItem) {
@@ -682,10 +687,61 @@ fun SmartStoryCard(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            // A) Top metadata row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PaperAvatar(
+                    paper = paper,
+                    size = 16.dp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = mainItem.source,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (mainItem.time != null) {
+                    Text(
+                        text = " • ${BengaliUtils.bnAgo(mainItem.time)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // B) Main content row: Headline on left, Thumbnail on right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top
             ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = mainItem.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.sp,
+                            lineHeight = 23.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
                 ArticleCoverImage(
                     item = mainItem,
                     paper = paper,
@@ -694,87 +750,45 @@ fun SmartStoryCard(
                     shape = RoundedCornerShape(12.dp),
                     fallbackAvatarSize = 34.dp,
                     modifier = Modifier
-                        .width(118.dp)
+                        .width(100.dp)
                         .aspectRatio(4f / 3f)
                 )
+            }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f)
+            // Multi-source coverage control below the main content row
+            if (multiCoverage) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.clickable { expanded = !expanded }
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = mainItem.source,
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (mainItem.time != null) {
-                            Text(
-                                text = " • ${BengaliUtils.bnAgo(mainItem.time)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(5.dp))
-
-                    Text(
-                        text = mainItem.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 15.sp,
-                            lineHeight = 21.sp
-                        ),
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Serif,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.clickable { onOpenReader(paper, mainItem.link, mainItem.title) }
-                    )
-
-                    if (multiCoverage) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.clickable { expanded = !expanded }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
             }
 
             // Expanded view of all newspapers' versions
-            AnimatedVisibility(visible = expanded && multiCoverage) {
+            if (expanded && multiCoverage) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -815,8 +829,12 @@ fun SmartStoryCard(
                                 )
                                 Text(
                                     text = rel.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        lineHeight = 18.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
