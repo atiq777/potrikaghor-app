@@ -410,11 +410,29 @@ class ArticleExtractor {
             input
         }
 
-        // Remove zero-width joiners/non-joiners and soft hyphens that break Bengali word pronunciation
-        s = s.replace("\u200C", "")
-            .replace("\u200D", "")
-            .replace("\u00AD", "")
+        // Normalize Assamese Unicode lookalikes occasionally present in Bengali feeds
+        s = s.replace('\u09F0', '\u09B0')
+            .replace('\u09F1', '\u09AC')
+
+        // Convert zero-width space and non-breaking spaces to a standard space so words never fuse
+        s = s.replace("\u200B", " ")
             .replace("\u00A0", " ")
+            .replace("\u202F", " ")
+            .replace("\u2007", " ")
+
+        // Preserve ZWJ (\u200D) only inside valid Bengali Ra+Ya-phala (র‍্য, e.g. র‍্যাব, র‍্যাঙ্কিং)
+        // and preserve ZWNJ (\u200C) only immediately after hasanta (\u09CD); remove stray invisible marks
+        s = s.replace(Regex("(?<!\u09B0\u09CD)\u200D|\u200D(?!\u09AF)"), "")
+            .replace(Regex("(?<!\u09CD)\u200C"), "")
+            .replace("\u00AD", "")
+            .replace("\u2060", "")
+            .replace("\uFEFF", "")
+            .replace("\u200E", "")
+            .replace("\u200F", "")
+
+        // Collapse accidental duplicate hasanta or nukta combining marks
+        s = s.replace(Regex("\u09CD{2,}"), "\u09CD")
+            .replace(Regex("\u09BC{2,}"), "\u09BC")
 
         // Strip raw URLs
         s = s.replace(Regex("https?://\\S+"), " ")
@@ -424,26 +442,60 @@ class ArticleExtractor {
         s = s.replace(Regex("\\((?:ছবি|ফাইল ছবি|সংগৃহীত|ভিডিও|সূত্র|প্রতিনিধি)[^)]*\\)"), " ")
             .replace(Regex("\\[(?:ছবি|ফাইল ছবি|সংগৃহীত|ভিডিও|সূত্র)[^]]*]"), " ")
 
-        // Protect common Bengali abbreviations so the period does not trigger a false sentence break
-        s = s.replace(Regex("(?<=\\b(?:ড|মো|মি|প্রা|ইঞ্জি|অ্যাড))\\."), " ")
+        // Normalize Bengali title abbreviations written with colon (e.g. "মো:", "ড:", "ডা:") to period
+        // and convert ASCII colon used as Bengali visarga inside Bengali words (e.g. "দু:খ" -> "দুঃখ")
+        s = s.replace(
+            Regex("(?:^|(?<=[\\s(\\[,«\"'“‘]))(ড|ডা|মো|মি|প্রা|ইঞ্জি|অ্যাড|লে|জে|ব্রি):(?=\\s*[\u0980-\u09FF])"),
+            "$1. "
+        )
+        s = s.replace(Regex("(?<=[\u0980-\u09FF]):(?=[\u0980-\u09FF])"), "ঃ")
             .replace("বি.দ্র.", "বিশেষ দ্রষ্টব্য, ")
 
-        // Convert dashes and vertical bars into a natural comma pause
+        // Ensure a space after common Bengali abbreviations so they do not merge with the following name
+        s = s.replace(
+            Regex("(?:^|(?<=[\\s(\\[,]))(ড|ডা|মো|মি|প্রা|ইঞ্জি|অ্যাড|লে|জে|ব্রি)\\.(?=[\u0980-\u09FF])"),
+            "$1. "
+        )
+
+        // Preserve number/date ranges with en-dash/em-dash (e.g. ১০–১৫ -> ১০-১৫) before converting clause dashes
+        s = s.replace(Regex("(?<=[0-9০-৯])\\s*[–—]\\s*(?=[0-9০-৯])"), "-")
+
+        // Convert clause dashes and vertical bars into a natural comma pause
         s = s.replace(Regex("\\s*[—–|]+\\s*"), ", ")
             .replace(Regex("\\s+--\\s+"), ", ")
 
-        // Remove decorative bullets and symbols that TTS may read literally
-        s = s.replace(Regex("[•▪►»*#_~<>]+"), " ")
-            .replace(Regex("[\"'“”‘’]"), "")
+        // Separate hyphenated or slashed Bengali compound words so adjacent words do not slur together
+        s = s.replace(Regex("(?<=[\u0980-\u09FF])-(?=[\u0980-\u09FF])"), " ")
+            .replace(Regex("(?<=[\u0980-\u09FF])\\s*/\\s*(?=[\u0980-\u09FF])"), ", ")
 
-        // Collapse repeated punctuation
+        // Convert remaining parenthetical/bracketed phrases into comma boundaries so words do not blend across "(" or ")"
+        s = s.replace(Regex("\\s*[(\\[]([^)\\]]+)[)\\]]\\s*"), ", $1, ")
+
+        // Keep Bengali internal elision apostrophe smooth (e.g. দু’জন -> দুজন, দু’টি -> দুটি)
+        s = s.replace(Regex("(?<=\u09A6\u09C1)[’'](?=[\u0980-\u09FF])"), "")
+
+        // Replace remaining quotation marks and decorative symbols with a space so adjacent words never fuse
+        s = s.replace(Regex("[•▪►»*#_~<>\"'“”‘’«]+"), " ")
+
+        // Ensure clean word boundaries between adjacent Bengali and Latin/English scripts and after '%'
+        s = s.replace(Regex("(?<=[\u0980-\u09FF])(?=[A-Za-z])"), " ")
+            .replace(Regex("(?<=[A-Za-z])(?=[\u0980-\u09FF])"), " ")
+            .replace(Regex("%(?=[\\p{L}\\p{N}\u0980-\u09FF])"), "% ")
+
+        // Remove accidental spaces before punctuation
+        s = s.replace(Regex("\\s+([।?!,;:])"), "$1")
+
+        // Ensure a space follows sentence/clause punctuation without breaking numbers (১,০০,০০০) or times (১০:৩০)
+        s = s.replace(Regex("([।?!;])(?=[\\p{L}\\p{N}\u0980-\u09FF])"), "$1 ")
+            .replace(Regex("([,:])(?=[\\p{L}\u0980-\u09FF])"), "$1 ")
+            .replace(Regex("(?<![0-9০-৯])([,:])(?=[0-9০-৯])"), "$1 ")
+
+        // Collapse repeated punctuation and clean up comma-before-danda artifacts
         s = s.replace(Regex("।{2,}"), "।")
             .replace(Regex("\\.{2,}"), "। ")
-            .replace(Regex(",\\s*,+"), ", ")
-
-        // Ensure a space always follows Bengali danda, comma, semicolon, question/exclamation marks
-        // so adjacent sentences (e.g. "বলেন।তিনি") never merge into one run-on string
-        s = s.replace(Regex("([।?!,;:])(?=[\\p{L}\\p{N}\u0980-\u09FF])"), "$1 ")
+            .replace(Regex(",(\\s*,)+"), ", ")
+            .replace(Regex(",\\s*([।.!?])"), "$1")
+            .replace(Regex("^,\\s*"), "")
 
         return s.replace(Regex("[ \\t]+"), " ").trim()
     }

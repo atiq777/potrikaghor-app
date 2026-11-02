@@ -233,8 +233,8 @@ fun ReaderScreen(
             ).show()
         }
 
-        // Use a calm, natural newsreader cadence (0.92f base for 1.0x in Bengali) and natural pitch
-        val effectiveRate = if (hasBengali) (ttsSpeed * 0.92f).coerceIn(0.6f, 1.6f) else ttsSpeed
+        // Use a calm, natural newsreader cadence (0.97f base for 1.0x in Bengali) and natural pitch
+        val effectiveRate = if (hasBengali) (ttsSpeed * 0.97f).coerceIn(0.6f, 1.6f) else ttsSpeed
         engine.setSpeechRate(effectiveRate)
         engine.setPitch(0.98f)
 
@@ -309,7 +309,7 @@ fun ReaderScreen(
                 isTtsReady = true
                 ttsInstance?.let { engine ->
                     configureNaturalTtsVoice(engine, hasBengali = true)
-                    engine.setSpeechRate(0.92f)
+                    engine.setSpeechRate(0.97f)
                     engine.setPitch(0.98f)
                 }
                 ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -664,7 +664,7 @@ fun ReaderScreen(
                                             .padding(horizontal = 2.dp)
                                             .clickable {
                                                 ttsSpeed = spd
-                                                tts?.setSpeechRate((spd * 0.92f).coerceIn(0.6f, 1.6f))
+                                                tts?.setSpeechRate((spd * 0.97f).coerceIn(0.6f, 1.6f))
                                                 if (isTtsPlaying) {
                                                     startTtsPlayback(cleanArticle)
                                                 }
@@ -1182,9 +1182,15 @@ private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 220): List<S
     val chunks = mutableListOf<String>()
 
     for (paragraph in paragraphs) {
-        // Split into individual sentences at Bengali danda (।), ?, !, or English period followed by space
+        // Split into individual sentences at Bengali danda (।), ?, !, or non-abbreviation period followed by space
         val sentences = paragraph
-            .split(Regex("(?<=[।!?])\\s+|(?<=\\.)\\s+(?=[A-Z0-9\u0980-\u09FF])|\\n+"))
+            .split(
+                Regex(
+                    "(?<=[।!?])\\s+|" +
+                        "(?<!(?:^|\\s)(?:ড|ডা|মো|মি|প্রা|ইঞ্জি|অ্যাড|লে|জে|ব্রি|লি|কি\\.মি|খ্রি|Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|vs|etc))(?<=\\.)\\s+(?=[A-Z\u0980-\u09FF])|" +
+                        "\\n+"
+                )
+            )
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
@@ -1207,9 +1213,9 @@ private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 220): List<S
  */
 private fun splitLongSentenceAtNaturalBoundaries(sentence: String, maxChunkLen: Int): List<String> {
     val result = mutableListOf<String>()
-    // First split by natural clause punctuation (, or ; or : or —)
+    // First split by natural clause punctuation (, or ; or : not inside numbers) or coordinating conjunctions
     val clauses = sentence
-        .split(Regex("(?<=[,;:])\\s+|\\s+(?=(?:এবং|কিন্তু|তবে|কারণ|বলে|যাতে)\\s)"))
+        .split(Regex("(?<![0-9০-৯])(?<=[,;:])\\s+|\\s+(?=(?:এবং|কিন্তু|তবে|অথবা|কারণ|যাতে)\\s)"))
         .map { it.trim() }
         .filter { it.isNotEmpty() }
 
