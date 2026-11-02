@@ -1,6 +1,17 @@
 package com.potrikaghor.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,7 +35,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,21 +52,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.NewsRepository
-import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
+import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
+import com.potrikaghor.ui.components.SubtleContentReveal
+import com.potrikaghor.ui.components.pressScaleEffect
+import com.potrikaghor.ui.components.rememberReducedMotion
+import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
+
+private enum class SearchViewState {
+    LOADING,
+    EMPTY,
+    RESULTS
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +88,7 @@ fun SearchScreen(
     onOpenReader: (Paper, String, String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val reducedMotion = rememberReducedMotion()
     var query by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("all") }
     var results by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
@@ -89,13 +112,46 @@ fun SearchScreen(
     }
 
     val quickTopics = listOf("আজকের শীর্ষ", "বাজেট", "রাজনীতি", "ক্রিকেট", "শেয়ারবাজার", "প্রযুক্তি", "চাকরি", "শিক্ষা")
+    val searchFieldInteraction = remember { MutableInteractionSource() }
+    val isSearchFocused by searchFieldInteraction.collectIsFocusedAsState()
+    val searchFieldScale by animateFloatAsState(
+        targetValue = if (isSearchFocused && !reducedMotion) 1.008f else 1f,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "searchFocusScale"
+    )
+    val searchIconTint by animateColorAsState(
+        targetValue = if (isSearchFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "searchIconTint"
+    )
+    val backBtnInteraction = remember { MutableInteractionSource() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("খবর অনুসন্ধান") },
+                title = {
+                    Text(
+                        text = "খবর অনুসন্ধান",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 19.sp,
+                            lineHeight = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif
+                        )
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        interactionSource = backBtnInteraction,
+                        modifier = Modifier.pressScaleEffect(backBtnInteraction, pressedScale = 0.90f)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
                     }
                 },
@@ -116,102 +172,197 @@ fun SearchScreen(
                     query = it
                     if (it.length >= 3) doSearch(it)
                 },
+                interactionSource = searchFieldInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                placeholder = { Text("কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .graphicsLayer {
+                        scaleX = searchFieldScale
+                        scaleY = searchFieldScale
+                    },
+                placeholder = { Text("কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...", fontSize = 13.sp) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = searchIconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
                 trailingIcon = {
-                    if (query.isNotEmpty()) {
+                    AnimatedVisibility(
+                        visible = query.isNotEmpty(),
+                        enter = fadeIn(tween(MotionTokens.FAST_MS)) + scaleIn(tween(MotionTokens.FAST_MS), initialScale = 0.8f),
+                        exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f)
+                    ) {
                         IconButton(onClick = { query = ""; results = emptyList(); hasSearched = false }) {
                             Icon(Icons.Filled.Clear, contentDescription = "মুছুন")
                         }
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp)
             )
 
             // Quick Topic Suggestion Chips
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(quickTopics) { topic ->
+                items(quickTopics, key = { it }) { topic ->
+                    val isTopicSelected = query == topic
+                    val topicBg by animateColorAsState(
+                        targetValue = if (isTopicSelected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "topicChipBg"
+                    )
+                    val topicTextColor by animateColorAsState(
+                        targetValue = if (isTopicSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "topicChipText"
+                    )
+
                     Surface(
                         modifier = Modifier
-                            .clickable {
+                            .clip(RoundedCornerShape(10.dp))
+                            .subtleClickable(pressedScale = 0.95f) {
                                 query = topic
                                 doSearch(topic)
                             },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
+                        shape = RoundedCornerShape(10.dp),
+                        color = topicBg
                     ) {
                         Text(
                             text = topic,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            color = topicTextColor,
+                            fontWeight = if (isTopicSelected) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            if (isSearching) {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(6) { SkeletonCard() }
-                }
-            } else if (hasSearched && results.isEmpty()) {
-                EmptyState(
-                    icon = Icons.Filled.Search,
-                    title = "কোনো ফলাফল পাওয়া যায়নি",
-                    body = "'$query' সম্পর্কিত কোনো খবর এই মুহূর্তে পাওয়া যায়নি। অন্য শব্দ দিয়ে চেষ্টা করুন।"
-                )
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(results) { item ->
-                        val paper = appRepo.allPapers.firstOrNull { it.bn == item.source || it.en == item.source }
-                            ?: Paper(item.source, "", item.link, "online")
+            val viewState = when {
+                isSearching -> SearchViewState.LOADING
+                hasSearched && results.isEmpty() -> SearchViewState.EMPTY
+                else -> SearchViewState.RESULTS
+            }
 
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 5.dp)
-                                .clickable { onOpenReader(paper, item.link, item.title) },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            Crossfade(
+                targetState = viewState,
+                animationSpec = tween(
+                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                label = "searchBodyCrossfade"
+            ) { state ->
+                when (state) {
+                    SearchViewState.LOADING -> {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(6) { SkeletonCard() }
+                        }
+                    }
+
+                    SearchViewState.EMPTY -> {
+                        EmptyState(
+                            icon = Icons.Filled.Search,
+                            title = "কোনো ফলাফল পাওয়া যায়নি",
+                            body = "'$query' সম্পর্কিত কোনো খবর এই মুহূর্তে পাওয়া যায়নি। অন্য শব্দ দিয়ে চেষ্টা করুন।"
+                        )
+                    }
+
+                    SearchViewState.RESULTS -> {
+                        val seenResultKeys = remember(results) { HashSet<String>() }
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = 24.dp)
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    PaperAvatar(paper = paper, size = 28.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = item.source,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    if (item.time != null) {
-                                        Text(
-                                            text = BengaliUtils.bnAgo(item.time),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                            itemsIndexed(
+                                items = results,
+                                key = { idx, item -> "search_${idx}_${item.link.ifBlank { item.title }}" }
+                            ) { idx, item ->
+                                val paper = appRepo.allPapers.firstOrNull { it.bn == item.source || it.en == item.source }
+                                    ?: Paper(item.source, "", item.link, "online")
+                                val itemKey = item.link.ifBlank { item.title }
+                                val isFirstReveal = remember(itemKey) { seenResultKeys.add(itemKey) }
+
+                                SubtleContentReveal(
+                                    visibleKey = itemKey,
+                                    delayMillis = if (isFirstReveal && idx < 6) idx * 25 else 0,
+                                    durationMillis = if (isFirstReveal) MotionTokens.REVEAL_MS else 0,
+                                    initialOffsetYDp = if (isFirstReveal) 6.dp else 0.dp
+                                ) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .subtleClickable(pressedScale = 0.984f) {
+                                                onOpenReader(paper, item.link, item.title)
+                                            },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Column(modifier = Modifier.padding(11.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                PaperAvatar(paper = paper, size = 18.dp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = item.source,
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        fontSize = 11.5.sp,
+                                                        lineHeight = 15.sp
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.weight(1f))
+                                                if (item.time != null) {
+                                                    Text(
+                                                        text = BengaliUtils.bnAgo(item.time),
+                                                        style = MaterialTheme.typography.bodySmall.copy(
+                                                            fontSize = 11.sp,
+                                                            lineHeight = 14.sp
+                                                        ),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            Text(
+                                                text = item.title,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontSize = 15.sp,
+                                                    lineHeight = 21.sp
+                                                ),
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Serif
+                                            )
+                                        }
                                     }
                                 }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = item.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Serif
-                                )
                             }
                         }
                     }
@@ -220,3 +371,4 @@ fun SearchScreen(
         }
     }
 }
+

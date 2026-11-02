@@ -1,14 +1,29 @@
 package com.potrikaghor.ui.components
 
+import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Indication
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,14 +57,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +87,139 @@ import com.potrikaghor.ui.theme.AmoledCard
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.theme.InkColor
 import com.potrikaghor.ui.util.BengaliUtils
+import kotlinx.coroutines.delay
+
+/**
+ * Consistent, subtle motion tokens across PotrikaGhor.
+ * Fast interaction: ~150–200ms
+ * Normal transition: ~200–300ms
+ * Content reveal: ~250–350ms
+ */
+object MotionTokens {
+    const val FAST_MS = 160
+    const val NORMAL_MS = 220
+    const val REVEAL_MS = 280
+}
+
+/**
+ * Detects whether the user has enabled Reduced Motion / disabled animator duration scale in system settings.
+ */
+@Composable
+fun rememberReducedMotion(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        try {
+            val scale = Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            )
+            scale == 0f
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
+
+/**
+ * Applies a subtle, draw-phase press scale effect to any existing [InteractionSource]
+ * without causing layout shifts or extra recompositions.
+ */
+fun Modifier.pressScaleEffect(
+    interactionSource: InteractionSource,
+    pressedScale: Float = 0.98f
+): Modifier = composed {
+    val reducedMotion = rememberReducedMotion()
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && !reducedMotion) pressedScale else 1f,
+        animationSpec = tween(
+            durationMillis = MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "pressScale"
+    )
+    this.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+/**
+ * Combines standard Material ripple clickable behavior with a subtle scale press feedback.
+ */
+fun Modifier.subtleClickable(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.982f,
+    indication: Indication? = null,
+    onClick: () -> Unit
+): Modifier = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val activeIndication = indication ?: LocalIndication.current
+    this
+        .pressScaleEffect(interactionSource = interactionSource, pressedScale = pressedScale)
+        .clickable(
+            interactionSource = interactionSource,
+            indication = activeIndication,
+            enabled = enabled,
+            onClick = onClick
+        )
+}
+
+/**
+ * Performs a subtle, one-time fade + upward settle animation in the draw phase (`graphicsLayer`).
+ * Does not cause layout jumping and respects Reduced Motion preferences.
+ */
+@Composable
+fun SubtleContentReveal(
+    visibleKey: Any? = Unit,
+    delayMillis: Int = 0,
+    durationMillis: Int = MotionTokens.REVEAL_MS,
+    initialOffsetYDp: Dp = 7.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val reducedMotion = rememberReducedMotion()
+    val offsetPx = with(LocalDensity.current) { initialOffsetYDp.toPx() }
+    var appeared by remember(visibleKey) { mutableStateOf(reducedMotion) }
+
+    LaunchedEffect(visibleKey, reducedMotion) {
+        if (reducedMotion) {
+            appeared = true
+        } else if (!appeared) {
+            if (delayMillis > 0) {
+                delay(delayMillis.toLong())
+            }
+            appeared = true
+        }
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else durationMillis,
+            easing = LinearOutSlowInEasing
+        ),
+        label = "revealAlpha"
+    )
+    val translationY by animateFloatAsState(
+        targetValue = if (appeared || reducedMotion) 0f else offsetPx,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else durationMillis,
+            easing = FastOutSlowInEasing
+        ),
+        label = "revealOffsetY"
+    )
+
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            this.translationY = translationY
+        }
+    ) {
+        content()
+    }
+}
 
 private object SharedCoilLoaderHolder {
     @Volatile
@@ -79,7 +230,7 @@ private object SharedCoilLoaderHolder {
             instance ?: ImageLoader.Builder(context.applicationContext)
                 .okHttpClient(newsRepo.imageHttpClient)
                 .respectCacheHeaders(false)
-                .crossfade(true)
+                .crossfade(MotionTokens.NORMAL_MS)
                 .build()
                 .also { instance = it }
         }
@@ -129,7 +280,7 @@ fun PaperAvatar(
                         .diskCacheKey(paper.logoUrl)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(true)
+                        .crossfade(MotionTokens.FAST_MS)
                         .build(),
                     contentDescription = paper.bn,
                     modifier = Modifier
@@ -147,8 +298,7 @@ fun PaperAvatar(
  * or 4:3 horizontal feed thumbnails).
  * - Maintains consistent dimensions across loading, success, and fallback states to prevent layout jumping.
  * - Shows a subtle shimmer while resolving or loading.
- * - Uses memory + disk caching via Coil and NewsRepository.
- * - Falls back cleanly to the newspaper's logo (or a neutral placeholder if unavailable) on missing/broken URLs.
+ * - Smoothly crossfades the loaded image over the skeleton with zero layout shift.
  */
 @Composable
 fun ArticleCoverImage(
@@ -161,6 +311,7 @@ fun ArticleCoverImage(
     fallbackAvatarSize: Dp = 36.dp
 ) {
     val context = LocalContext.current
+    val reducedMotion = rememberReducedMotion()
     val imageLoader = remember(context, newsRepo) { SharedCoilLoaderHolder.get(context, newsRepo) }
     val itemKey = remember(item.link, item.title) {
         item.link.ifBlank { "${item.source}:${item.title}" }
@@ -195,6 +346,15 @@ fun ArticleCoverImage(
         }
     }
 
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (!isCoilLoading && !imageLoadFailed && !resolvedImageUrl.isNullOrBlank()) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "coverImageAlpha"
+    )
+
     Surface(
         modifier = modifier.clip(shape),
         shape = shape,
@@ -215,7 +375,7 @@ fun ArticleCoverImage(
 
                 !resolvedImageUrl.isNullOrBlank() && !imageLoadFailed -> {
                     val imageUrl = resolvedImageUrl!!
-                    if (isCoilLoading) {
+                    if (isCoilLoading || imageAlpha < 0.99f) {
                         ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
                     }
 
@@ -229,12 +389,14 @@ fun ArticleCoverImage(
                                 .diskCacheKey(imageUrl)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
-                                .crossfade(true)
+                                .crossfade(MotionTokens.NORMAL_MS)
                                 .build()
                         },
                         imageLoader = imageLoader,
                         contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = imageAlpha },
                         contentScale = ContentScale.Crop,
                         onState = { state ->
                             when (state) {
@@ -322,6 +484,7 @@ fun ArticleThumbnail(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val reducedMotion = rememberReducedMotion()
     val imageLoader = remember(context, newsRepo) { SharedCoilLoaderHolder.get(context, newsRepo) }
     val itemKey = remember(item.link, item.title) {
         item.link.ifBlank { "${item.source}:${item.title}" }
@@ -356,6 +519,15 @@ fun ArticleThumbnail(
         }
     }
 
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (!isCoilLoading && !imageLoadFailed && !resolvedImageUrl.isNullOrBlank()) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "thumbImageAlpha"
+    )
+
     val cornerShape = RoundedCornerShape(size * 0.28f)
 
     when {
@@ -379,7 +551,7 @@ fun ArticleThumbnail(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (isCoilLoading) {
+                    if (isCoilLoading || imageAlpha < 0.99f) {
                         ThumbnailShimmerBox(modifier = Modifier.fillMaxSize())
                     }
 
@@ -393,14 +565,15 @@ fun ArticleThumbnail(
                                 .diskCacheKey(imageUrl)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
-                                .crossfade(true)
+                                .crossfade(MotionTokens.NORMAL_MS)
                                 .build()
                         },
                         imageLoader = imageLoader,
                         contentDescription = item.title,
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(cornerShape),
+                            .clip(cornerShape)
+                            .graphicsLayer { alpha = imageAlpha },
                         contentScale = ContentScale.Crop,
                         onState = { state ->
                             when (state) {
@@ -462,6 +635,13 @@ private fun ThumbnailShimmerPlaceholder(
 
 @Composable
 private fun ThumbnailShimmerBox(modifier: Modifier = Modifier) {
+    val reducedMotion = rememberReducedMotion()
+    val baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+    if (reducedMotion) {
+        Box(modifier = modifier.background(baseColor))
+        return
+    }
+
     val transition = rememberInfiniteTransition(label = "thumbShimmer")
     val translateAnim by transition.animateFloat(
         initialValue = 0f,
@@ -473,7 +653,6 @@ private fun ThumbnailShimmerBox(modifier: Modifier = Modifier) {
         label = "thumbShimmerOffset"
     )
 
-    val baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
     val highlightColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
 
     val brush = Brush.linearGradient(
@@ -502,37 +681,73 @@ fun NavCapsule(
     val cs = MaterialTheme.colorScheme
     val isDark = cs.background.red < 0.2f
     val barBg = if (isDark) AmoledCard else InkColor
+    val reducedMotion = rememberReducedMotion()
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .shadow(16.dp, RoundedCornerShape(32.dp)),
-        shape = RoundedCornerShape(32.dp),
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .shadow(14.dp, RoundedCornerShape(28.dp)),
+        shape = RoundedCornerShape(28.dp),
         color = barBg,
         tonalElevation = 8.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEachIndexed { index, item ->
                 val selected = index == selectedIndex
-                val tint = if (selected) cs.onPrimary else Color(0xFFCFC6B4)
+                val interactionSource = remember { MutableInteractionSource() }
+                val pillColor by animateColorAsState(
+                    targetValue = if (selected) cs.primary else Color.Transparent,
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "navPillBg"
+                )
+                val tint by animateColorAsState(
+                    targetValue = if (selected) cs.onPrimary else Color(0xFFCFC6B4),
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "navIconTint"
+                )
+                val iconScale by animateFloatAsState(
+                    targetValue = if (selected && !reducedMotion) 1.05f else 1f,
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "navIconScale"
+                )
 
                 Surface(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable { onSelectIndex(index) },
-                    shape = RoundedCornerShape(22.dp),
-                    color = if (selected) cs.primary else Color.Transparent
+                        .pressScaleEffect(interactionSource = interactionSource, pressedScale = 0.94f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = LocalIndication.current
+                        ) { onSelectIndex(index) },
+                    shape = RoundedCornerShape(20.dp),
+                    color = pillColor
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = if (selected) 14.dp else 10.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = tween(
+                                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                                    easing = FastOutSlowInEasing
+                                )
+                            )
+                            .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
@@ -540,7 +755,7 @@ fun NavCapsule(
                             BadgedBox(
                                 badge = {
                                     Badge(containerColor = FlagRed, contentColor = Color.White) {
-                                        Text(BengaliUtils.bnDigits(item.badge), fontSize = 10.sp)
+                                        Text(BengaliUtils.bnDigits(item.badge), fontSize = 9.5.sp)
                                     }
                                 }
                             ) {
@@ -548,7 +763,12 @@ fun NavCapsule(
                                     imageVector = if (selected) item.selectedIcon else item.icon,
                                     contentDescription = item.label,
                                     tint = tint,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier
+                                        .size(19.dp)
+                                        .graphicsLayer {
+                                            scaleX = iconScale
+                                            scaleY = iconScale
+                                        }
                                 )
                             }
                         } else {
@@ -556,18 +776,53 @@ fun NavCapsule(
                                 imageVector = if (selected) item.selectedIcon else item.icon,
                                 contentDescription = item.label,
                                 tint = tint,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier
+                                    .size(19.dp)
+                                    .graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    }
                             )
                         }
 
-                        if (selected) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = item.label,
-                                color = cs.onPrimary,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
+                        AnimatedVisibility(
+                            visible = selected,
+                            enter = expandHorizontally(
+                                animationSpec = tween(
+                                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) + fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ),
+                            exit = shrinkHorizontally(
+                                animationSpec = tween(
+                                    durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                    easing = FastOutSlowInEasing
+                                )
+                            ) + fadeOut(
+                                animationSpec = tween(
+                                    durationMillis = if (reducedMotion) 0 else 120,
+                                    easing = FastOutSlowInEasing
+                                )
                             )
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = item.label,
+                                    color = cs.onPrimary,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 11.5.sp,
+                                        lineHeight = 15.sp
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
@@ -585,38 +840,50 @@ fun EmptyState(
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    SubtleContentReveal(
+        visibleKey = title,
+        durationMillis = MotionTokens.NORMAL_MS,
+        initialOffsetYDp = 6.dp,
+        modifier = modifier.fillMaxWidth()
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(64.dp)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        if (actionLabel != null && onAction != null) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(onClick = onAction) {
-                Text(actionLabel)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (actionLabel != null && onAction != null) {
+                val btnInteraction = remember { MutableInteractionSource() }
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onAction,
+                    interactionSource = btnInteraction,
+                    modifier = Modifier.pressScaleEffect(btnInteraction, pressedScale = 0.96f)
+                ) {
+                    Text(actionLabel)
+                }
             }
         }
     }
@@ -624,45 +891,52 @@ fun EmptyState(
 
 @Composable
 fun SkeletonCard(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "skeletonAlpha"
-    )
+    val reducedMotion = rememberReducedMotion()
+    val alpha = if (reducedMotion) {
+        0.38f
+    } else {
+        val transition = rememberInfiniteTransition(label = "skeleton")
+        val animatedAlpha by transition.animateFloat(
+            initialValue = 0.22f,
+            targetValue = 0.55f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "skeletonAlpha"
+        )
+        animatedAlpha
+    }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(16.dp),
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
-                    .height(14.dp)
+                    .height(12.dp)
                     .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
-                    .height(18.dp)
+                    .height(16.dp)
                     .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(5.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
-                    .height(18.dp)
+                    .height(16.dp)
                     .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
             )
         }
     }
 }
+

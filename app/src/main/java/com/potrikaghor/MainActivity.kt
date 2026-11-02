@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -166,70 +167,128 @@ fun PotrikaghorApp(
         NavItemSpec(Icons.Outlined.Settings, Icons.Filled.Settings, "সেটিংস")
     )
 
-    when (val screen = currentScreen) {
-        is Screen.Reader -> {
-            ReaderScreen(
-                paper = screen.paper,
-                initialUrl = screen.url,
-                initialTitle = screen.articleTitle,
-                appRepo = appRepo,
-                onBack = { currentScreen = Screen.Main }
-            )
-        }
-        is Screen.Search -> {
-            SearchScreen(
-                appRepo = appRepo,
-                newsRepo = newsRepo,
-                onBack = { currentScreen = Screen.Main },
-                onOpenReader = { paper, url, title ->
-                    currentScreen = Screen.Reader(paper, url, title)
-                }
-            )
-        }
-        is Screen.Main -> {
-            Scaffold(
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                bottomBar = {
-                    NavCapsule(
-                        selectedIndex = selectedTab,
-                        onSelectIndex = { selectedTab = it },
-                        items = navItems
+    val reducedMotion = com.potrikaghor.ui.components.rememberReducedMotion()
+
+    androidx.compose.animation.AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            if (reducedMotion) {
+                androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+            } else {
+                (androidx.compose.animation.fadeIn(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = com.potrikaghor.ui.components.MotionTokens.NORMAL_MS,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
                     )
-                }
-            ) { paddingValues ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .consumeWindowInsets(paddingValues)
-                ) {
-                    when (selectedTab) {
-                        0 -> PersonalHomeScreen(
-                            appRepo = appRepo,
-                            newsRepo = newsRepo,
-                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) },
-                            onOpenSearch = { currentScreen = Screen.Search },
-                            onOpenSettings = { selectedTab = 4 }
+                ) + androidx.compose.animation.slideInVertically(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = com.potrikaghor.ui.components.MotionTokens.NORMAL_MS,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    ),
+                    initialOffsetY = { fullHeight -> (fullHeight * 0.025f).toInt() }
+                )) togetherWith androidx.compose.animation.fadeOut(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = com.potrikaghor.ui.components.MotionTokens.FAST_MS,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                    )
+                )
+            }
+        },
+        label = "screenTransition"
+    ) { screen ->
+        when (screen) {
+            is Screen.Reader -> {
+                ReaderScreen(
+                    paper = screen.paper,
+                    initialUrl = screen.url,
+                    initialTitle = screen.articleTitle,
+                    appRepo = appRepo,
+                    onBack = { currentScreen = Screen.Main }
+                )
+            }
+            is Screen.Search -> {
+                SearchScreen(
+                    appRepo = appRepo,
+                    newsRepo = newsRepo,
+                    onBack = { currentScreen = Screen.Main },
+                    onOpenReader = { paper, url, title ->
+                        currentScreen = Screen.Reader(paper, url, title)
+                    }
+                )
+            }
+            is Screen.Main -> {
+                Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    bottomBar = {
+                        NavCapsule(
+                            selectedIndex = selectedTab,
+                            onSelectIndex = { selectedTab = it },
+                            items = navItems
                         )
-                        1 -> MyPapersScreen(
-                            appRepo = appRepo,
-                            onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) },
-                            onAddPaper = { showAddPaperDialog = true },
-                            onFixUrl = { paperToFixUrl = it }
-                        )
-                        2 -> CoverageScreen(
-                            appRepo = appRepo,
-                            newsRepo = newsRepo,
-                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
-                        )
-                        3 -> BookmarksScreen(
-                            appRepo = appRepo,
-                            onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
-                        )
-                        4 -> SettingsScreen(
-                            appRepo = appRepo,
-                            newsRepo = newsRepo
-                        )
+                    }
+                ) { paddingValues ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                            .consumeWindowInsets(paddingValues)
+                    ) {
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = {
+                                if (reducedMotion) {
+                                    androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                                } else {
+                                    (androidx.compose.animation.fadeIn(
+                                        animationSpec = androidx.compose.animation.core.tween(
+                                            durationMillis = com.potrikaghor.ui.components.MotionTokens.NORMAL_MS,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                        )
+                                    ) + androidx.compose.animation.slideInVertically(
+                                        animationSpec = androidx.compose.animation.core.tween(
+                                            durationMillis = com.potrikaghor.ui.components.MotionTokens.NORMAL_MS,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                        ),
+                                        initialOffsetY = { 16 }
+                                    )) togetherWith androidx.compose.animation.fadeOut(
+                                        animationSpec = androidx.compose.animation.core.tween(
+                                            durationMillis = com.potrikaghor.ui.components.MotionTokens.FAST_MS,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                        )
+                                    )
+                                }
+                            },
+                            label = "tabTransition"
+                        ) { tab ->
+                            when (tab) {
+                                0 -> PersonalHomeScreen(
+                                    appRepo = appRepo,
+                                    newsRepo = newsRepo,
+                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) },
+                                    onOpenSearch = { currentScreen = Screen.Search },
+                                    onOpenSettings = { selectedTab = 4 }
+                                )
+                                1 -> MyPapersScreen(
+                                    appRepo = appRepo,
+                                    onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) },
+                                    onAddPaper = { showAddPaperDialog = true },
+                                    onFixUrl = { paperToFixUrl = it }
+                                )
+                                2 -> CoverageScreen(
+                                    appRepo = appRepo,
+                                    newsRepo = newsRepo,
+                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
+                                )
+                                3 -> BookmarksScreen(
+                                    appRepo = appRepo,
+                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
+                                )
+                                4 -> SettingsScreen(
+                                    appRepo = appRepo,
+                                    newsRepo = newsRepo
+                                )
+                            }
+                        }
                     }
                 }
             }

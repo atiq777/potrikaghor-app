@@ -1,8 +1,11 @@
 package com.potrikaghor.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,15 +25,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewAgenda
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,7 +64,11 @@ import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
+import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
+import com.potrikaghor.ui.components.pressScaleEffect
+import com.potrikaghor.ui.components.rememberReducedMotion
+import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.util.BengaliUtils
 
@@ -77,6 +81,7 @@ fun MyPapersScreen(
     onFixUrl: (Paper) -> Unit
 ) {
     val appState by appRepo.state.collectAsState()
+    val reducedMotion = rememberReducedMotion()
     var selectedCat by remember { mutableStateOf("all") }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -97,6 +102,9 @@ fun MyPapersScreen(
         }
     }
 
+    val viewModeInteraction = remember { MutableInteractionSource() }
+    val fabInteraction = remember { MutableInteractionSource() }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -106,37 +114,59 @@ fun MyPapersScreen(
                             Text(
                                 text = "আমার পত্রিকা",
                                 style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 19.sp,
+                                    lineHeight = 24.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Serif
                                 )
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
                                     text = "${BengaliUtils.bnDigits(filteredList.size)}টি",
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
                                 )
                             }
                         }
                         Text(
                             text = "পছন্দের সোর্স ও ব্যক্তিগত রিডিং বোর্ড",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { appRepo.setGridView(!appState.gridView) }) {
-                        Icon(
-                            imageVector = if (appState.gridView) Icons.Filled.ViewAgenda else Icons.Filled.GridView,
-                            contentDescription = "ভিউ মোড"
-                        )
+                    IconButton(
+                        onClick = { appRepo.setGridView(!appState.gridView) },
+                        interactionSource = viewModeInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .pressScaleEffect(viewModeInteraction, pressedScale = 0.90f)
+                    ) {
+                        Crossfade(
+                            targetState = appState.gridView,
+                            animationSpec = tween(
+                                durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "gridListToggleIcon"
+                        ) { isGrid ->
+                            Icon(
+                                imageVector = if (isGrid) Icons.Filled.ViewAgenda else Icons.Filled.GridView,
+                                contentDescription = "ভিউ মোড",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -147,13 +177,15 @@ fun MyPapersScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onAddPaper,
+                interactionSource = fabInteraction,
+                modifier = Modifier.pressScaleEffect(fabInteraction, pressedScale = 0.95f),
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("পত্রিকা যোগ করুন", fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("পত্রিকা যোগ করুন", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
@@ -169,11 +201,11 @@ fun MyPapersScreen(
                 onValueChange = { searchQuery = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                placeholder = { Text("পত্রিকার নাম বা লিংক খুঁজুন...") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                placeholder = { Text("পত্রিকার নাম বা লিংক খুঁজুন...", fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(14.dp)
             )
 
             // Category Chips Row
@@ -184,15 +216,20 @@ fun MyPapersScreen(
             ) + PapersData.categories.drop(1).map { Pair(it.id, it.label) }
 
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(availableCategories) { (id, label) ->
+                items(availableCategories, key = { it.first }) { (id, label) ->
                     val isSelected = selectedCat == id
+                    val chipInteraction = remember { MutableInteractionSource() }
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedCat = id },
-                        label = { Text(label) }
+                        interactionSource = chipInteraction,
+                        modifier = Modifier
+                            .height(30.dp)
+                            .pressScaleEffect(chipInteraction, pressedScale = 0.95f),
+                        label = { Text(label, fontSize = 12.5.sp, lineHeight = 16.sp) }
                     )
                 }
             }
@@ -201,7 +238,7 @@ fun MyPapersScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 14.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -231,11 +268,11 @@ fun MyPapersScreen(
             } else if (appState.gridView) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 90.dp, top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 82.dp, top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(filteredList) { paper ->
+                    items(filteredList, key = { it.url }) { paper ->
                         MyPaperGridItem(
                             paper = paper,
                             isFav = appState.favs.contains(paper.url),
@@ -247,9 +284,9 @@ fun MyPapersScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 90.dp, top = 6.dp)
+                    contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
                 ) {
-                    items(filteredList) { paper ->
+                    items(filteredList, key = { it.url }) { paper ->
                         MyPaperListItem(
                             paper = paper,
                             isFav = appState.favs.contains(paper.url),
@@ -274,28 +311,44 @@ fun MyPaperListItem(
     onFixUrl: () -> Unit,
     onToggleHide: () -> Unit
 ) {
+    val reducedMotion = rememberReducedMotion()
+    val favInteraction = remember { MutableInteractionSource() }
+    val editInteraction = remember { MutableInteractionSource() }
+    val starTint by animateColorAsState(
+        targetValue = if (isFav) FlagRed else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "listStarTint"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable { onOpen() },
-        shape = RoundedCornerShape(16.dp),
+            .padding(horizontal = 14.dp, vertical = 3.5.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .subtleClickable(pressedScale = 0.984f) { onOpen() },
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            PaperAvatar(paper = paper, size = 44.dp)
-            Spacer(modifier = Modifier.width(12.dp))
+            PaperAvatar(paper = paper, size = 38.dp)
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = paper.bn,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp
+                        ),
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif
                     )
@@ -316,28 +369,53 @@ fun MyPaperListItem(
                 }
                 Text(
                     text = if (paper.en.isNotEmpty()) "${paper.en} • ${paper.host}" else paper.host,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            IconButton(onClick = onFixUrl) {
+            IconButton(
+                onClick = onFixUrl,
+                interactionSource = editInteraction,
+                modifier = Modifier
+                    .size(36.dp)
+                    .pressScaleEffect(editInteraction, pressedScale = 0.88f)
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Edit,
                     contentDescription = "লিংক ঠিক করুন",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
-            IconButton(onClick = onToggleFav) {
-                Icon(
-                    imageVector = if (isFav) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                    contentDescription = "পছন্দের তালিকা",
-                    tint = if (isFav) FlagRed else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            IconButton(
+                onClick = onToggleFav,
+                interactionSource = favInteraction,
+                modifier = Modifier
+                    .size(36.dp)
+                    .pressScaleEffect(favInteraction, pressedScale = 0.86f)
+            ) {
+                Crossfade(
+                    targetState = isFav,
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "listStarCrossfade"
+                ) { favored ->
+                    Icon(
+                        imageVector = if (favored) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        contentDescription = "পছন্দের তালিকা",
+                        tint = starTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }
@@ -351,34 +429,64 @@ fun MyPaperGridItem(
     onOpen: () -> Unit,
     onFixUrl: () -> Unit
 ) {
+    val reducedMotion = rememberReducedMotion()
+    val favInteraction = remember { MutableInteractionSource() }
+    val starTint by animateColorAsState(
+        targetValue = if (isFav) FlagRed else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "gridStarTint"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpen() },
-        shape = RoundedCornerShape(16.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .subtleClickable(pressedScale = 0.98f) { onOpen() },
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(11.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PaperAvatar(paper = paper, size = 38.dp)
-                IconButton(onClick = onToggleFav, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = if (isFav) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                        contentDescription = null,
-                        tint = if (isFav) FlagRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
+                PaperAvatar(paper = paper, size = 34.dp)
+                IconButton(
+                    onClick = onToggleFav,
+                    interactionSource = favInteraction,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .pressScaleEffect(favInteraction, pressedScale = 0.86f)
+                ) {
+                    Crossfade(
+                        targetState = isFav,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "gridStarCrossfade"
+                    ) { favored ->
+                        Icon(
+                            imageVector = if (favored) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = null,
+                            tint = starTint,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = paper.bn,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 14.5.sp,
+                    lineHeight = 19.sp
+                ),
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Serif,
                 maxLines = 1,
@@ -386,7 +494,10 @@ fun MyPaperGridItem(
             )
             Text(
                 text = paper.host,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -394,3 +505,4 @@ fun MyPaperGridItem(
         }
     }
 }
+

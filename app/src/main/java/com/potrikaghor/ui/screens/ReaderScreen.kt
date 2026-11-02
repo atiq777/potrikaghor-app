@@ -12,9 +12,14 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,6 +79,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -89,8 +95,11 @@ import com.potrikaghor.data.ArticleExtractor
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.model.Bookmark
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.ShareCardDialog
+import com.potrikaghor.ui.components.pressScaleEffect
+import com.potrikaghor.ui.components.rememberReducedMotion
 import com.potrikaghor.ui.theme.AmoledBackground
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.theme.SepiaBackground
@@ -442,6 +451,33 @@ fun ReaderScreen(
         }
     }
 
+    val reducedMotion = rememberReducedMotion()
+    var bookmarkPulse by remember { mutableStateOf(false) }
+    LaunchedEffect(bookmarkPulse) {
+        if (bookmarkPulse) {
+            delay(160L)
+            bookmarkPulse = false
+        }
+    }
+    val bookmarkScale by animateFloatAsState(
+        targetValue = if (bookmarkPulse && !reducedMotion) 1.18f else 1f,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "bookmarkScale"
+    )
+    val bookmarkTint by animateColorAsState(
+        targetValue = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(
+            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+            easing = FastOutSlowInEasing
+        ),
+        label = "bookmarkTint"
+    )
+    val bookmarkInteraction = remember { MutableInteractionSource() }
+    val backInteraction = remember { MutableInteractionSource() }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -469,10 +505,14 @@ fun ReaderScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        tts?.stop()
-                        onBack()
-                    }) {
+                    IconButton(
+                        onClick = {
+                            tts?.stop()
+                            onBack()
+                        },
+                        interactionSource = backInteraction,
+                        modifier = Modifier.pressScaleEffect(backInteraction, pressedScale = 0.90f)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
                     }
                 },
@@ -533,9 +573,10 @@ fun ReaderScreen(
                         )
                     }
 
-                    // Bookmark toggle
+                    // Bookmark toggle with subtle scale + icon state transition
                     IconButton(
                         onClick = {
+                            bookmarkPulse = true
                             if (isBookmarked) {
                                 appRepo.removeBookmark(currentWebUrl)
                                 appRepo.removeBookmark(initialUrl)
@@ -555,13 +596,29 @@ fun ReaderScreen(
                                 appRepo.addBookmark(b)
                                 Toast.makeText(context, "বুকমার্ক ও অফলাইনে সেভ হয়েছে", Toast.LENGTH_SHORT).show()
                             }
-                        }
+                        },
+                        interactionSource = bookmarkInteraction,
+                        modifier = Modifier
+                            .pressScaleEffect(bookmarkInteraction, pressedScale = 0.88f)
+                            .graphicsLayer {
+                                scaleX = bookmarkScale
+                                scaleY = bookmarkScale
+                            }
                     ) {
-                        Icon(
-                            imageVector = if (isBookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = "বুকমার্ক",
-                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
+                        Crossfade(
+                            targetState = isBookmarked,
+                            animationSpec = tween(
+                                durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "bookmarkIconCrossfade"
+                        ) { bookmarked ->
+                            Icon(
+                                imageVector = if (bookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                contentDescription = "বুকমার্ক",
+                                tint = bookmarkTint
+                            )
+                        }
                     }
 
                     // Share Card
