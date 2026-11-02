@@ -278,8 +278,19 @@ fun SearchScreen(
             ) { state ->
                 when (state) {
                     SearchViewState.LOADING -> {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(6) { SkeletonCard() }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 24.dp)
+                        ) {
+                            item(key = "search_branded_loader") {
+                                com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                    message = "খবর লোড হচ্ছে...",
+                                    logoSize = 68.dp
+                                )
+                            }
+                            items(4, key = { "search_skeleton_$it" }) {
+                                SkeletonCard()
+                            }
                         }
                     }
 

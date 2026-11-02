@@ -203,7 +203,7 @@ fun CoverageScreen(
             }
 
             val bodyState = when {
-                isLoading -> CoverageBodyState.LOADING
+                isLoading && coverageList.isEmpty() -> CoverageBodyState.LOADING
                 errorMsg != null && coverageList.isEmpty() -> CoverageBodyState.ERROR
                 coverageList.isEmpty() -> CoverageBodyState.EMPTY
                 else -> CoverageBodyState.CONTENT
@@ -219,8 +219,19 @@ fun CoverageScreen(
             ) { state ->
                 when (state) {
                     CoverageBodyState.LOADING -> {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(6) { SkeletonCard() }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 82.dp)
+                        ) {
+                            item(key = "coverage_branded_loader") {
+                                com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                    message = "আপনার খবর সাজানো হচ্ছে...",
+                                    logoSize = 72.dp
+                                )
+                            }
+                            items(4, key = { "coverage_skeleton_$it" }) {
+                                SkeletonCard()
+                            }
                         }
                     }
 

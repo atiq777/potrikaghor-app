@@ -163,28 +163,44 @@ fun BookmarksScreen(
                 }
             }
 
+            val isAppReady by appRepo.isReady.collectAsState()
+            val bookmarksState = when {
+                !isAppReady -> "loading"
+                filteredBookmarks.isEmpty() -> "empty"
+                else -> "list"
+            }
+
             Crossfade(
-                targetState = filteredBookmarks.isEmpty(),
+                targetState = bookmarksState,
                 animationSpec = tween(
                     durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
                     easing = FastOutSlowInEasing
                 ),
                 label = "bookmarksCrossfade"
-            ) { isEmpty ->
-                if (isEmpty) {
-                    EmptyState(
-                        icon = Icons.Filled.Bookmark,
-                        title = "কোনো বুকমার্ক নেই",
-                        body = if (selectedFolder == "সব") {
-                            "কোনো খবর পড়ার সময় উপরের বুকমার্ক আইকন চাপলে সেটি এখানে ফোল্ডারে সেভ হবে এবং অফলাইনেও পড়া যাবে।"
-                        } else {
-                            "'$selectedFolder' ফোল্ডারে বর্তমানে কোনো খবর নেই।"
-                        }
-                    )
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
-                    ) {
+            ) { state ->
+                when (state) {
+                    "loading" -> {
+                        com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                            message = "লোড হচ্ছে...",
+                            logoSize = 72.dp,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    "empty" -> {
+                        EmptyState(
+                            icon = Icons.Filled.Bookmark,
+                            title = "কোনো বুকমার্ক নেই",
+                            body = if (selectedFolder == "সব") {
+                                "কোনো খবর পড়ার সময় উপরের বুকমার্ক আইকন চাপলে সেটি এখানে ফোল্ডারে সেভ হবে এবং অফলাইনেও পড়া যাবে।"
+                            } else {
+                                "'$selectedFolder' ফোল্ডারে বর্তমানে কোনো খবর নেই।"
+                            }
+                        )
+                    }
+                    else -> {
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
+                        ) {
                         items(
                             items = filteredBookmarks,
                             key = { it.url }
@@ -331,6 +347,7 @@ fun BookmarksScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }

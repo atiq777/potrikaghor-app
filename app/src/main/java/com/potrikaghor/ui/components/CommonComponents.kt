@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -59,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -68,9 +70,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +83,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.potrikaghor.R
 import com.potrikaghor.data.ImagePipelineDiagnostic
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.NewsItem
@@ -94,11 +99,13 @@ import kotlinx.coroutines.delay
  * Fast interaction: ~150–200ms
  * Normal transition: ~200–300ms
  * Content reveal: ~250–350ms
+ * Branded breathing cycle: 1200ms (within 1000–1400ms target)
  */
 object MotionTokens {
     const val FAST_MS = 160
     const val NORMAL_MS = 220
     const val REVEAL_MS = 280
+    const val BREATHING_MS = 1200
 }
 
 /**
@@ -939,4 +946,169 @@ fun SkeletonCard(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * Reusable PotrikaGhor Branded Breathing Loading Indicator.
+ *
+ * - Uses the official PotrikaGhor logo ([R.drawable.potrikaghor_logo]).
+ * - Breathing animation:
+ *   - Scale: 0.94f -> 1.06f -> 0.94f
+ *   - Alpha: 0.65f -> 1.0f -> 0.65f
+ *   - Cycle: 1200ms ([MotionTokens.BREATHING_MS]) with [FastOutSlowInEasing]
+ *   - Subtle coral halo glow around the logo without altering logo colors
+ * - Respects [rememberReducedMotion]: when Reduced Motion is active, infinite animations
+ *   are disabled and the logo & loading label remain calm and static.
+ */
+@Composable
+fun BrandedLoadingIndicator(
+    message: String = "লোড হচ্ছে...",
+    subtitle: String? = null,
+    logoSize: Dp = 74.dp,
+    modifier: Modifier = Modifier
+) {
+    val reducedMotion = rememberReducedMotion()
+    val brandCoral = Color(0xFFF04E37)
+
+    val logoScale: Float
+    val logoAlpha: Float
+    val glowAlpha: Float
+    val textAlpha: Float
+
+    if (reducedMotion) {
+        logoScale = 1.0f
+        logoAlpha = 1.0f
+        glowAlpha = 0.08f
+        textAlpha = 1.0f
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "potrikaghorBreathingLoader")
+        val animatedScale by infiniteTransition.animateFloat(
+            initialValue = 0.94f,
+            targetValue = 1.06f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = MotionTokens.BREATHING_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "logoBreathingScale"
+        )
+        val animatedAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.65f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = MotionTokens.BREATHING_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "logoBreathingAlpha"
+        )
+        val animatedGlow by infiniteTransition.animateFloat(
+            initialValue = 0.05f,
+            targetValue = 0.14f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = MotionTokens.BREATHING_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "logoCoralGlowAlpha"
+        )
+        val animatedTextAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.72f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = MotionTokens.BREATHING_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "loadingTextAlpha"
+        )
+        logoScale = animatedScale
+        logoAlpha = animatedAlpha
+        glowAlpha = animatedGlow
+        textAlpha = animatedTextAlpha
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(logoSize + 28.dp)
+                .drawBehind {
+                    val radius = size.minDimension * 0.52f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                brandCoral.copy(alpha = glowAlpha),
+                                brandCoral.copy(alpha = glowAlpha * 0.35f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = radius
+                        ),
+                        radius = radius,
+                        center = center
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.potrikaghor_logo),
+                contentDescription = "পত্রিকাঘর লোড হচ্ছে",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(logoSize)
+                    .graphicsLayer {
+                        scaleX = logoScale
+                        scaleY = logoScale
+                        alpha = logoAlpha
+                    }
+            )
+        }
+
+        if (message.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 13.5.sp,
+                    lineHeight = 18.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.graphicsLayer { alpha = textAlpha }
+            )
+        }
+
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer { alpha = textAlpha * 0.9f }
+            )
+        }
+    }
+}
+
 

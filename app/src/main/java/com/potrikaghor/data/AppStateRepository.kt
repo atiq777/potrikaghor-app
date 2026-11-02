@@ -54,6 +54,9 @@ class AppStateRepository(private val context: Context) {
     private val _state = MutableStateFlow(AppSettings())
     val state: StateFlow<AppSettings> = _state.asStateFlow()
 
+    private val _isReady = MutableStateFlow(false)
+    val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
+
     init {
         loadFromPrefs()
     }
@@ -154,6 +157,7 @@ class AppStateRepository(private val context: Context) {
             offlineMode = offlineMode,
             notificationTopics = notifTopics
         )
+        _isReady.value = true
     }
 
     val allPapers: List<Paper>

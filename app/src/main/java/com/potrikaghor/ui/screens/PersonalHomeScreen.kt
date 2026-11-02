@@ -418,8 +418,19 @@ fun PersonalHomeScreen(
             ) { state ->
                 when (state) {
                     HomeBodyState.LOADING -> {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(6) { SkeletonCard() }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 82.dp)
+                        ) {
+                            item(key = "home_branded_loader") {
+                                com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                    message = "খবর লোড হচ্ছে...",
+                                    logoSize = 72.dp
+                                )
+                            }
+                            items(4, key = { "home_skeleton_$it" }) {
+                                SkeletonCard()
+                            }
                         }
                     }
 

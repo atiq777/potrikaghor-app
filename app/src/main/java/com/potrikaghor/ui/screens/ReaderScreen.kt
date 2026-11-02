@@ -930,39 +930,15 @@ fun ReaderScreen(
                                 .padding(24.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                PaperAvatar(paper = paper, size = 52.dp)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                if (initialTitle.isNotBlank()) {
-                                    Text(
-                                        text = initialTitle,
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontFamily = FontFamily.Serif,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 3,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                }
-                                CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(32.dp),
-                                    strokeWidth = 3.dp
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "${paper.bn}-এর মূল পাতায় নিয়ে যাওয়া হচ্ছে...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
+                            com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                message = "পত্রিকা প্রস্তুত হচ্ছে...",
+                                subtitle = if (initialTitle.isNotBlank()) {
+                                    "$initialTitle\n(${paper.bn}-এর মূল পাতায় নিয়ে যাওয়া হচ্ছে...)"
+                                } else {
+                                    "${paper.bn}-এর মূল পাতায় নিয়ে যাওয়া হচ্ছে..."
+                                },
+                                logoSize = 74.dp
+                            )
                         }
                     }
 
@@ -975,28 +951,12 @@ fun ReaderScreen(
                         ) {
                             if (isExtracting && (cleanArticle == null || currentWebUrl.contains("news.google.com"))) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(24.dp)
-                                    ) {
-                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "ক্লিন রিডার মোডে সাজানো হচ্ছে...",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = readerTextColor
-                                        )
-                                        if (initialTitle.isNotBlank()) {
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = initialTitle,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = readerTextColor.copy(alpha = 0.75f),
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 2
-                                            )
-                                        }
-                                    }
+                                    com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                        message = "আপনার খবর সাজানো হচ্ছে...",
+                                        subtitle = initialTitle.takeIf { it.isNotBlank() }
+                                            ?: "ক্লিন রিডার মোডে সাজানো হচ্ছে...",
+                                        logoSize = 74.dp
+                                    )
                                 }
                             } else if (cleanArticle != null) {
                                 Column(

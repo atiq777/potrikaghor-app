@@ -38,6 +38,7 @@ import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.components.BrandedLoadingIndicator
 import com.potrikaghor.ui.components.NavCapsule
 import com.potrikaghor.ui.components.NavItemSpec
 import com.potrikaghor.ui.dialogs.AddPaperDialog
@@ -119,8 +120,17 @@ fun PotrikaghorApp(
 ) {
     val context = LocalContext.current
     val appState by appRepo.state.collectAsState()
+    val isAppReady by appRepo.isReady.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
+
+    if (!isAppReady) {
+        BrandedLoadingIndicator(
+            message = "লোড হচ্ছে...",
+            modifier = Modifier.fillMaxSize()
+        )
+        return
+    }
 
     // Dialog states
     var showAddPaperDialog by remember { mutableStateOf(false) }

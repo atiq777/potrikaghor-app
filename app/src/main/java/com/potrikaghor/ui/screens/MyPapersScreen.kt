@@ -253,48 +253,76 @@ fun MyPapersScreen(
                 )
             }
 
-            if (filteredList.isEmpty()) {
-                EmptyState(
-                    icon = Icons.Filled.Star,
-                    title = "কোনো পত্রিকা মেলেনি",
-                    body = "আপনার অনুসন্ধান বা নির্বাচিত ক্যাটাগরিতে কোনো পত্রিকা পাওয়া যায়নি।",
-                    actionLabel = "সব দেখুন",
-                    onAction = {
-                        selectedCat = "all"
-                        searchQuery = ""
-                        appRepo.setOnlyShowFavorites(false)
-                    }
-                )
-            } else if (appState.gridView) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 82.dp, top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filteredList, key = { it.url }) { paper ->
-                        MyPaperGridItem(
-                            paper = paper,
-                            isFav = appState.favs.contains(paper.url),
-                            onToggleFav = { appRepo.toggleFav(paper.url) },
-                            onOpen = { onOpenReader(paper, paper.openUrl) },
-                            onFixUrl = { onFixUrl(paper) }
+            val isAppReady by appRepo.isReady.collectAsState()
+            val bodyState = when {
+                !isAppReady -> "loading"
+                filteredList.isEmpty() -> "empty"
+                appState.gridView -> "grid"
+                else -> "list"
+            }
+
+            Crossfade(
+                targetState = bodyState,
+                animationSpec = tween(
+                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                label = "myPapersBodyCrossfade"
+            ) { state ->
+                when (state) {
+                    "loading" -> {
+                        com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                            message = "পত্রিকা প্রস্তুত হচ্ছে...",
+                            logoSize = 72.dp,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
-                ) {
-                    items(filteredList, key = { it.url }) { paper ->
-                        MyPaperListItem(
-                            paper = paper,
-                            isFav = appState.favs.contains(paper.url),
-                            onToggleFav = { appRepo.toggleFav(paper.url) },
-                            onOpen = { onOpenReader(paper, paper.openUrl) },
-                            onFixUrl = { onFixUrl(paper) },
-                            onToggleHide = { appRepo.toggleHidePaper(paper.url) }
+                    "empty" -> {
+                        EmptyState(
+                            icon = Icons.Filled.Star,
+                            title = "কোনো পত্রিকা মেলেনি",
+                            body = "আপনার অনুসন্ধান বা নির্বাচিত ক্যাটাগরিতে কোনো পত্রিকা পাওয়া যায়নি।",
+                            actionLabel = "সব দেখুন",
+                            onAction = {
+                                selectedCat = "all"
+                                searchQuery = ""
+                                appRepo.setOnlyShowFavorites(false)
+                            }
                         )
+                    }
+                    "grid" -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 82.dp, top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(filteredList, key = { it.url }) { paper ->
+                                MyPaperGridItem(
+                                    paper = paper,
+                                    isFav = appState.favs.contains(paper.url),
+                                    onToggleFav = { appRepo.toggleFav(paper.url) },
+                                    onOpen = { onOpenReader(paper, paper.openUrl) },
+                                    onFixUrl = { onFixUrl(paper) }
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
+                        ) {
+                            items(filteredList, key = { it.url }) { paper ->
+                                MyPaperListItem(
+                                    paper = paper,
+                                    isFav = appState.favs.contains(paper.url),
+                                    onToggleFav = { appRepo.toggleFav(paper.url) },
+                                    onOpen = { onOpenReader(paper, paper.openUrl) },
+                                    onFixUrl = { onFixUrl(paper) },
+                                    onToggleHide = { appRepo.toggleHidePaper(paper.url) }
+                                )
+                            }
+                        }
                     }
                 }
             }
