@@ -337,36 +337,126 @@ class ArticleExtractor {
     }
 
     /**
-     * Builds clean, natural text for Text-to-Speech (TTS), filtering out any UI placeholder strings.
+     * Builds clean, natural text for Text-to-Speech (TTS), filtering out UI placeholders,
+     * normalizing Bengali punctuation/spacing, and preserving paragraph breaks ("\n\n")
+     * for natural newsreader pauses.
      */
     fun buildTtsSpeechText(article: CleanArticle?, fallbackTitle: String): String {
-        val headline = article?.title
+        val rawHeadline = article?.title
             ?.takeIf { it.isNotBlank() && !isGenericGoogleTitle(it) }
             ?: fallbackTitle.trim()
 
-        val realParagraphs = article?.paragraphs
+        val headline = cleanHeadlineForTts(rawHeadline, article?.source.orEmpty())
+
+        val cleanedParagraphs = article?.paragraphs
             ?.map { it.trim() }
             ?.filter {
                 it.isNotBlank() &&
                     !isPlaceholderText(it) &&
                     !isGenericGoogleTitle(it) &&
-                    !it.equals(headline, ignoreCase = true)
+                    !it.equals(rawHeadline, ignoreCase = true) &&
+                    !it.equals(headline, ignoreCase = true) &&
+                    !isTtsBoilerplateLine(it)
             }
+            ?.map { cleanSegmentForTts(it) }
+            ?.filter { it.length > 10 && !it.equals(headline, ignoreCase = true) }
+            ?.distinct()
             .orEmpty()
 
         return buildString {
             if (headline.isNotBlank()) {
-                append(headline)
-                if (!headline.endsWith("।") && !headline.endsWith(".") && !headline.endsWith("?") && !headline.endsWith("!")) {
-                    append("। ")
-                } else {
-                    append(" ")
-                }
+                append(ensureSentenceEnding(headline))
             }
-            if (realParagraphs.isNotEmpty()) {
-                append(realParagraphs.joinToString(" "))
+            if (cleanedParagraphs.isNotEmpty()) {
+                if (isNotEmpty()) {
+                    append("\n\n")
+                }
+                append(cleanedParagraphs.joinToString("\n\n") { ensureSentenceEnding(it) })
             }
         }.trim()
+    }
+
+    private fun cleanHeadlineForTts(rawHeadline: String, sourceName: String): String {
+        var h = rawHeadline.trim()
+        if (h.isEmpty()) return ""
+        // Strip trailing newspaper/source suffix after " - ", " | ", " – ", " — "
+        val suffixSplit = h.split(Regex("\\s+[|\\-–—]\\s+"))
+        if (suffixSplit.size > 1) {
+            val lastPart = suffixSplit.last().trim()
+            if (lastPart.length <= 28 || (sourceName.isNotBlank() && lastPart.contains(sourceName, ignoreCase = true))) {
+                h = suffixSplit.dropLast(1).joinToString(" - ").trim()
+            }
+        }
+        return cleanSegmentForTts(h)
+    }
+
+    private fun isTtsBoilerplateLine(text: String): Boolean {
+        val t = text.trim()
+        return t.startsWith("আরও পড়ুন") ||
+            t.startsWith("আরও পড়ুন") ||
+            t.startsWith("এ সম্পর্কিত আরও") ||
+            t.startsWith("বিস্তারিত ভিডিওতে") ||
+            t.startsWith("ভিডিও দেখুন") ||
+            t.startsWith("গুগল নিউজে") ||
+            t.startsWith("ফেইসবুকে ফলো") ||
+            t.startsWith("বিজ্ঞাপন")
+    }
+
+    private fun cleanSegmentForTts(input: String): String {
+        if (input.isBlank()) return ""
+        var s = try {
+            java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFC)
+        } catch (_: Exception) {
+            input
+        }
+
+        // Remove zero-width joiners/non-joiners and soft hyphens that break Bengali word pronunciation
+        s = s.replace("\u200C", "")
+            .replace("\u200D", "")
+            .replace("\u00AD", "")
+            .replace("\u00A0", " ")
+
+        // Strip raw URLs
+        s = s.replace(Regex("https?://\\S+"), " ")
+            .replace(Regex("www\\.\\S+"), " ")
+
+        // Strip parenthetical/bracketed photo or agency credits that interrupt speech flow
+        s = s.replace(Regex("\\((?:ছবি|ফাইল ছবি|সংগৃহীত|ভিডিও|সূত্র|প্রতিনিধি)[^)]*\\)"), " ")
+            .replace(Regex("\\[(?:ছবি|ফাইল ছবি|সংগৃহীত|ভিডিও|সূত্র)[^]]*]"), " ")
+
+        // Protect common Bengali abbreviations so the period does not trigger a false sentence break
+        s = s.replace(Regex("(?<=\\b(?:ড|মো|মি|প্রা|ইঞ্জি|অ্যাড))\\."), " ")
+            .replace("বি.দ্র.", "বিশেষ দ্রষ্টব্য, ")
+
+        // Convert dashes and vertical bars into a natural comma pause
+        s = s.replace(Regex("\\s*[—–|]+\\s*"), ", ")
+            .replace(Regex("\\s+--\\s+"), ", ")
+
+        // Remove decorative bullets and symbols that TTS may read literally
+        s = s.replace(Regex("[•▪►»*#_~<>]+"), " ")
+            .replace(Regex("[\"'“”‘’]"), "")
+
+        // Collapse repeated punctuation
+        s = s.replace(Regex("।{2,}"), "।")
+            .replace(Regex("\\.{2,}"), "। ")
+            .replace(Regex(",\\s*,+"), ", ")
+
+        // Ensure a space always follows Bengali danda, comma, semicolon, question/exclamation marks
+        // so adjacent sentences (e.g. "বলেন।তিনি") never merge into one run-on string
+        s = s.replace(Regex("([।?!,;:])(?=[\\p{L}\\p{N}\u0980-\u09FF])"), "$1 ")
+
+        return s.replace(Regex("[ \\t]+"), " ").trim()
+    }
+
+    private fun ensureSentenceEnding(text: String): String {
+        val t = text.trim()
+        if (t.isEmpty()) return ""
+        return if (t.endsWith("।") || t.endsWith(".") || t.endsWith("?") || t.endsWith("!")) {
+            t
+        } else {
+            val hasBengali = Regex("[\u0980-\u09FF]").containsMatchIn(t)
+            if (hasBengali) "$t।" else "$t."
+        }
     }
 
     fun parseHtml(html: String, url: String, fallbackTitle: String, source: String): CleanArticle {

@@ -204,7 +204,7 @@ fun ReaderScreen(
         }
     }
 
-    // Helper to configure TTS language and speak article chunks reliably
+    // Helper to configure TTS language, voice, prosody, and speak article paragraphs/sentences naturally
     fun startTtsPlayback(articleToRead: CleanArticle?) {
         val engine = tts
         if (engine == null || !isTtsReady) {
@@ -224,51 +224,65 @@ fun ReaderScreen(
 
         // Detect whether text contains Bengali characters
         val hasBengali = Regex("[\u0980-\u09FF]").containsMatchIn(fullText)
-        if (hasBengali) {
-            val localesToTry = listOf(
-                Locale("bn", "BD"),
-                Locale("bn", "IN"),
-                Locale("bn")
-            )
-            var bnSupported = false
-            for (loc in localesToTry) {
-                val avail = engine.isLanguageAvailable(loc)
-                if (avail >= TextToSpeech.LANG_AVAILABLE) {
-                    engine.language = loc
-                    bnSupported = true
-                    break
-                }
-            }
-            if (!bnSupported) {
-                val res = engine.setLanguage(Locale("bn", "BD"))
-                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    val resIn = engine.setLanguage(Locale("bn", "IN"))
-                    if (resIn == TextToSpeech.LANG_MISSING_DATA || resIn == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        Toast.makeText(
-                            context,
-                            "আপনার ফোনের TTS সেটিংসে বাংলা ভয়েস ডাউনলোড করা নেই",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        } else {
-            val res = engine.setLanguage(Locale.US)
-            if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                engine.language = Locale.ENGLISH
-            }
+        val bnSupported = configureNaturalTtsVoice(engine, hasBengali)
+        if (hasBengali && !bnSupported) {
+            Toast.makeText(
+                context,
+                "আপনার ফোনের TTS সেটিংসে বাংলা ভয়েস ডাউনলোড করা নেই",
+                Toast.LENGTH_LONG
+            ).show()
         }
 
-        engine.setSpeechRate(ttsSpeed)
+        // Use a calm, natural newsreader cadence (0.92f base for 1.0x in Bengali) and natural pitch
+        val effectiveRate = if (hasBengali) (ttsSpeed * 0.92f).coerceIn(0.6f, 1.6f) else ttsSpeed
+        engine.setSpeechRate(effectiveRate)
+        engine.setPitch(0.98f)
 
-        val chunks = splitTextIntoTtsChunks(fullText)
-        if (chunks.isEmpty()) return
+        val paragraphs = fullText
+            .split(Regex("\\n{2,}"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 
+        val paragraphChunks = paragraphs
+            .map { splitTextIntoTtsChunks(it) }
+            .filter { it.isNotEmpty() }
+
+        if (paragraphChunks.isEmpty()) return
+
+        engine.stop()
         isTtsPlaying = true
-        chunks.forEachIndexed { index, chunk ->
-            val queueMode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            val utteranceId = if (index == chunks.lastIndex) "potrikaghor_tts_last" else "potrikaghor_tts_$index"
-            engine.speak(chunk, queueMode, null, utteranceId)
+
+        val totalUtterances = paragraphChunks.sumOf { it.size }
+        var spokenCount = 0
+
+        paragraphChunks.forEachIndexed { pIndex, chunks ->
+            chunks.forEachIndexed { cIndex, chunk ->
+                spokenCount++
+                val isFirst = (pIndex == 0 && cIndex == 0)
+                val isLast = (spokenCount == totalUtterances)
+                val queueMode = if (isFirst) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                val utteranceId = if (isLast) "potrikaghor_tts_last" else "potrikaghor_tts_${pIndex}_$cIndex"
+                engine.speak(chunk, queueMode, null, utteranceId)
+
+                // Subtle pause between sentences within a paragraph
+                if (!isLast && cIndex < chunks.lastIndex) {
+                    engine.playSilentUtterance(
+                        160L,
+                        TextToSpeech.QUEUE_ADD,
+                        "potrikaghor_tts_sent_pause_${pIndex}_$cIndex"
+                    )
+                }
+            }
+
+            // Natural breathing pause after the headline and between paragraphs
+            if (pIndex < paragraphChunks.lastIndex) {
+                val pauseDurationMs = if (pIndex == 0) 480L else 380L
+                engine.playSilentUtterance(
+                    pauseDurationMs,
+                    TextToSpeech.QUEUE_ADD,
+                    "potrikaghor_tts_para_pause_$pIndex"
+                )
+            }
         }
     }
 
@@ -287,20 +301,16 @@ fun ReaderScreen(
         }
     }
 
-    // Initialize TTS with UtteranceProgressListener
+    // Initialize TTS with UtteranceProgressListener (prefer Google Speech Services for natural Bengali voice)
     DisposableEffect(context) {
         var ttsInstance: TextToSpeech? = null
-        ttsInstance = TextToSpeech(context.applicationContext) { status ->
+        val initListener = TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 isTtsReady = true
-                val bnBd = Locale("bn", "BD")
-                val bnIn = Locale("bn", "IN")
-                val res = ttsInstance?.setLanguage(bnBd)
-                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    val resIn = ttsInstance?.setLanguage(bnIn)
-                    if (resIn == TextToSpeech.LANG_MISSING_DATA || resIn == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        ttsInstance?.language = Locale.US
-                    }
+                ttsInstance?.let { engine ->
+                    configureNaturalTtsVoice(engine, hasBengali = true)
+                    engine.setSpeechRate(0.92f)
+                    engine.setPitch(0.98f)
                 }
                 ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
@@ -331,6 +341,19 @@ fun ReaderScreen(
                     }
                 })
             }
+        }
+
+        val googleTtsPackage = "com.google.android.tts"
+        val hasGoogleTts = try {
+            context.packageManager.getPackageInfo(googleTtsPackage, 0) != null
+        } catch (_: Exception) {
+            false
+        }
+
+        ttsInstance = if (hasGoogleTts) {
+            TextToSpeech(context.applicationContext, initListener, googleTtsPackage)
+        } else {
+            TextToSpeech(context.applicationContext, initListener)
         }
         tts = ttsInstance
         onDispose {
@@ -641,7 +664,7 @@ fun ReaderScreen(
                                             .padding(horizontal = 2.dp)
                                             .clickable {
                                                 ttsSpeed = spd
-                                                tts?.setSpeechRate(spd)
+                                                tts?.setSpeechRate((spd * 0.92f).coerceIn(0.6f, 1.6f))
                                                 if (isTtsPlaying) {
                                                     startTtsPlayback(cleanArticle)
                                                 }
@@ -1072,42 +1095,162 @@ fun ReaderScreen(
 }
 
 /**
- * Splits long Bengali or English article text into sentence chunks <= 260 characters
- * so Android TextToSpeech can speak long articles smoothly without cutting off.
+ * Selects the most natural available Bengali (bn-BD / bn-IN) or English voice on the TTS engine.
  */
-private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 260): List<String> {
-    val rawSentences = text
-        .split(Regex("(?<=[।.!?\\n])\\s+"))
+private fun configureNaturalTtsVoice(engine: TextToSpeech, hasBengali: Boolean): Boolean {
+    if (!hasBengali) {
+        val res = engine.setLanguage(Locale.US)
+        if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+            engine.language = Locale.ENGLISH
+        }
+        return true
+    }
+
+    val localesToTry = listOf(
+        Locale("bn", "BD"),
+        Locale("bn", "IN"),
+        Locale("bn")
+    )
+
+    var supported = false
+    for (loc in localesToTry) {
+        val avail = engine.isLanguageAvailable(loc)
+        if (avail >= TextToSpeech.LANG_AVAILABLE) {
+            val res = engine.setLanguage(loc)
+            if (res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED) {
+                supported = true
+                break
+            }
+        }
+    }
+
+    if (!supported) {
+        val resBd = engine.setLanguage(Locale("bn", "BD"))
+        if (resBd != TextToSpeech.LANG_MISSING_DATA && resBd != TextToSpeech.LANG_NOT_SUPPORTED) {
+            supported = true
+        } else {
+            val resIn = engine.setLanguage(Locale("bn", "IN"))
+            if (resIn != TextToSpeech.LANG_MISSING_DATA && resIn != TextToSpeech.LANG_NOT_SUPPORTED) {
+                supported = true
+            }
+        }
+    }
+
+    // Pick the highest-quality local/neural Bengali voice if the engine exposes voices
+    try {
+        val availableVoices = engine.voices
+        if (!availableVoices.isNullOrEmpty()) {
+            val bestBnVoice = availableVoices
+                .filter { v ->
+                    v.locale != null &&
+                        v.locale.language.equals("bn", ignoreCase = true) &&
+                        (v.features == null || !v.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED))
+                }
+                .maxWithOrNull(
+                    compareBy<android.speech.tts.Voice> { v ->
+                        if (v.locale.country.equals("BD", ignoreCase = true)) 1 else 0
+                    }.thenBy { v ->
+                        v.quality
+                    }.thenBy { v ->
+                        if (!v.isNetworkConnectionRequired) 1 else 0
+                    }
+                )
+            if (bestBnVoice != null) {
+                engine.voice = bestBnVoice
+                supported = true
+            }
+        }
+    } catch (_: Exception) {
+        // Fallback to locale selection already applied above
+    }
+
+    return supported
+}
+
+/**
+ * Splits Bengali or English paragraph text into natural sentence and clause chunks
+ * without ever cutting inside a word or phrase.
+ */
+private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 220): List<String> {
+    if (text.isBlank()) return emptyList()
+
+    val paragraphs = text
+        .split(Regex("\\n{2,}"))
         .map { it.trim() }
         .filter { it.isNotEmpty() }
 
     val chunks = mutableListOf<String>()
-    var current = StringBuilder()
 
-    for (sentence in rawSentences) {
-        if (sentence.length > maxChunkLen) {
-            if (current.isNotEmpty()) {
-                chunks.add(current.toString().trim())
-                current = StringBuilder()
+    for (paragraph in paragraphs) {
+        // Split into individual sentences at Bengali danda (।), ?, !, or English period followed by space
+        val sentences = paragraph
+            .split(Regex("(?<=[।!?])\\s+|(?<=\\.)\\s+(?=[A-Z0-9\u0980-\u09FF])|\\n+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        for (sentence in sentences) {
+            if (sentence.length <= maxChunkLen) {
+                chunks.add(sentence)
+            } else {
+                chunks.addAll(splitLongSentenceAtNaturalBoundaries(sentence, maxChunkLen))
             }
-            var start = 0
-            while (start < sentence.length) {
-                val end = (start + maxChunkLen).coerceAtMost(sentence.length)
-                chunks.add(sentence.substring(start, end).trim())
-                start = end
-            }
-        } else if (current.length + sentence.length + 1 > maxChunkLen) {
-            if (current.isNotEmpty()) {
-                chunks.add(current.toString().trim())
-            }
-            current = StringBuilder(sentence)
-        } else {
-            if (current.isNotEmpty()) current.append(" ")
-            current.append(sentence)
         }
     }
-    if (current.isNotEmpty()) {
-        chunks.add(current.toString().trim())
-    }
+
     return chunks
 }
+
+/**
+ * Breaks a long sentence (> maxChunkLen) at natural clause boundaries (commas, semicolons,
+ * conjunctions) first, and falls back to the last word boundary (space) before maxChunkLen.
+ * Never cuts in the middle of a word.
+ */
+private fun splitLongSentenceAtNaturalBoundaries(sentence: String, maxChunkLen: Int): List<String> {
+    val result = mutableListOf<String>()
+    // First split by natural clause punctuation (, or ; or : or —)
+    val clauses = sentence
+        .split(Regex("(?<=[,;:])\\s+|\\s+(?=(?:এবং|কিন্তু|তবে|কারণ|বলে|যাতে)\\s)"))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    var current = StringBuilder()
+
+    fun flushCurrent() {
+        if (current.isNotEmpty()) {
+            result.add(current.toString().trim())
+            current = StringBuilder()
+        }
+    }
+
+    for (clause in clauses) {
+        if (clause.length > maxChunkLen) {
+            flushCurrent()
+            // Split oversized clause strictly at word boundaries (spaces), never mid-word
+            val words = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            var wordBuf = StringBuilder()
+            for (word in words) {
+                if (wordBuf.isEmpty()) {
+                    wordBuf.append(word)
+                } else if (wordBuf.length + 1 + word.length <= maxChunkLen) {
+                    wordBuf.append(" ").append(word)
+                } else {
+                    result.add(wordBuf.toString().trim())
+                    wordBuf = StringBuilder(word)
+                }
+            }
+            if (wordBuf.isNotEmpty()) {
+                result.add(wordBuf.toString().trim())
+            }
+        } else if (current.isEmpty()) {
+            current.append(clause)
+        } else if (current.length + 1 + clause.length <= maxChunkLen) {
+            current.append(" ").append(clause)
+        } else {
+            flushCurrent()
+            current.append(clause)
+        }
+    }
+    flushCurrent()
+    return result
+}
+
