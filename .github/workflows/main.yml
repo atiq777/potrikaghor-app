@@ -40,14 +40,14 @@ jobs:
             exit 1
           fi
 
-      - name: Build Release APK
+      - name: Build Release APK and AAB
         env:
           KEYSTORE_FILE: ${{ github.workspace }}/release-keystore.p12
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: gradle assembleRelease --no-daemon
+        run: gradle assembleRelease bundleRelease --no-daemon
 
       - name: Clean up temporary release keystore
         if: always()
@@ -58,3 +58,9 @@ jobs:
         with:
           name: potrikaghor-apk
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: potrikaghor-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab

@@ -86,7 +86,7 @@ object BreakingNewsNotifier {
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_small)
             .setContentTitle(countBadge)
             .setContentText(title)
             .setSubText(source)

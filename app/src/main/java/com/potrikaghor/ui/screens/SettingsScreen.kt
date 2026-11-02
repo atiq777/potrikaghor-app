@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.potrikaghor.BuildConfig
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
@@ -610,6 +612,12 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
+                                    try {
+                                        val webView = WebView(context)
+                                        webView.clearCache(true)
+                                        webView.destroy()
+                                    } catch (_: Exception) {
+                                    }
                                     Toast.makeText(context, "ওয়েব ক্যাশ খালি করা হয়েছে", Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(vertical = 8.dp),
@@ -658,7 +666,7 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("পত্রিকাঘর — আপনার ব্যক্তিগত সংবাদপত্র", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                        Text("সংস্করণ ১.৭.০ • সম্পূর্ণ প্রাইভেট ও লোকাল", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("সংস্করণ ${BengaliUtils.bnDigits(BuildConfig.VERSION_NAME)} • সম্পূর্ণ প্রাইভেট ও লোকাল", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "কোনো অ্যাকাউন্ট বা ট্র্যাকিং নেই। সমস্ত ডেটা আপনার নিজের ডিভাইসে নিরাপদ থাকে।",

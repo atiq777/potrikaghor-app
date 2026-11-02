@@ -24,7 +24,7 @@ android {
         !releaseKeyPassword.isNullOrBlank()
 
     defaultConfig {
-        applicationId = "com.aistudio.potrikaghor.qwrty"
+        applicationId = "com.potrikaghor.app"
         minSdk = 26
         targetSdk = 36
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
@@ -45,12 +45,14 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
-        create("release") {
-            storeFile = releaseKeystoreFile
-            storePassword = releaseKeystorePassword
-            keyAlias = releaseKeyAlias
-            keyPassword = releaseKeyPassword
-            storeType = "PKCS12"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                storeType = "PKCS12"
+            }
         }
     }
 
@@ -61,7 +63,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
@@ -73,6 +77,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

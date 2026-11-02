@@ -33,7 +33,7 @@ data class AppSettings(
     val themeMode: String = "dark", // system | light | dark
     val themeStyle: String = "amoled", // normal | amoled | sepia
     val accent: Int = 4, // default pink/salmon accent
-    val hideAds: Boolean = true,
+    val hideAds: Boolean = false,
     val gridView: Boolean = false,
     val readerNight: Boolean = false,
     val readerDesktop: Boolean = false,
@@ -121,7 +121,7 @@ class AppStateRepository(private val context: Context) {
         val themeMode = prefs.getString("theme_mode", "dark") ?: "dark"
         val themeStyle = prefs.getString("theme_style", "amoled") ?: "amoled"
         val accent = prefs.getInt("accent", 4).coerceIn(0, 6)
-        val hideAds = prefs.getBoolean("hide_ads", true)
+        val hideAds = prefs.getBoolean("hide_ads", false)
         val gridView = prefs.getBoolean("grid_view", false)
         val readerNight = prefs.getBoolean("reader_night", false)
         val readerDesktop = prefs.getBoolean("reader_desktop", false)
@@ -545,7 +545,7 @@ class AppStateRepository(private val context: Context) {
             val readerZoom = (settings?.get("readerZoom")?.jsonPrimitive?.intOrNull ?: 100).coerceIn(70, 200)
             val themeStyle = settings?.get("themeStyle")?.jsonPrimitive?.content ?: "amoled"
             val accent = (settings?.get("accent")?.jsonPrimitive?.intOrNull ?: 4).coerceIn(0, 6)
-            val hideAds = settings?.get("hideAds")?.jsonPrimitive?.booleanOrNull ?: true
+            val hideAds = settings?.get("hideAds")?.jsonPrimitive?.booleanOrNull ?: false
             val density = settings?.get("density")?.jsonPrimitive?.content ?: "comfortable"
             val articleFontSize = settings?.get("articleFontSize")?.jsonPrimitive?.intOrNull ?: 18
             val articleLineHeight = (settings?.get("articleLineHeight")?.jsonPrimitive?.doubleOrNull ?: 1.7).toFloat()

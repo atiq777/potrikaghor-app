@@ -2,6 +2,7 @@ package com.potrikaghor.data
 
 import android.util.Base64
 import android.util.Log
+import com.potrikaghor.BuildConfig
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.NewsItem
 import kotlinx.coroutines.Deferred
@@ -55,14 +56,17 @@ class NewsRepository {
         const val IMAGE_ACCEPT_HEADER = "image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5"
 
         fun logDiag(message: String) {
-            try {
-                Log.d(DIAG_TAG, message)
-            } catch (_: Throwable) {
-                println("[$DIAG_TAG] $message")
+            if (BuildConfig.DEBUG) {
+                try {
+                    Log.d(DIAG_TAG, message)
+                } catch (_: Throwable) {
+                    println("[$DIAG_TAG] $message")
+                }
             }
         }
 
         fun logArticleImagePipeline(diag: ImagePipelineDiagnostic) {
+            if (!BuildConfig.DEBUG) return
             val sb = StringBuilder()
             sb.append("ARTICLE_IMAGE_DIAG | ")
             sb.append("title=\"${diag.title.take(65)}\" | ")
