@@ -2,15 +2,10 @@ package com.potrikaghor.ui.dialogs
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -31,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.components.GlassPrimaryButton
+import com.potrikaghor.ui.components.GlassSecondaryButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +119,7 @@ fun AddPaperDialog(
             }
         },
         confirmButton = {
-            Button(
+            GlassPrimaryButton(
                 onClick = {
                     val validUrl = normalizeUrl(urlInput)
                     if (bnName.trim().isEmpty()) {
@@ -143,11 +140,11 @@ fun AddPaperDialog(
                     }
                 }
             ) {
-                Text("যোগ করুন")
+                Text("যোগ করুন", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            GlassSecondaryButton(onClick = onDismiss) {
                 Text("বাতিল")
             }
         }
@@ -201,7 +198,7 @@ fun FixUrlDialog(
             }
         },
         confirmButton = {
-            Button(
+            GlassPrimaryButton(
                 onClick = {
                     val valid = normalizeUrl(currentUrl)
                     if (valid != null) {
@@ -213,11 +210,11 @@ fun FixUrlDialog(
                     }
                 }
             ) {
-                Text("সংরক্ষণ")
+                Text("সংরক্ষণ", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            GlassSecondaryButton(onClick = onDismiss) {
                 Text("বাতিল")
             }
         }

@@ -1,17 +1,9 @@
 package com.potrikaghor.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,23 +19,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,8 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,13 +45,18 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
+import com.potrikaghor.ui.components.GlassCard
+import com.potrikaghor.ui.components.GlassCardTier
+import com.potrikaghor.ui.components.GlassChip
+import com.potrikaghor.ui.components.GlassIconButton
+import com.potrikaghor.ui.components.GlassSearchBar
+import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
 import com.potrikaghor.ui.components.SubtleContentReveal
-import com.potrikaghor.ui.components.pressScaleEffect
+import com.potrikaghor.ui.components.editorialAmbientBackground
 import com.potrikaghor.ui.components.rememberReducedMotion
-import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
 
@@ -112,29 +99,12 @@ fun SearchScreen(
     }
 
     val quickTopics = listOf("আজকের শীর্ষ", "বাজেট", "রাজনীতি", "ক্রিকেট", "শেয়ারবাজার", "প্রযুক্তি", "চাকরি", "শিক্ষা")
-    val searchFieldInteraction = remember { MutableInteractionSource() }
-    val isSearchFocused by searchFieldInteraction.collectIsFocusedAsState()
-    val searchFieldScale by animateFloatAsState(
-        targetValue = if (isSearchFocused && !reducedMotion) 1.008f else 1f,
-        animationSpec = tween(
-            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-            easing = FastOutSlowInEasing
-        ),
-        label = "searchFocusScale"
-    )
-    val searchIconTint by animateColorAsState(
-        targetValue = if (isSearchFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(
-            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-            easing = FastOutSlowInEasing
-        ),
-        label = "searchIconTint"
-    )
     val backBtnInteraction = remember { MutableInteractionSource() }
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = {
                     Text(
                         text = "খবর অনুসন্ধান",
@@ -147,116 +117,60 @@ fun SearchScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(
+                    GlassIconButton(
                         onClick = onBack,
-                        interactionSource = backBtnInteraction,
-                        modifier = Modifier.pressScaleEffect(backBtnInteraction, pressedScale = 0.90f)
+                        interactionSource = backBtnInteraction
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "ফিরে যান",
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .editorialAmbientBackground(
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    isDark = isDark
+                )
                 .padding(innerPadding)
         ) {
-            OutlinedTextField(
+            GlassSearchBar(
                 value = query,
                 onValueChange = {
                     query = it
                     if (it.length >= 3) doSearch(it)
                 },
-                interactionSource = searchFieldInteraction,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp)
-                    .graphicsLayer {
-                        scaleX = searchFieldScale
-                        scaleY = searchFieldScale
-                    },
-                placeholder = { Text("কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...", fontSize = 13.sp) },
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = searchIconTint,
-                        modifier = Modifier.size(20.dp)
-                    )
+                placeholder = "কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...",
+                onClear = {
+                    query = ""
+                    results = emptyList()
+                    hasSearched = false
                 },
-                trailingIcon = {
-                    AnimatedVisibility(
-                        visible = query.isNotEmpty(),
-                        enter = fadeIn(tween(MotionTokens.FAST_MS)) + scaleIn(tween(MotionTokens.FAST_MS), initialScale = 0.8f),
-                        exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f)
-                    ) {
-                        IconButton(onClick = { query = ""; results = emptyList(); hasSearched = false }) {
-                            Icon(Icons.Filled.Clear, contentDescription = "মুছুন")
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                onSearchAction = { doSearch(query) },
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
             )
 
             // Quick Topic Suggestion Chips
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 items(quickTopics, key = { it }) { topic ->
                     val isTopicSelected = query == topic
-                    val topicBg by animateColorAsState(
-                        targetValue = if (isTopicSelected) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                        animationSpec = tween(
-                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "topicChipBg"
+                    GlassChip(
+                        label = topic,
+                        selected = isTopicSelected,
+                        onClick = {
+                            query = topic
+                            doSearch(topic)
+                        }
                     )
-                    val topicTextColor by animateColorAsState(
-                        targetValue = if (isTopicSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        animationSpec = tween(
-                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "topicChipText"
-                    )
-
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .subtleClickable(pressedScale = 0.95f) {
-                                query = topic
-                                doSearch(topic)
-                            },
-                        shape = RoundedCornerShape(10.dp),
-                        color = topicBg
-                    ) {
-                        Text(
-                            text = topic,
-                            color = topicTextColor,
-                            fontWeight = if (isTopicSelected) FontWeight.Bold else FontWeight.Normal,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            ),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
                 }
             }
 
@@ -322,19 +236,16 @@ fun SearchScreen(
                                     durationMillis = if (isFirstReveal) MotionTokens.REVEAL_MS else 0,
                                     initialOffsetYDp = if (isFirstReveal) 6.dp else 0.dp
                                 ) {
-                                    Card(
+                                    GlassCard(
+                                        tier = GlassCardTier.Standard,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 4.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .subtleClickable(pressedScale = 0.984f) {
-                                                onOpenReader(paper, item.link, item.title)
-                                            },
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                            .padding(horizontal = 14.dp, vertical = 4.dp),
+                                        onClick = {
+                                            onOpenReader(paper, item.link, item.title)
+                                        }
                                     ) {
-                                        Column(modifier = Modifier.padding(11.dp)) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 PaperAvatar(paper = paper, size = 18.dp)
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -344,7 +255,7 @@ fun SearchScreen(
                                                         fontSize = 11.5.sp,
                                                         lineHeight = 15.sp
                                                     ),
-                                                    color = MaterialTheme.colorScheme.primary,
+                                                    color = MaterialTheme.colorScheme.secondary,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Spacer(modifier = Modifier.weight(1f))
@@ -382,4 +293,3 @@ fun SearchScreen(
         }
     }
 }
-

@@ -96,6 +96,13 @@ class NativeAdSlotManager(context: Context) {
 
         val adUnitId = AdMobConfig.activeNativeAdUnitId
 
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                AD_LOG_TAG,
+                "Requesting NativeAd: slot=$slotKey, adUnitId=$adUnitId, testMode=${AdMobConfig.IS_AD_TEST_MODE}"
+            )
+        }
+
         val adLoader = AdLoader.Builder(appContext, adUnitId)
             .forNativeAd { nativeAd ->
                 synchronized(this@NativeAdSlotManager) {
@@ -107,7 +114,10 @@ class NativeAdSlotManager(context: Context) {
                     slotFlows[slotKey]?.value = NativeAdSlotState.Loaded(nativeAd)
                 }
                 if (BuildConfig.DEBUG) {
-                    Log.d(AD_LOG_TAG, "Native ad loaded for slot=$slotKey (testMode=${AdMobConfig.IS_AD_TEST_MODE})")
+                    Log.d(
+                        AD_LOG_TAG,
+                        "NativeAd loaded successfully: slot=$slotKey, adUnitId=$adUnitId, testMode=${AdMobConfig.IS_AD_TEST_MODE}"
+                    )
                 }
             }
             .withAdListener(object : AdListener() {
@@ -118,9 +128,9 @@ class NativeAdSlotManager(context: Context) {
                         }
                     }
                     if (BuildConfig.DEBUG) {
-                        Log.d(
+                        Log.w(
                             AD_LOG_TAG,
-                            "Native ad failed to load for slot=$slotKey: code=${error.code}, message=${error.message}"
+                            "NativeAd failed to load: slot=$slotKey, errorCode=${error.code}, errorMessage=${error.message}, domain=${error.domain}"
                         )
                     }
                 }

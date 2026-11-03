@@ -686,86 +686,164 @@ fun NavCapsule(
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
-    val isDark = cs.background.red < 0.2f
-    val barBg = if (isDark) AmoledCard else InkColor
+    val isDark = cs.background.red < 0.25f
     val reducedMotion = rememberReducedMotion()
+    val capsuleShape = RoundedCornerShape(28.dp)
 
-    Surface(
+    val barBrush = remember(isDark, cs.surface, cs.surfaceVariant) {
+        if (isDark) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    cs.surfaceVariant.copy(alpha = 0.94f),
+                    cs.surface.copy(alpha = 0.96f)
+                )
+            )
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.95f),
+                    cs.surface.copy(alpha = 0.92f)
+                )
+            )
+        }
+    }
+
+    val borderBrush = remember(isDark, cs.outlineVariant, cs.secondary) {
+        if (isDark) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.20f),
+                    cs.outlineVariant.copy(alpha = 0.65f),
+                    cs.outlineVariant.copy(alpha = 0.35f)
+                )
+            )
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color.White,
+                    cs.secondary.copy(alpha = 0.22f),
+                    cs.outlineVariant.copy(alpha = 0.65f)
+                )
+            )
+        }
+    }
+
+    val unselectedIconColor = if (isDark) {
+        cs.onSurfaceVariant
+    } else {
+        cs.onSurfaceVariant
+    }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 4.dp)
-            .shadow(14.dp, RoundedCornerShape(28.dp)),
-        shape = RoundedCornerShape(28.dp),
-        color = barBg,
-        tonalElevation = 8.dp
+            .padding(horizontal = 14.dp, vertical = 5.dp)
+            .shadow(
+                elevation = if (isDark) 14.dp else 10.dp,
+                shape = capsuleShape,
+                ambientColor = if (isDark) Color.Black.copy(alpha = 0.65f) else cs.secondary.copy(alpha = 0.20f),
+                spotColor = if (isDark) Color.Black.copy(alpha = 0.75f) else cs.secondary.copy(alpha = 0.26f)
+            )
+            .clip(capsuleShape)
+            .background(brush = barBrush, shape = capsuleShape)
+            .glassTopSpecularHighlight(
+                highlightColor = if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.92f),
+                horizontalInsetDp = 22.dp
+            )
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = capsuleShape,
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, borderBrush)
         ) {
-            items.forEachIndexed { index, item ->
-                val selected = index == selectedIndex
-                val interactionSource = remember { MutableInteractionSource() }
-                val pillColor by animateColorAsState(
-                    targetValue = if (selected) cs.primary else Color.Transparent,
-                    animationSpec = tween(
-                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                        easing = FastOutSlowInEasing
-                    ),
-                    label = "navPillBg"
-                )
-                val tint by animateColorAsState(
-                    targetValue = if (selected) cs.onPrimary else Color(0xFFCFC6B4),
-                    animationSpec = tween(
-                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                        easing = FastOutSlowInEasing
-                    ),
-                    label = "navIconTint"
-                )
-                val iconScale by animateFloatAsState(
-                    targetValue = if (selected && !reducedMotion) 1.05f else 1f,
-                    animationSpec = tween(
-                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                        easing = FastOutSlowInEasing
-                    ),
-                    label = "navIconScale"
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items.forEachIndexed { index, item ->
+                    val selected = index == selectedIndex
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val pillColor by animateColorAsState(
+                        targetValue = if (selected) cs.primary else Color.Transparent,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "navPillBg"
+                    )
+                    val tint by animateColorAsState(
+                        targetValue = if (selected) cs.onPrimary else unselectedIconColor,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "navIconTint"
+                    )
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (selected && !reducedMotion) 1.05f else 1f,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "navIconScale"
+                    )
 
-                Surface(
-                    modifier = Modifier
-                        .pressScaleEffect(interactionSource = interactionSource, pressedScale = 0.94f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = LocalIndication.current
-                        ) { onSelectIndex(index) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = pillColor
-                ) {
-                    Row(
+                    val pillShape = RoundedCornerShape(20.dp)
+
+                    Surface(
                         modifier = Modifier
-                            .animateContentSize(
-                                animationSpec = tween(
-                                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                                    easing = FastOutSlowInEasing
-                                )
-                            )
-                            .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                            .pressScaleEffect(interactionSource = interactionSource, pressedScale = 0.94f)
+                            .clip(pillShape)
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = LocalIndication.current
+                            ) { onSelectIndex(index) },
+                        shape = pillShape,
+                        color = pillColor,
+                        border = if (selected) {
+                            BorderStroke(0.75.dp, Color.White.copy(alpha = 0.28f))
+                        } else {
+                            null
+                        }
                     ) {
-                        if (item.badge > 0) {
-                            BadgedBox(
-                                badge = {
-                                    Badge(containerColor = FlagRed, contentColor = Color.White) {
-                                        Text(BengaliUtils.bnDigits(item.badge), fontSize = 9.5.sp)
+                        Row(
+                            modifier = Modifier
+                                .animateContentSize(
+                                    animationSpec = tween(
+                                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
+                                .padding(horizontal = if (selected) 12.dp else 10.dp, vertical = 6.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (item.badge > 0) {
+                                BadgedBox(
+                                    badge = {
+                                        Badge(containerColor = FlagRed, contentColor = Color.White) {
+                                            Text(BengaliUtils.bnDigits(item.badge), fontSize = 9.5.sp)
+                                        }
                                     }
+                                ) {
+                                    Icon(
+                                        imageVector = if (selected) item.selectedIcon else item.icon,
+                                        contentDescription = item.label,
+                                        tint = tint,
+                                        modifier = Modifier
+                                            .size(19.dp)
+                                            .graphicsLayer {
+                                                scaleX = iconScale
+                                                scaleY = iconScale
+                                            }
+                                    )
                                 }
-                            ) {
+                            } else {
                                 Icon(
                                     imageVector = if (selected) item.selectedIcon else item.icon,
                                     contentDescription = item.label,
@@ -778,57 +856,45 @@ fun NavCapsule(
                                         }
                                 )
                             }
-                        } else {
-                            Icon(
-                                imageVector = if (selected) item.selectedIcon else item.icon,
-                                contentDescription = item.label,
-                                tint = tint,
-                                modifier = Modifier
-                                    .size(19.dp)
-                                    .graphicsLayer {
-                                        scaleX = iconScale
-                                        scaleY = iconScale
-                                    }
-                            )
-                        }
 
-                        AnimatedVisibility(
-                            visible = selected,
-                            enter = expandHorizontally(
-                                animationSpec = tween(
-                                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                                    easing = FastOutSlowInEasing
+                            AnimatedVisibility(
+                                visible = selected,
+                                enter = expandHorizontally(
+                                    animationSpec = tween(
+                                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                ) + fadeIn(
+                                    animationSpec = tween(
+                                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                ),
+                                exit = shrinkHorizontally(
+                                    animationSpec = tween(
+                                        durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                ) + fadeOut(
+                                    animationSpec = tween(
+                                        durationMillis = if (reducedMotion) 0 else 120,
+                                        easing = FastOutSlowInEasing
+                                    )
                                 )
-                            ) + fadeIn(
-                                animationSpec = tween(
-                                    durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                                    easing = FastOutSlowInEasing
-                                )
-                            ),
-                            exit = shrinkHorizontally(
-                                animationSpec = tween(
-                                    durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                                    easing = FastOutSlowInEasing
-                                )
-                            ) + fadeOut(
-                                animationSpec = tween(
-                                    durationMillis = if (reducedMotion) 0 else 120,
-                                    easing = FastOutSlowInEasing
-                                )
-                            )
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = item.label,
-                                    color = cs.onPrimary,
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontSize = 11.5.sp,
-                                        lineHeight = 15.sp
-                                    ),
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = item.label,
+                                        color = cs.onPrimary,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 15.sp
+                                        ),
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -851,45 +917,60 @@ fun EmptyState(
         visibleKey = title,
         durationMillis = MotionTokens.NORMAL_MS,
         initialOffsetYDp = 6.dp,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 18.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        GlassSurface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 2.dp
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(56.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (actionLabel != null && onAction != null) {
-                val btnInteraction = remember { MutableInteractionSource() }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onAction,
-                    interactionSource = btnInteraction,
-                    modifier = Modifier.pressScaleEffect(btnInteraction, pressedScale = 0.96f)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+                    border = BorderStroke(
+                        width = 0.8.dp,
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f)
+                    )
                 ) {
-                    Text(actionLabel)
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier
+                            .padding(14.dp)
+                            .size(34.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Serif,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (actionLabel != null && onAction != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    GlassPrimaryButton(onClick = onAction) {
+                        Text(actionLabel, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -915,33 +996,41 @@ fun SkeletonCard(modifier: Modifier = Modifier) {
         animatedAlpha
     }
 
-    Card(
+    GlassCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+        tier = GlassCardTier.Standard
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
                     .height(12.dp)
-                    .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
+                        RoundedCornerShape(4.dp)
+                    )
             )
             Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .height(16.dp)
-                    .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
+                        RoundedCornerShape(4.dp)
+                    )
             )
             Spacer(modifier = Modifier.height(5.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
                     .height(16.dp)
-                    .background(Color.Gray.copy(alpha = alpha), RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
+                        RoundedCornerShape(4.dp)
+                    )
             )
         }
     }

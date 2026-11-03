@@ -35,31 +35,41 @@ fun PotrikaghorTheme(
             darkColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.25f),
-                onPrimaryContainer = Color.White,
+                primaryContainer = primaryAccent.copy(alpha = 0.22f),
+                onPrimaryContainer = Color(0xFFFFEDE9),
+                secondary = DeepTealLight,
+                onSecondary = Color.White,
+                secondaryContainer = DeepTeal.copy(alpha = 0.28f),
+                onSecondaryContainer = Color(0xFFD9F4F6),
+                tertiary = BrandCoral,
                 background = AmoledBackground,
-                onBackground = Color.White,
+                onBackground = Color(0xFFF3F6F7),
                 surface = AmoledSurface,
-                onSurface = Color.White,
+                onSurface = Color(0xFFF3F6F7),
                 surfaceVariant = AmoledCard,
-                onSurfaceVariant = Color(0xFFB0B0B0),
-                outline = Color(0xFF333333),
-                outlineVariant = Color(0xFF222222)
+                onSurfaceVariant = Color(0xFFAEC0C4),
+                outline = Color(0xFF344146),
+                outlineVariant = AmoledBorder
             )
         } else {
             darkColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.25f),
-                onPrimaryContainer = Color.White,
-                background = Color(0xFF121614),
-                onBackground = Color(0xFFE8ECE9),
-                surface = Color(0xFF181F1B),
-                onSurface = Color(0xFFE8ECE9),
-                surfaceVariant = Color(0xFF222A25),
-                onSurfaceVariant = Color(0xFFB8C2BC),
-                outline = Color(0xFF3F4A44),
-                outlineVariant = Color(0xFF2E3832)
+                primaryContainer = primaryAccent.copy(alpha = 0.24f),
+                onPrimaryContainer = Color(0xFFFFF0ED),
+                secondary = DeepTealLight,
+                onSecondary = Color.White,
+                secondaryContainer = DeepTeal.copy(alpha = 0.34f),
+                onSecondaryContainer = Color(0xFFDDF5F7),
+                tertiary = BrandCoral,
+                background = DarkGlassBackground,
+                onBackground = Color(0xFFEDF3F4),
+                surface = DarkGlassSurface,
+                onSurface = Color(0xFFEDF3F4),
+                surfaceVariant = DarkGlassSurfaceVariant,
+                onSurfaceVariant = Color(0xFFB2C4C8),
+                outline = Color(0xFF3B5158),
+                outlineVariant = DarkGlassBorder
             )
         }
     } else {
@@ -67,32 +77,42 @@ fun PotrikaghorTheme(
             lightColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = Color(0xFFE8DCC2),
+                primaryContainer = Color(0xFFEADDC2),
                 onPrimaryContainer = SepiaText,
+                secondary = DeepTeal,
+                onSecondary = Color.White,
+                secondaryContainer = Color(0xFFDCE7E3),
+                onSecondaryContainer = DeepTeal,
+                tertiary = BrandCoral,
                 background = SepiaBackground,
                 onBackground = SepiaText,
                 surface = SepiaSurface,
                 onSurface = SepiaText,
-                surfaceVariant = Color(0xFFE5D7B7),
+                surfaceVariant = Color(0xFFE8DAC0),
                 onSurfaceVariant = SepiaTextSecondary,
-                outline = Color(0xFFC4B390),
+                outline = Color(0xFFC2B18E),
                 outlineVariant = Color(0xFFDDD0B3)
             )
         } else {
-            // Normal warm newsprint look
+            // Premium Editorial Cream/White + Frosted Teal-Coral palette
             lightColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = Color(0xFFE8E2D4),
+                primaryContainer = primaryAccent.copy(alpha = 0.13f),
                 onPrimaryContainer = InkColor,
+                secondary = DeepTeal,
+                onSecondary = Color.White,
+                secondaryContainer = DeepTeal.copy(alpha = 0.11f),
+                onSecondaryContainer = DeepTeal,
+                tertiary = BrandCoral,
                 background = PaperColor,
                 onBackground = InkColor,
-                surface = Color(0xFFFAF6EE),
+                surface = Color(0xFFFFFDF9),
                 onSurface = InkColor,
-                surfaceVariant = Color(0xFFE9E2D4),
-                onSurfaceVariant = Color(0xFF6B6358),
-                outline = Color(0xFFB8AE9D),
-                outlineVariant = Color(0xFFD6CEBF)
+                surfaceVariant = Color(0xFFEBE7DD),
+                onSurfaceVariant = Color(0xFF535D5F),
+                outline = Color(0xFFB5BEB9),
+                outlineVariant = Color(0xFFD8DDD8)
             )
         }
     }

@@ -95,6 +95,12 @@ import com.potrikaghor.data.ArticleExtractor
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.model.Bookmark
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.components.GlassCard
+import com.potrikaghor.ui.components.GlassCardTier
+import com.potrikaghor.ui.components.GlassIconButton
+import com.potrikaghor.ui.components.GlassPillBadge
+import com.potrikaghor.ui.components.GlassSurface
+import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.ShareCardDialog
@@ -480,7 +486,7 @@ fun ReaderScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         PaperAvatar(paper = paper, size = 30.dp)
@@ -505,52 +511,61 @@ fun ReaderScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(
+                    GlassIconButton(
                         onClick = {
                             tts?.stop()
                             onBack()
                         },
-                        interactionSource = backInteraction,
-                        modifier = Modifier.pressScaleEffect(backInteraction, pressedScale = 0.90f)
+                        interactionSource = backInteraction
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "ফিরে যান",
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 },
                 actions = {
                     // AI Summary button in TopAppBar (accessible in BOTH Website View and Clean Reader Mode)
-                    IconButton(
+                    GlassIconButton(
                         onClick = {
                             val nextState = !showAiSummary
                             showAiSummary = nextState
                             if (nextState) {
                                 extractLiveFromWebView(webViewRef)
                             }
-                        }
+                        },
+                        isActive = showAiSummary
                     ) {
                         Icon(
                             imageVector = Icons.Filled.AutoAwesome,
                             contentDescription = "সংক্ষেপে পড়ুন",
-                            tint = if (showAiSummary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            tint = if (showAiSummary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // Toggle Clean Reader vs Website View
-                    IconButton(onClick = {
-                        val switchingToClean = !isCleanReaderMode
-                        isCleanReaderMode = switchingToClean
-                        if (switchingToClean) {
-                            extractLiveFromWebView(webViewRef)
-                        }
-                    }) {
+                    GlassIconButton(
+                        onClick = {
+                            val switchingToClean = !isCleanReaderMode
+                            isCleanReaderMode = switchingToClean
+                            if (switchingToClean) {
+                                extractLiveFromWebView(webViewRef)
+                            }
+                        },
+                        isActive = isCleanReaderMode
+                    ) {
                         Icon(
                             imageVector = if (isCleanReaderMode) Icons.Outlined.Language else Icons.Outlined.MenuBook,
                             contentDescription = if (isCleanReaderMode) "ওয়েবসাইট ভিউ" else "ক্লিন রিডার মোড",
-                            tint = if (isCleanReaderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            tint = if (isCleanReaderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // TTS button
-                    IconButton(
+                    GlassIconButton(
                         onClick = {
                             val openingControls = !showTtsControls
                             showTtsControls = openingControls
@@ -564,17 +579,19 @@ fun ReaderScreen(
                                     }
                                 }
                             }
-                        }
+                        },
+                        isActive = isTtsPlaying || showTtsControls
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = "খবর শুনুন (টেক্সট টু স্পিচ)",
-                            tint = if (isTtsPlaying || showTtsControls) FlagRed else MaterialTheme.colorScheme.onSurface
+                            tint = if (isTtsPlaying || showTtsControls) FlagRed else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // Bookmark toggle with subtle scale + icon state transition
-                    IconButton(
+                    GlassIconButton(
                         onClick = {
                             bookmarkPulse = true
                             if (isBookmarked) {
@@ -598,12 +615,11 @@ fun ReaderScreen(
                             }
                         },
                         interactionSource = bookmarkInteraction,
-                        modifier = Modifier
-                            .pressScaleEffect(bookmarkInteraction, pressedScale = 0.88f)
-                            .graphicsLayer {
-                                scaleX = bookmarkScale
-                                scaleY = bookmarkScale
-                            }
+                        isActive = isBookmarked,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = bookmarkScale
+                            scaleY = bookmarkScale
+                        }
                     ) {
                         Crossfade(
                             targetState = isBookmarked,
@@ -616,17 +632,21 @@ fun ReaderScreen(
                             Icon(
                                 imageVector = if (bookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                                 contentDescription = "বুকমার্ক",
-                                tint = bookmarkTint
+                                tint = bookmarkTint,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     // Share Card
-                    IconButton(onClick = { showShareDialog = true }) {
-                        Icon(Icons.Default.Share, contentDescription = "শেয়ার কার্ড")
+                    GlassIconButton(onClick = { showShareDialog = true }) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "শেয়ার কার্ড",
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                }
             )
         }
     ) { innerPadding ->
@@ -661,15 +681,16 @@ fun ReaderScreen(
 
                 // TTS floating control strip
                 AnimatedVisibility(visible = showTtsControls) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 4.dp
+                    GlassSurface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -748,12 +769,12 @@ fun ReaderScreen(
                         extractor.generateSmartSummary(cleanArticle, fallbackHeadline)
                     }
 
-                    Card(
+                    GlassCard(
+                        tier = GlassCardTier.Elevated,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 10.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
@@ -765,7 +786,7 @@ fun ReaderScreen(
                                     Icon(
                                         Icons.Filled.AutoAwesome,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        tint = MaterialTheme.colorScheme.secondary,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -773,11 +794,11 @@ fun ReaderScreen(
                                         text = "সংক্ষেপে পড়ুন (মূল বক্তব্য)",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 TextButton(onClick = { showAiSummary = false }) {
-                                    Text("লুকান", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    Text("লুকান", color = MaterialTheme.colorScheme.secondary)
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
@@ -786,12 +807,12 @@ fun ReaderScreen(
                                     Text(
                                         text = "• ",
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
                                         text = bullet,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -971,36 +992,25 @@ fun ReaderScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Surface(
-                                            modifier = Modifier.clickable {
+                                        GlassPillBadge(
+                                            text = "সংক্ষেপে পড়ুন",
+                                            onClick = {
                                                 val next = !showAiSummary
                                                 showAiSummary = next
                                                 if (next) {
                                                     extractLiveFromWebView(webViewRef)
                                                 }
                                             },
-                                            shape = RoundedCornerShape(16.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                            ) {
+                                            trailingContent = {
+                                                Spacer(modifier = Modifier.width(5.dp))
                                                 Icon(
                                                     Icons.Filled.AutoAwesome,
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "সংক্ষেপে পড়ুন",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
                                                 )
                                             }
-                                        }
+                                        )
 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(

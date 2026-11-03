@@ -22,30 +22,21 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,7 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,11 +55,18 @@ import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
+import com.potrikaghor.ui.components.GlassCard
+import com.potrikaghor.ui.components.GlassCardTier
+import com.potrikaghor.ui.components.GlassChip
+import com.potrikaghor.ui.components.GlassIconButton
+import com.potrikaghor.ui.components.GlassPillBadge
+import com.potrikaghor.ui.components.GlassSearchBar
+import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
+import com.potrikaghor.ui.components.editorialAmbientBackground
 import com.potrikaghor.ui.components.pressScaleEffect
 import com.potrikaghor.ui.components.rememberReducedMotion
-import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.util.BengaliUtils
 
@@ -104,10 +102,11 @@ fun MyPapersScreen(
 
     val viewModeInteraction = remember { MutableInteractionSource() }
     val fabInteraction = remember { MutableInteractionSource() }
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -121,19 +120,9 @@ fun MyPapersScreen(
                                 )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer
-                            ) {
-                                Text(
-                                    text = "${BengaliUtils.bnDigits(filteredList.size)}টি",
-                                    fontSize = 10.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
-                                )
-                            }
+                            GlassPillBadge(
+                                text = "${BengaliUtils.bnDigits(filteredList.size)}টি"
+                            )
                         }
                         Text(
                             text = "পছন্দের সোর্স ও ব্যক্তিগত রিডিং বোর্ড",
@@ -146,12 +135,9 @@ fun MyPapersScreen(
                     }
                 },
                 actions = {
-                    IconButton(
+                    GlassIconButton(
                         onClick = { appRepo.setGridView(!appState.gridView) },
-                        interactionSource = viewModeInteraction,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .pressScaleEffect(viewModeInteraction, pressedScale = 0.90f)
+                        interactionSource = viewModeInteraction
                     ) {
                         Crossfade(
                             targetState = appState.gridView,
@@ -164,14 +150,11 @@ fun MyPapersScreen(
                             Icon(
                                 imageVector = if (isGrid) Icons.Filled.ViewAgenda else Icons.Filled.GridView,
                                 contentDescription = "ভিউ মোড",
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         },
         floatingActionButton = {
@@ -193,19 +176,18 @@ fun MyPapersScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .editorialAmbientBackground(
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    isDark = isDark
+                )
                 .padding(innerPadding)
         ) {
             // Search Bar
-            OutlinedTextField(
+            GlassSearchBar(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp),
-                placeholder = { Text("পত্রিকার নাম বা লিংক খুঁজুন...", fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                placeholder = "পত্রিকার নাম বা লিংক খুঁজুন...",
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
             )
 
             // Category Chips Row
@@ -216,20 +198,15 @@ fun MyPapersScreen(
             ) + PapersData.categories.drop(1).map { Pair(it.id, it.label) }
 
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 items(availableCategories, key = { it.first }) { (id, label) ->
                     val isSelected = selectedCat == id
-                    val chipInteraction = remember { MutableInteractionSource() }
-                    FilterChip(
+                    GlassChip(
+                        label = label,
                         selected = isSelected,
-                        onClick = { selectedCat = id },
-                        interactionSource = chipInteraction,
-                        modifier = Modifier
-                            .height(30.dp)
-                            .pressScaleEffect(chipInteraction, pressedScale = 0.95f),
-                        label = { Text(label, fontSize = 12.5.sp, lineHeight = 16.sp) }
+                        onClick = { selectedCat = id }
                     )
                 }
             }
@@ -351,20 +328,15 @@ fun MyPaperListItem(
         label = "listStarTint"
     )
 
-    Card(
+    GlassCard(
+        tier = GlassCardTier.Standard,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 3.5.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .subtleClickable(pressedScale = 0.984f) { onOpen() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            .padding(horizontal = 14.dp, vertical = 3.5.dp),
+        onClick = onOpen
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             PaperAvatar(paper = paper, size = 38.dp)
@@ -382,17 +354,7 @@ fun MyPaperListItem(
                     )
                     if (paper.custom) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                text = "কাস্টম",
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
+                        GlassPillBadge(text = "কাস্টম")
                     }
                 }
                 Text(
@@ -468,14 +430,11 @@ fun MyPaperGridItem(
         label = "gridStarTint"
     )
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .subtleClickable(pressedScale = 0.98f) { onOpen() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    GlassCard(
+        tier = GlassCardTier.Standard,
+        modifier = Modifier.fillMaxWidth(),
+        pressedScale = 0.98f,
+        onClick = onOpen
     ) {
         Column(modifier = Modifier.padding(11.dp)) {
             Row(
@@ -533,4 +492,3 @@ fun MyPaperGridItem(
         }
     }
 }
-
