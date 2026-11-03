@@ -25,7 +25,7 @@ object AdMobConfig {
      * Single toggle for switching between the official Google test Native Ad Unit ID
      * and the PotrikaGhor production Native Ad Unit ID.
      */
-    const val IS_AD_TEST_MODE: Boolean = true
+    const val IS_AD_TEST_MODE: Boolean = false
 
     /**
      * PotrikaGhor AdMob App ID (also configured in AndroidManifest.xml).
