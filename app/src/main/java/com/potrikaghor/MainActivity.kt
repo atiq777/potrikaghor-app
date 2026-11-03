@@ -38,6 +38,7 @@ import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.ads.AdMobConfig
 import com.potrikaghor.ui.components.BrandedLoadingIndicator
 import com.potrikaghor.ui.components.NavCapsule
 import com.potrikaghor.ui.components.NavItemSpec
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appRepo = AppStateRepository(applicationContext)
+        AdMobConfig.initializeMobileAdsIfNeeded(applicationContext)
         BreakingNewsNotifier.ensureChannel(applicationContext)
         handleNotificationIntent(intent)
 

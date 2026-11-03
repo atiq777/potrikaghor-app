@@ -25,7 +25,7 @@ android {
 
     defaultConfig {
         applicationId = "com.potrikaghor.app"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 36
         val ciRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         versionCode = if (ciRunNumber != null && ciRunNumber > 0) {
@@ -95,4 +95,5 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.play.services.ads)
 }

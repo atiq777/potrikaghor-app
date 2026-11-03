@@ -79,6 +79,9 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
+import com.potrikaghor.ui.ads.AdMobConfig
+import com.potrikaghor.ui.ads.PotrikaGhorNativeAd
+import com.potrikaghor.ui.ads.rememberNativeAdSlotManager
 import com.potrikaghor.ui.components.ArticleCoverImage
 import com.potrikaghor.ui.components.EmptyState
 import com.potrikaghor.ui.components.MotionTokens
@@ -113,6 +116,7 @@ fun PersonalHomeScreen(
     val appState by appRepo.state.collectAsState()
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
+    val nativeAdSlotManager = rememberNativeAdSlotManager()
 
     var selectedCategoryIndex by remember { mutableStateOf(0) }
     var loadedCategoryId by remember { mutableStateOf<String?>(null) }
@@ -734,31 +738,44 @@ fun PersonalHomeScreen(
                                     }
                                 }
 
-                                itemsIndexed(
-                                    items = feedStories,
-                                    key = { idx, cov ->
-                                        val first = cov.items.firstOrNull()
-                                        val baseKey = first?.link?.ifBlank { first.title } ?: "story_$idx"
-                                        "feed_${idx}_$baseKey"
-                                    }
-                                ) { idx, cov ->
+                                feedStories.forEachIndexed { idx, cov ->
                                     val first = cov.items.firstOrNull()
-                                    val itemKey = first?.link?.ifBlank { first.title } ?: "feed_$idx"
-                                    // Subtle stagger only for the first 5 cards on initial category load
-                                    val staggerDelay = if (idx < 5) (idx + 1) * 28 else 0
-
-                                    OncePerSessionReveal(
-                                        itemKey = itemKey,
-                                        seenKeys = seenItemKeys,
-                                        delayMillis = staggerDelay,
-                                        initialOffsetYDp = 6.dp
+                                    val baseKey = first?.link?.ifBlank { first.title } ?: "story_$idx"
+                                    item(
+                                        key = "feed_${idx}_$baseKey",
+                                        contentType = "news_story"
                                     ) {
-                                        SmartStoryCard(
-                                            coverage = cov,
-                                            appRepo = appRepo,
-                                            newsRepo = newsRepo,
-                                            onOpenReader = onOpenReader
-                                        )
+                                        val itemKey = first?.link?.ifBlank { first.title } ?: "feed_$idx"
+                                        // Subtle stagger only for the first 5 cards on initial category load
+                                        val staggerDelay = if (idx < 5) (idx + 1) * 28 else 0
+
+                                        OncePerSessionReveal(
+                                            itemKey = itemKey,
+                                            seenKeys = seenItemKeys,
+                                            delayMillis = staggerDelay,
+                                            initialOffsetYDp = 6.dp
+                                        ) {
+                                            SmartStoryCard(
+                                                coverage = cov,
+                                                appRepo = appRepo,
+                                                newsRepo = newsRepo,
+                                                onOpenReader = onOpenReader
+                                            )
+                                        }
+                                    }
+
+                                    if (AdMobConfig.shouldShowAdAfterFeedIndex(idx, feedStories.size)) {
+                                        val slotIndex = AdMobConfig.adSlotIndexForFeedIndex(idx)
+                                        val slotKey = "${loadedCategoryId ?: "home"}_slot_$slotIndex"
+                                        item(
+                                            key = "native_ad_$slotKey",
+                                            contentType = "native_ad"
+                                        ) {
+                                            PotrikaGhorNativeAd(
+                                                slotKey = slotKey,
+                                                slotManager = nativeAdSlotManager
+                                            )
+                                        }
                                     }
                                 }
                             }
