@@ -685,104 +685,58 @@ fun NavCapsule(
     items: List<NavItemSpec>,
     modifier: Modifier = Modifier
 ) {
-    val cs = MaterialTheme.colorScheme
-    val isDark = cs.background.red < 0.25f
+    val isDark = MaterialTheme.colorScheme.background.red < 0.2f
     val reducedMotion = rememberReducedMotion()
-    val capsuleShape = RoundedCornerShape(28.dp)
-
-    val barBrush = remember(isDark, cs.surface, cs.surfaceVariant) {
-        if (isDark) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    cs.surfaceVariant.copy(alpha = 0.94f),
-                    cs.surface.copy(alpha = 0.96f)
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.95f),
-                    cs.surface.copy(alpha = 0.92f)
-                )
-            )
-        }
-    }
-
-    val borderBrush = remember(isDark, cs.outlineVariant, cs.secondary) {
-        if (isDark) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.20f),
-                    cs.outlineVariant.copy(alpha = 0.65f),
-                    cs.outlineVariant.copy(alpha = 0.35f)
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White,
-                    cs.secondary.copy(alpha = 0.22f),
-                    cs.outlineVariant.copy(alpha = 0.65f)
-                )
-            )
-        }
-    }
-
-    val unselectedIconColor = if (isDark) {
-        cs.onSurfaceVariant
+    val containerColor = if (isDark) {
+        AmoledCard.copy(alpha = 0.96f)
     } else {
-        cs.onSurfaceVariant
+        InkColor.copy(alpha = 0.94f)
+    }
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.14f)
+    } else {
+        Color.White.copy(alpha = 0.18f)
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 5.dp)
-            .shadow(
-                elevation = if (isDark) 14.dp else 10.dp,
-                shape = capsuleShape,
-                ambientColor = if (isDark) Color.Black.copy(alpha = 0.65f) else cs.secondary.copy(alpha = 0.20f),
-                spotColor = if (isDark) Color.Black.copy(alpha = 0.75f) else cs.secondary.copy(alpha = 0.26f)
-            )
-            .clip(capsuleShape)
-            .background(brush = barBrush, shape = capsuleShape)
-            .glassTopSpecularHighlight(
-                highlightColor = if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.92f),
-                horizontalInsetDp = 22.dp
-            )
+            .padding(horizontal = 16.dp, vertical = 4.dp)
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = capsuleShape,
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, borderBrush)
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(10.dp, RoundedCornerShape(24.dp)),
+            shape = RoundedCornerShape(24.dp),
+            color = containerColor,
+            border = BorderStroke(0.8.dp, borderColor)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                    .padding(horizontal = 5.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 items.forEachIndexed { index, item ->
                     val selected = index == selectedIndex
                     val interactionSource = remember { MutableInteractionSource() }
-                    val pillColor by animateColorAsState(
-                        targetValue = if (selected) cs.primary else Color.Transparent,
+                    val bgColor by animateColorAsState(
+                        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                         animationSpec = tween(
                             durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
                             easing = FastOutSlowInEasing
                         ),
-                        label = "navPillBg"
+                        label = "navBg"
                     )
                     val tint by animateColorAsState(
-                        targetValue = if (selected) cs.onPrimary else unselectedIconColor,
+                        targetValue = if (selected) Color.White else Color.White.copy(alpha = 0.72f),
                         animationSpec = tween(
                             durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
                             easing = FastOutSlowInEasing
                         ),
-                        label = "navIconTint"
+                        label = "navTint"
                     )
                     val iconScale by animateFloatAsState(
                         targetValue = if (selected && !reducedMotion) 1.05f else 1f,
@@ -793,23 +747,16 @@ fun NavCapsule(
                         label = "navIconScale"
                     )
 
-                    val pillShape = RoundedCornerShape(20.dp)
-
                     Surface(
                         modifier = Modifier
-                            .pressScaleEffect(interactionSource = interactionSource, pressedScale = 0.94f)
-                            .clip(pillShape)
+                            .pressScaleEffect(interactionSource = interactionSource, pressedScale = 0.95f)
+                            .clip(RoundedCornerShape(18.dp))
                             .clickable(
                                 interactionSource = interactionSource,
                                 indication = LocalIndication.current
                             ) { onSelectIndex(index) },
-                        shape = pillShape,
-                        color = pillColor,
-                        border = if (selected) {
-                            BorderStroke(0.75.dp, Color.White.copy(alpha = 0.28f))
-                        } else {
-                            null
-                        }
+                        shape = RoundedCornerShape(18.dp),
+                        color = bgColor
                     ) {
                         Row(
                             modifier = Modifier
@@ -819,7 +766,7 @@ fun NavCapsule(
                                         easing = FastOutSlowInEasing
                                     )
                                 )
-                                .padding(horizontal = if (selected) 12.dp else 10.dp, vertical = 6.5.dp),
+                                .padding(horizontal = if (selected) 11.dp else 9.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
@@ -886,7 +833,7 @@ fun NavCapsule(
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         text = item.label,
-                                        color = cs.onPrimary,
+                                        color = Color.White,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontSize = 11.5.sp,
                                             lineHeight = 15.sp
@@ -919,58 +866,52 @@ fun EmptyState(
         initialOffsetYDp = 6.dp,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 18.dp)
+            .padding(24.dp)
     ) {
-        GlassSurface(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            shadowElevation = 2.dp
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
-                    border = BorderStroke(
-                        width = 0.8.dp,
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f)
-                    )
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(14.dp)
+                        .size(34.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Serif,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (actionLabel != null && onAction != null) {
+                val btnInteraction = remember { MutableInteractionSource() }
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onAction,
+                    interactionSource = btnInteraction,
+                    modifier = Modifier.pressScaleEffect(btnInteraction, pressedScale = 0.96f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier
-                            .padding(14.dp)
-                            .size(34.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = body,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (actionLabel != null && onAction != null) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    GlassPrimaryButton(onClick = onAction) {
-                        Text(actionLabel, fontWeight = FontWeight.Bold)
-                    }
+                    Text(actionLabel)
                 }
             }
         }
@@ -985,8 +926,8 @@ fun SkeletonCard(modifier: Modifier = Modifier) {
     } else {
         val transition = rememberInfiniteTransition(label = "skeleton")
         val animatedAlpha by transition.animateFloat(
-            initialValue = 0.22f,
-            targetValue = 0.55f,
+            initialValue = 0.25f,
+            targetValue = 0.6f,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
@@ -996,41 +937,33 @@ fun SkeletonCard(modifier: Modifier = Modifier) {
         animatedAlpha
     }
 
-    GlassCard(
+    Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 4.dp),
-        tier = GlassCardTier.Standard
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
                     .height(12.dp)
-                    .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
-                        RoundedCornerShape(4.dp)
-                    )
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
             )
             Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .height(16.dp)
-                    .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
-                        RoundedCornerShape(4.dp)
-                    )
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
             )
             Spacer(modifier = Modifier.height(5.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.6f)
                     .height(16.dp)
-                    .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.45f),
-                        RoundedCornerShape(4.dp)
-                    )
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
             )
         }
     }

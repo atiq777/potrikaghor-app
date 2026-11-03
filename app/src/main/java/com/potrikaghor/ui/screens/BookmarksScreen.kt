@@ -1,6 +1,7 @@
 package com.potrikaghor.ui.screens
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
@@ -19,13 +20,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +40,10 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,7 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,17 +64,12 @@ import com.potrikaghor.model.Bookmark
 import com.potrikaghor.model.DefaultBookmarkFolders
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
-import com.potrikaghor.ui.components.GlassCard
-import com.potrikaghor.ui.components.GlassCardTier
-import com.potrikaghor.ui.components.GlassChip
-import com.potrikaghor.ui.components.GlassPillBadge
-import com.potrikaghor.ui.components.GlassSecondaryButton
-import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
-import com.potrikaghor.ui.components.editorialAmbientBackground
 import com.potrikaghor.ui.components.pressScaleEffect
 import com.potrikaghor.ui.components.rememberReducedMotion
+import com.potrikaghor.ui.components.subtleClickable
+import com.potrikaghor.ui.theme.BrandGreen
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
 
@@ -87,12 +91,11 @@ fun BookmarksScreen(
     val filteredBookmarks = remember(bookmarks, selectedFolder) {
         if (selectedFolder == "সব") bookmarks else bookmarks.filter { it.folder == selectedFolder }
     }
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            GlassTopAppBar(
+            TopAppBar(
                 title = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -106,9 +109,21 @@ fun BookmarksScreen(
                                 )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            GlassPillBadge(
-                                text = "${BengaliUtils.bnDigits(bookmarks.size)}টি সেভ করা"
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(7.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    text = "${BengaliUtils.bnDigits(bookmarks.size)}টি সেভ করা",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                         Text(
                             text = "ফোল্ডারে সাজানো আপনার পছন্দের সংবাদ",
@@ -126,10 +141,6 @@ fun BookmarksScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .editorialAmbientBackground(
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    isDark = isDark
-                )
                 .padding(innerPadding)
         ) {
             // Folder Tabs
@@ -140,10 +151,44 @@ fun BookmarksScreen(
                 items(DefaultBookmarkFolders, key = { it }) { folder ->
                     val isSelected = selectedFolder == folder
                     val count = if (folder == "সব") bookmarks.size else bookmarks.count { it.folder == folder }
-                    GlassChip(
-                        label = "$folder (${BengaliUtils.bnDigits(count)})",
+                    val chipInteraction = remember { MutableInteractionSource() }
+                    val chipBg by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "bmFolderChipBg"
+                    )
+                    val chipText by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "bmFolderChipText"
+                    )
+
+                    FilterChip(
                         selected = isSelected,
-                        onClick = { selectedFolder = folder }
+                        onClick = { selectedFolder = folder },
+                        interactionSource = chipInteraction,
+                        modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
+                        label = {
+                            Text(
+                                text = "$folder (${BengaliUtils.bnDigits(count)})",
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = chipBg,
+                            selectedLabelColor = chipText,
+                            containerColor = chipBg,
+                            labelColor = chipText
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        border = null
                     )
                 }
             }
@@ -194,16 +239,19 @@ fun BookmarksScreen(
                                     ?: Paper(bookmark.title, "", bookmark.paperUrl, "all")
                                 val delInteraction = remember { MutableInteractionSource() }
 
-                                GlassCard(
-                                    tier = GlassCardTier.Standard,
+                                Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 4.dp),
-                                    onClick = {
-                                        onOpenReader(paper, bookmark.url, bookmark.title)
-                                    }
+                                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .subtleClickable(pressedScale = 0.985f) {
+                                            onOpenReader(paper, bookmark.url, bookmark.title)
+                                        },
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
+                                    Column(modifier = Modifier.padding(11.dp)) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically
@@ -217,7 +265,7 @@ fun BookmarksScreen(
                                                         fontSize = 11.5.sp,
                                                         lineHeight = 15.sp
                                                     ),
-                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    color = MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Text(
@@ -231,19 +279,34 @@ fun BookmarksScreen(
                                             }
 
                                             // Folder Badge
-                                            GlassPillBadge(
-                                                text = bookmark.folder,
-                                                onClick = { changeFolderBookmark = bookmark },
-                                                trailingContent = {
-                                                    Spacer(modifier = Modifier.width(4.dp))
+                                            Surface(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(7.dp))
+                                                    .subtleClickable(pressedScale = 0.95f) { changeFolderBookmark = bookmark },
+                                                shape = RoundedCornerShape(7.dp),
+                                                color = MaterialTheme.colorScheme.secondaryContainer
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
                                                     Icon(
                                                         Icons.Filled.Folder,
                                                         contentDescription = null,
                                                         modifier = Modifier.size(12.dp),
                                                         tint = MaterialTheme.colorScheme.onSecondaryContainer
                                                     )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = bookmark.folder,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontSize = 10.5.sp,
+                                                            lineHeight = 14.sp
+                                                        ),
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
                                                 }
-                                            )
+                                            }
 
                                             IconButton(
                                                 onClick = {
@@ -281,7 +344,7 @@ fun BookmarksScreen(
                                             text = bookmark.title,
                                             style = MaterialTheme.typography.titleMedium.copy(
                                                 fontSize = 15.sp,
-                                                lineHeight = 21.sp
+                                                lineHeight = 20.5.sp
                                             ),
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Serif,
@@ -295,7 +358,7 @@ fun BookmarksScreen(
                                                 Icon(
                                                     Icons.Filled.OfflinePin,
                                                     contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.secondary,
+                                                    tint = BrandGreen,
                                                     modifier = Modifier.size(15.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(4.dp))
@@ -305,7 +368,7 @@ fun BookmarksScreen(
                                                         fontSize = 11.sp,
                                                         lineHeight = 14.sp
                                                     ),
-                                                    color = MaterialTheme.colorScheme.secondary
+                                                    color = BrandGreen
                                                 )
                                             }
                                         }
@@ -361,7 +424,7 @@ fun BookmarksScreen(
                 }
             },
             confirmButton = {
-                GlassSecondaryButton(onClick = { changeFolderBookmark = null }) {
+                TextButton(onClick = { changeFolderBookmark = null }) {
                     Text("বাতিল")
                 }
             }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CleaningServices
@@ -37,13 +38,19 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -51,8 +58,11 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,7 +74,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -74,14 +83,6 @@ import com.potrikaghor.BuildConfig
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
-import com.potrikaghor.ui.components.GlassCard
-import com.potrikaghor.ui.components.GlassCardTier
-import com.potrikaghor.ui.components.GlassChip
-import com.potrikaghor.ui.components.GlassPillBadge
-import com.potrikaghor.ui.components.GlassPrimaryButton
-import com.potrikaghor.ui.components.GlassSecondaryButton
-import com.potrikaghor.ui.components.GlassTopAppBar
-import com.potrikaghor.ui.components.editorialAmbientBackground
 import com.potrikaghor.ui.theme.AccentColors
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
@@ -133,20 +134,15 @@ fun SettingsScreen(
         }
     }
 
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
-
     Scaffold(
         topBar = {
-            GlassTopAppBar(
+            TopAppBar(
                 title = {
                     Text(
                         text = "সেটিংস ও পছন্দসমূহ",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = 19.sp,
-                            lineHeight = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Serif
-                        )
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif
                     )
                 }
             )
@@ -155,10 +151,6 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .editorialAmbientBackground(
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    isDark = isDark
-                )
                 .padding(innerPadding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 90.dp)
         ) {
@@ -168,11 +160,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("থিম মোড", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -253,16 +246,16 @@ fun SettingsScreen(
                         ) {
                             Text("রিডিং ডেনসিটি", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Row {
-                                GlassChip(
-                                    label = "স্বাচ্ছন্দ্য",
+                                FilterChip(
                                     selected = appState.readingDensity == "comfortable",
-                                    onClick = { appRepo.setReadingDensity("comfortable") }
+                                    onClick = { appRepo.setReadingDensity("comfortable") },
+                                    label = { Text("স্বাচ্ছন্দ্য") }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                GlassChip(
-                                    label = "কমপ্যাক্ট",
+                                FilterChip(
                                     selected = appState.readingDensity == "compact",
-                                    onClick = { appRepo.setReadingDensity("compact") }
+                                    onClick = { appRepo.setReadingDensity("compact") },
+                                    label = { Text("কমপ্যাক্ট") }
                                 )
                             }
                         }
@@ -288,11 +281,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
@@ -354,11 +348,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -379,15 +374,31 @@ fun SettingsScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GlassPillBadge(
-                                text = if (hasNotifPermission) "সক্রিয়" else "অনুমতি দিন",
-                                useCoralAccent = !hasNotifPermission,
-                                onClick = {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (hasNotifPermission) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.errorContainer
+                                },
+                                modifier = Modifier.clickable {
                                     if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                     }
                                 }
-                            )
+                            ) {
+                                Text(
+                                    text = if (hasNotifPermission) "সক্রিয়" else "অনুমতি দিন",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (hasNotifPermission) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    }
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -424,12 +435,9 @@ fun SettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
-                        GlassPrimaryButton(
+                        OutlinedButton(
                             onClick = {
                                 if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     pendingTestAfterPermission = true
@@ -449,14 +457,13 @@ fun SettingsScreen(
                                 }
                             },
                             enabled = !isTestingNotification,
-                            useDeepTeal = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isTestingNotification) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onSecondary
+                                    strokeWidth = 2.dp
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("ব্রেকিং নিউজ খোঁজা হচ্ছে...")
@@ -467,7 +474,7 @@ fun SettingsScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("ব্রেকিং নিউজ পরীক্ষা করুন (Test Notification)", fontWeight = FontWeight.Bold)
+                                Text("ব্রেকিং নিউজ পরীক্ষা করুন (Test Notification)")
                             }
                         }
                     }
@@ -480,11 +487,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         listOf(
@@ -520,11 +528,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -539,7 +548,7 @@ fun SettingsScreen(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text("ব্যাকআপ কোড কপি করুন", fontWeight = FontWeight.Bold)
@@ -547,10 +556,7 @@ fun SettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
                         Row(
                             modifier = Modifier
@@ -566,7 +572,7 @@ fun SettingsScreen(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.Share, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Icon(Icons.Filled.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text("ব্যাকআপ শেয়ার করুন", fontWeight = FontWeight.Bold)
@@ -574,10 +580,7 @@ fun SettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
                         Row(
                             modifier = Modifier
@@ -586,7 +589,7 @@ fun SettingsScreen(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Icon(Icons.Filled.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text("ব্যাকআপ থেকে ফেরান", fontWeight = FontWeight.Bold)
@@ -603,11 +606,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -625,7 +629,7 @@ fun SettingsScreen(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text("ওয়েব ক্যাশ মুছুন", fontWeight = FontWeight.Bold)
@@ -633,10 +637,7 @@ fun SettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
 
                         Row(
                             modifier = Modifier
@@ -662,11 +663,12 @@ fun SettingsScreen(
             }
 
             item {
-                GlassCard(
-                    tier = GlassCardTier.Standard,
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("পত্রিকাঘর — আপনার ব্যক্তিগত সংবাদপত্র", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
@@ -704,7 +706,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                GlassPrimaryButton(
+                Button(
                     onClick = {
                         val err = appRepo.importBackupJson(restoreCodeInput)
                         if (err == null) {
@@ -716,11 +718,11 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text("ফেরান", fontWeight = FontWeight.Bold)
+                    Text("ফেরান")
                 }
             },
             dismissButton = {
-                GlassSecondaryButton(onClick = { showRestoreDialog = false }) {
+                TextButton(onClick = { showRestoreDialog = false }) {
                     Text("বাতিল")
                 }
             }
@@ -734,18 +736,19 @@ fun SettingsScreen(
             title = { Text("সব ডেটা মুছে ফেলবেন?") },
             text = { Text("আপনার প্রিয় পত্রিকা, বুকমার্ক ও পড়ার ইতিহাস মুছে যাবে। আপনি কি নিশ্চিত?") },
             confirmButton = {
-                GlassPrimaryButton(
+                Button(
                     onClick = {
                         appRepo.clearUserData()
                         Toast.makeText(context, "ডেটা মোছা হয়েছে", Toast.LENGTH_SHORT).show()
                         showClearDataDialog = false
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("মুছুন", fontWeight = FontWeight.Bold)
+                    Text("মুছুন")
                 }
             },
             dismissButton = {
-                GlassSecondaryButton(onClick = { showClearDataDialog = false }) {
+                TextButton(onClick = { showClearDataDialog = false }) {
                     Text("বাতিল")
                 }
             }
@@ -760,7 +763,7 @@ fun SectionHeader(title: String) {
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         fontFamily = FontFamily.Serif,
-        color = MaterialTheme.colorScheme.secondary,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp)
     )
 }

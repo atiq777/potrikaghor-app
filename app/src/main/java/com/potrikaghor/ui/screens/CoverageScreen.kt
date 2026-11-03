@@ -26,15 +26,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,7 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,15 +60,10 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
-import com.potrikaghor.ui.components.GlassCard
-import com.potrikaghor.ui.components.GlassCardTier
-import com.potrikaghor.ui.components.GlassIconButton
-import com.potrikaghor.ui.components.GlassPillBadge
-import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
-import com.potrikaghor.ui.components.editorialAmbientBackground
+import com.potrikaghor.ui.components.pressScaleEffect
 import com.potrikaghor.ui.components.rememberReducedMotion
 import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
@@ -128,11 +127,10 @@ fun CoverageScreen(
         0f
     }
     val refreshInteraction = remember { MutableInteractionSource() }
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
 
     Scaffold(
         topBar = {
-            GlassTopAppBar(
+            TopAppBar(
                 title = {
                     Column {
                         Text(
@@ -155,17 +153,18 @@ fun CoverageScreen(
                     }
                 },
                 actions = {
-                    GlassIconButton(
+                    IconButton(
                         onClick = { if (!isLoading) loadCoverage() },
                         enabled = !isLoading,
-                        interactionSource = refreshInteraction
+                        interactionSource = refreshInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .pressScaleEffect(refreshInteraction, pressedScale = 0.90f)
                     ) {
                         Icon(
                             Icons.Filled.Refresh,
                             contentDescription = "রিফ্রেশ",
-                            modifier = Modifier
-                                .size(19.dp)
-                                .graphicsLayer { rotationZ = refreshRotation }
+                            modifier = Modifier.graphicsLayer { rotationZ = refreshRotation }
                         )
                     }
                 }
@@ -175,10 +174,6 @@ fun CoverageScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .editorialAmbientBackground(
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    isDark = isDark
-                )
                 .padding(innerPadding)
         ) {
             // Edition Toggle: Bangladesh vs International
@@ -264,9 +259,9 @@ fun CoverageScreen(
                                         text = "বেশি কভার হওয়া খবর (৩+ পত্রিকায়)",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.secondary,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontFamily = FontFamily.Serif,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                     )
                                 }
 
@@ -286,9 +281,9 @@ fun CoverageScreen(
                                         text = "অন্যান্য কভার হওয়া খবর (২টি পত্রিকায়)",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.secondary,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontFamily = FontFamily.Serif,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                     )
                                 }
 
@@ -314,21 +309,35 @@ fun CoverageDetailCard(
     appRepo: AppStateRepository,
     onOpenReader: (Paper, String, String) -> Unit
 ) {
-    GlassCard(
-        tier = GlassCardTier.Standard,
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.5.dp)
+            .padding(horizontal = 14.dp, vertical = 4.5.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(11.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GlassPillBadge(
-                    text = "${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায় কভার হয়েছে"
-                )
+                Surface(
+                    shape = RoundedCornerShape(7.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = "${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায় কভার হয়েছে",
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
 
                 if (coverage.latest != null) {
                     Text(
@@ -368,7 +377,7 @@ fun CoverageDetailCard(
                                 lineHeight = 14.sp
                             ),
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             text = itm.title,
@@ -383,10 +392,7 @@ fun CoverageDetailCard(
                 }
 
                 if (idx < coverage.items.size - 1) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 3.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
                 }
             }
         }

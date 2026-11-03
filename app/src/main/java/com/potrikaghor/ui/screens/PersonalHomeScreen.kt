@@ -84,25 +84,14 @@ import com.potrikaghor.ui.ads.PotrikaGhorNativeAd
 import com.potrikaghor.ui.ads.rememberNativeAdSlotManager
 import com.potrikaghor.ui.components.ArticleCoverImage
 import com.potrikaghor.ui.components.EmptyState
-import com.potrikaghor.ui.components.GlassCard
-import com.potrikaghor.ui.components.GlassCardTier
-import com.potrikaghor.ui.components.GlassChip
-import com.potrikaghor.ui.components.GlassIconButton
-import com.potrikaghor.ui.components.GlassPillBadge
-import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
-import com.potrikaghor.ui.components.editorialAmbientBackground
 import com.potrikaghor.ui.components.pressScaleEffect
 import com.potrikaghor.ui.components.rememberReducedMotion
 import com.potrikaghor.ui.components.subtleClickable
-import com.potrikaghor.ui.theme.BrandCoral
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.util.BengaliUtils
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.luminance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -241,13 +230,10 @@ fun PersonalHomeScreen(
 
     val searchBtnInteraction = remember { MutableInteractionSource() }
     val refreshBtnInteraction = remember { MutableInteractionSource() }
-    val cs = MaterialTheme.colorScheme
-    val isDark = cs.background.luminance() < 0.25f
 
     Scaffold(
-        containerColor = cs.background,
         topBar = {
-            GlassTopAppBar(
+            TopAppBar(
                 modifier = Modifier.graphicsLayer { alpha = headerAlpha },
                 title = {
                     Column {
@@ -271,11 +257,22 @@ fun PersonalHomeScreen(
                                     fontFamily = FontFamily.Serif
                                 )
                             )
-                            Spacer(modifier = Modifier.width(7.dp))
-                            GlassPillBadge(
-                                text = "আমার নিউজ",
-                                useCoralAccent = false
-                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(7.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "আমার নিউজ",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                         Text(
                             text = BengaliUtils.bnToday(),
@@ -283,50 +280,49 @@ fun PersonalHomeScreen(
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp
                             ),
-                            color = cs.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
-                    GlassIconButton(
+                    IconButton(
                         onClick = onOpenSearch,
-                        interactionSource = searchBtnInteraction
+                        interactionSource = searchBtnInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .pressScaleEffect(searchBtnInteraction, pressedScale = 0.90f)
                     ) {
-                        Icon(
-                            Icons.Filled.Search,
-                            contentDescription = "অনুসন্ধান",
-                            modifier = Modifier.size(19.dp)
-                        )
+                        Icon(Icons.Filled.Search, contentDescription = "অনুসন্ধান")
                     }
-                    GlassIconButton(
+                    IconButton(
                         onClick = { if (!isLoading) loadData(true) },
                         enabled = !isLoading,
-                        interactionSource = refreshBtnInteraction
+                        interactionSource = refreshBtnInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .pressScaleEffect(refreshBtnInteraction, pressedScale = 0.90f)
                     ) {
                         Icon(
                             Icons.Filled.Refresh,
                             contentDescription = "রিফ্রেশ",
-                            modifier = Modifier
-                                .size(19.dp)
-                                .graphicsLayer { rotationZ = refreshRotation }
+                            modifier = Modifier.graphicsLayer { rotationZ = refreshRotation }
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .editorialAmbientBackground(
-                    backgroundColor = cs.background,
-                    isDark = isDark
-                )
                 .padding(innerPadding)
         ) {
-            // Category Chips Row (Liquid Glass Chips)
+            // Category Chips Row
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 items(
@@ -335,9 +331,25 @@ fun PersonalHomeScreen(
                 ) { idx ->
                     val cat = activeCategories[idx]
                     val isSelected = idx == selectedCategoryIndex
+                    val chipInteraction = remember { MutableInteractionSource() }
+                    val chipContainerColor by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "catChipBg"
+                    )
+                    val chipLabelColor by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "catChipLabel"
+                    )
 
-                    GlassChip(
-                        label = cat.label,
+                    FilterChip(
                         selected = isSelected,
                         onClick = {
                             if (selectedCategoryIndex != idx) {
@@ -345,7 +357,24 @@ fun PersonalHomeScreen(
                             } else if (errorMsg != null || newsItems.isEmpty()) {
                                 loadData(true)
                             }
-                        }
+                        },
+                        interactionSource = chipInteraction,
+                        modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
+                        label = {
+                            Text(
+                                text = cat.label,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = chipContainerColor,
+                            selectedLabelColor = chipLabelColor,
+                            containerColor = chipContainerColor,
+                            labelColor = chipLabelColor
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        border = null
                     )
                 }
             }
@@ -415,7 +444,7 @@ fun PersonalHomeScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(bottom = 82.dp)
                         ) {
-                            // 1. Continue reading recent paper card (Elevated Liquid Glass banner)
+                            // 1. Continue reading recent paper card
                             if (recentPaper != null) {
                                 item(key = "continue_reading_${recentPaper.url}") {
                                     OncePerSessionReveal(
@@ -424,41 +453,35 @@ fun PersonalHomeScreen(
                                         delayMillis = 0,
                                         initialOffsetYDp = 6.dp
                                     ) {
-                                        GlassCard(
+                                        Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 4.dp),
-                                            tier = GlassCardTier.Elevated,
-                                            pressedScale = 0.984f,
-                                            onClick = {
-                                                onOpenReader(recentPaper, recentPaper.openUrl, recentPaper.bn)
-                                            }
+                                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .subtleClickable(pressedScale = 0.985f) {
+                                                    onOpenReader(recentPaper, recentPaper.openUrl, recentPaper.bn)
+                                                },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                            ),
+                                            shape = RoundedCornerShape(12.dp)
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.5.dp),
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 PaperAvatar(paper = recentPaper, size = 34.dp)
                                                 Spacer(modifier = Modifier.width(10.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(6.dp)
-                                                                .clip(CircleShape)
-                                                                .background(BrandCoral)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(5.dp))
-                                                        Text(
-                                                            text = "চালিয়ে পড়ুন",
-                                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                                fontSize = 11.sp,
-                                                                lineHeight = 14.sp
-                                                            ),
-                                                            color = MaterialTheme.colorScheme.secondary,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
+                                                    Text(
+                                                        text = "চালিয়ে পড়ুন",
+                                                        style = MaterialTheme.typography.bodySmall.copy(
+                                                            fontSize = 11.sp,
+                                                            lineHeight = 14.sp
+                                                        ),
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                     Text(
                                                         text = recentPaper.bn,
                                                         style = MaterialTheme.typography.titleMedium.copy(
@@ -574,29 +597,36 @@ fun PersonalHomeScreen(
                                                         coverage.items.drop(1) + item.related
                                                     }
 
-                                                    GlassCard(
-                                                        modifier = Modifier.width(244.dp),
-                                                        tier = GlassCardTier.Briefing,
-                                                        pressedScale = 0.982f,
-                                                        onClick = {
-                                                            onOpenReader(paper, item.link, item.title)
-                                                        }
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .width(240.dp)
+                                                            .clip(RoundedCornerShape(14.dp))
+                                                            .subtleClickable(pressedScale = 0.982f) {
+                                                                onOpenReader(paper, item.link, item.title)
+                                                            },
+                                                        shape = RoundedCornerShape(14.dp),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surface
+                                                        ),
+                                                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                                     ) {
-                                                        Column(modifier = Modifier.padding(10.dp)) {
+                                                        Column(modifier = Modifier.padding(8.dp)) {
+                                                            // 16:9 Top Cover Image
                                                             ArticleCoverImage(
                                                                 item = item,
                                                                 paper = paper,
                                                                 newsRepo = newsRepo,
                                                                 fallbackItems = fallbackItems,
-                                                                shape = RoundedCornerShape(11.dp),
+                                                                shape = RoundedCornerShape(10.dp),
                                                                 fallbackAvatarSize = 34.dp,
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
-                                                                    .aspectRatio(16f / 9.5f)
+                                                                    .aspectRatio(16f / 9f)
                                                             )
 
-                                                            Spacer(modifier = Modifier.height(8.dp))
+                                                            Spacer(modifier = Modifier.height(7.dp))
 
+                                                            // Source row (small logo + source name + relative time)
                                                             Row(
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
@@ -615,7 +645,7 @@ fun PersonalHomeScreen(
                                                                         lineHeight = 14.sp
                                                                     ),
                                                                     fontWeight = FontWeight.Bold,
-                                                                    color = MaterialTheme.colorScheme.secondary,
+                                                                    color = MaterialTheme.colorScheme.primary,
                                                                     maxLines = 1,
                                                                     overflow = TextOverflow.Ellipsis,
                                                                     modifier = Modifier.weight(1f, fill = false)
@@ -635,11 +665,12 @@ fun PersonalHomeScreen(
 
                                                             Spacer(modifier = Modifier.height(4.dp))
 
+                                                            // Full-width Headline
                                                             Text(
                                                                 text = item.title,
                                                                 style = MaterialTheme.typography.titleMedium.copy(
                                                                     fontSize = 14.5.sp,
-                                                                    lineHeight = 20.sp
+                                                                    lineHeight = 19.5.sp
                                                                 ),
                                                                 fontWeight = FontWeight.Bold,
                                                                 fontFamily = FontFamily.Serif,
@@ -653,11 +684,8 @@ fun PersonalHomeScreen(
                                                     }
                                                 }
                                             }
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(horizontal = 14.dp),
-                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp))
                                         }
                                     }
                                 }
@@ -672,27 +700,16 @@ fun PersonalHomeScreen(
                                         delayMillis = 90,
                                         initialOffsetYDp = 5.dp
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 3.5.dp, height = 16.dp)
-                                                    .clip(RoundedCornerShape(2.dp))
-                                                    .background(MaterialTheme.colorScheme.primary)
-                                            )
-                                            Spacer(modifier = Modifier.width(7.dp))
-                                            Text(
-                                                text = "স্মার্ট নিউজ ফিড",
-                                                style = MaterialTheme.typography.titleMedium.copy(
-                                                    fontSize = 15.sp,
-                                                    lineHeight = 20.sp
-                                                ),
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Serif
-                                            )
-                                        }
+                                        Text(
+                                            text = "স্মার্ট নিউজ ফিড",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontSize = 15.sp,
+                                                lineHeight = 20.sp
+                                            ),
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Serif,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                        )
                                     }
                                 }
 
@@ -835,48 +852,44 @@ fun LeadStoryCard(
         label = "leadExpandArrow"
     )
 
-    GlassCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 5.dp),
-        tier = GlassCardTier.Hero,
-        pressedScale = 0.985f,
-        onClick = {
-            onOpenReader(paper, mainItem.link, mainItem.title)
-        }
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .subtleClickable(pressedScale = 0.986f) {
+                onOpenReader(paper, mainItem.link, mainItem.title)
+            },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             ArticleCoverImage(
                 item = mainItem,
                 paper = paper,
                 newsRepo = newsRepo,
                 fallbackItems = siblingItems,
-                shape = RoundedCornerShape(13.dp),
+                shape = RoundedCornerShape(10.dp),
                 fallbackAvatarSize = 42.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9.6f)
+                    .aspectRatio(16f / 9f)
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Subtle glass metadata row with Coral accent & source identity
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(BrandCoral)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
                 PaperAvatar(
                     paper = paper,
                     size = 16.dp
                 )
-                Spacer(modifier = Modifier.width(5.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = mainItem.source,
                     style = MaterialTheme.typography.labelMedium.copy(
@@ -884,7 +897,7 @@ fun LeadStoryCard(
                         lineHeight = 15.sp
                     ),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -901,19 +914,30 @@ fun LeadStoryCard(
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                GlassPillBadge(
-                    text = "প্রধান সংবাদ",
-                    useCoralAccent = true
-                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = FlagRed.copy(alpha = 0.14f)
+                ) {
+                    Text(
+                        text = "প্রধান সংবাদ",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp
+                        ),
+                        color = FlagRed,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(5.dp))
 
             Text(
                 text = mainItem.title,
                 style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = 18.sp,
-                    lineHeight = 25.sp
+                    fontSize = 17.5.sp,
+                    lineHeight = 24.sp
                 ),
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Serif,
@@ -923,21 +947,37 @@ fun LeadStoryCard(
             )
 
             if (multiCoverage) {
-                Spacer(modifier = Modifier.height(9.dp))
-                GlassPillBadge(
-                    text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
-                    useCoralAccent = false,
-                    onClick = { expanded = !expanded }
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .subtleClickable(pressedScale = 0.96f) { expanded = !expanded },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
                 ) {
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(
-                        imageVector = Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(14.dp)
-                            .graphicsLayer { rotationZ = arrowRotation },
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(
+                            imageVector = Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .graphicsLayer { rotationZ = arrowRotation },
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
             }
 
@@ -971,17 +1011,14 @@ fun LeadStoryCard(
                         .fillMaxWidth()
                         .padding(top = 6.dp)
                 ) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 6.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     Text(
                         text = "অন্যান্য পত্রিকার শিরোনাম ও দৃষ্টিভঙ্গি:",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.5.sp,
                             lineHeight = 14.sp
                         ),
-                        color = MaterialTheme.colorScheme.secondary,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1064,18 +1101,22 @@ fun SmartStoryCard(
         label = "smartExpandArrow"
     )
 
-    GlassCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 4.dp),
-        tier = GlassCardTier.Standard,
-        pressedScale = 0.984f,
-        onClick = {
-            onOpenReader(paper, mainItem.link, mainItem.title)
-        }
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .subtleClickable(pressedScale = 0.985f) {
+                onOpenReader(paper, mainItem.link, mainItem.title)
+            },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(11.dp)) {
-            // A) Top metadata row
+        Column(modifier = Modifier.padding(10.dp)) {
+            // A) Top metadata row: small source logo + source name + relative time
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -1092,7 +1133,7 @@ fun SmartStoryCard(
                         lineHeight = 15.sp
                     ),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -1124,7 +1165,7 @@ fun SmartStoryCard(
                         text = mainItem.title,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 15.sp,
-                            lineHeight = 21.sp
+                            lineHeight = 20.5.sp
                         ),
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif,
@@ -1136,6 +1177,7 @@ fun SmartStoryCard(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
+                // 4:3 Rounded Thumbnail on the right
                 ArticleCoverImage(
                     item = mainItem,
                     paper = paper,
@@ -1151,21 +1193,37 @@ fun SmartStoryCard(
 
             // Multi-source coverage control below the main content row
             if (multiCoverage) {
-                Spacer(modifier = Modifier.height(7.dp))
-                GlassPillBadge(
-                    text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
-                    useCoralAccent = false,
-                    onClick = { expanded = !expanded }
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .subtleClickable(pressedScale = 0.96f) { expanded = !expanded },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
                 ) {
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(
-                        imageVector = Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(14.dp)
-                            .graphicsLayer { rotationZ = arrowRotation },
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "এই খবরটি ${BengaliUtils.bnDigits(coverage.count)}টি পত্রিকায়",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(
+                            imageVector = Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .graphicsLayer { rotationZ = arrowRotation },
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
             }
 
@@ -1200,17 +1258,14 @@ fun SmartStoryCard(
                         .fillMaxWidth()
                         .padding(top = 6.dp)
                 ) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 6.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     Text(
                         text = "অন্যান্য পত্রিকার শিরোনাম ও দৃষ্টিভঙ্গি:",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.5.sp,
                             lineHeight = 14.sp
                         ),
-                        color = MaterialTheme.colorScheme.secondary,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -26,8 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
-import com.potrikaghor.ui.components.GlassPrimaryButton
-import com.potrikaghor.ui.components.GlassSecondaryButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,7 +118,7 @@ fun AddPaperDialog(
             }
         },
         confirmButton = {
-            GlassPrimaryButton(
+            Button(
                 onClick = {
                     val validUrl = normalizeUrl(urlInput)
                     if (bnName.trim().isEmpty()) {
@@ -140,11 +139,11 @@ fun AddPaperDialog(
                     }
                 }
             ) {
-                Text("যোগ করুন", fontWeight = FontWeight.Bold)
+                Text("যোগ করুন")
             }
         },
         dismissButton = {
-            GlassSecondaryButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss) {
                 Text("বাতিল")
             }
         }
@@ -198,7 +197,7 @@ fun FixUrlDialog(
             }
         },
         confirmButton = {
-            GlassPrimaryButton(
+            Button(
                 onClick = {
                     val valid = normalizeUrl(currentUrl)
                     if (valid != null) {
@@ -210,11 +209,11 @@ fun FixUrlDialog(
                     }
                 }
             ) {
-                Text("সংরক্ষণ", fontWeight = FontWeight.Bold)
+                Text("সংরক্ষণ")
             }
         },
         dismissButton = {
-            GlassSecondaryButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss) {
                 Text("বাতিল")
             }
         }

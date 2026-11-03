@@ -1,6 +1,7 @@
 package com.potrikaghor.ui.screens
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,14 +20,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,9 +47,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
@@ -45,18 +58,13 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
-import com.potrikaghor.ui.components.GlassCard
-import com.potrikaghor.ui.components.GlassCardTier
-import com.potrikaghor.ui.components.GlassChip
-import com.potrikaghor.ui.components.GlassIconButton
-import com.potrikaghor.ui.components.GlassSearchBar
-import com.potrikaghor.ui.components.GlassTopAppBar
 import com.potrikaghor.ui.components.MotionTokens
 import com.potrikaghor.ui.components.PaperAvatar
 import com.potrikaghor.ui.components.SkeletonCard
 import com.potrikaghor.ui.components.SubtleContentReveal
-import com.potrikaghor.ui.components.editorialAmbientBackground
+import com.potrikaghor.ui.components.pressScaleEffect
 import com.potrikaghor.ui.components.rememberReducedMotion
+import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
 
@@ -100,11 +108,10 @@ fun SearchScreen(
 
     val quickTopics = listOf("আজকের শীর্ষ", "বাজেট", "রাজনীতি", "ক্রিকেট", "শেয়ারবাজার", "প্রযুক্তি", "চাকরি", "শিক্ষা")
     val backBtnInteraction = remember { MutableInteractionSource() }
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.25f
 
     Scaffold(
         topBar = {
-            GlassTopAppBar(
+            TopAppBar(
                 title = {
                     Text(
                         text = "খবর অনুসন্ধান",
@@ -117,15 +124,14 @@ fun SearchScreen(
                     )
                 },
                 navigationIcon = {
-                    GlassIconButton(
+                    IconButton(
                         onClick = onBack,
-                        interactionSource = backBtnInteraction
+                        interactionSource = backBtnInteraction,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .pressScaleEffect(backBtnInteraction, pressedScale = 0.90f)
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "ফিরে যান",
-                            modifier = Modifier.size(19.dp)
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
                     }
                 }
             )
@@ -134,26 +140,34 @@ fun SearchScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .editorialAmbientBackground(
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    isDark = isDark
-                )
                 .padding(innerPadding)
         ) {
-            GlassSearchBar(
+            OutlinedTextField(
                 value = query,
                 onValueChange = {
                     query = it
                     if (it.length >= 3) doSearch(it)
                 },
-                placeholder = "কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...",
-                onClear = {
-                    query = ""
-                    results = emptyList()
-                    hasSearched = false
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                placeholder = { Text("কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...", fontSize = 13.5.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = {
+                            query = ""
+                            results = emptyList()
+                            hasSearched = false
+                        }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "মুছুন")
+                        }
+                    }
                 },
-                onSearchAction = { doSearch(query) },
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { doSearch(query) })
             )
 
             // Quick Topic Suggestion Chips
@@ -163,13 +177,41 @@ fun SearchScreen(
             ) {
                 items(quickTopics, key = { it }) { topic ->
                     val isTopicSelected = query == topic
-                    GlassChip(
-                        label = topic,
+                    val chipInteraction = remember { MutableInteractionSource() }
+                    val chipBg by animateColorAsState(
+                        targetValue = if (isTopicSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "searchTopicBg"
+                    )
+                    val chipText by animateColorAsState(
+                        targetValue = if (isTopicSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        label = "searchTopicText"
+                    )
+
+                    FilterChip(
                         selected = isTopicSelected,
                         onClick = {
                             query = topic
                             doSearch(topic)
-                        }
+                        },
+                        interactionSource = chipInteraction,
+                        modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
+                        label = { Text(topic, fontSize = 12.sp) },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = chipBg,
+                            selectedLabelColor = chipText,
+                            containerColor = chipBg,
+                            labelColor = chipText
+                        ),
+                        border = null
                     )
                 }
             }
@@ -236,16 +278,18 @@ fun SearchScreen(
                                     durationMillis = if (isFirstReveal) MotionTokens.REVEAL_MS else 0,
                                     initialOffsetYDp = if (isFirstReveal) 6.dp else 0.dp
                                 ) {
-                                    GlassCard(
-                                        tier = GlassCardTier.Standard,
+                                    Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 4.dp),
-                                        onClick = {
-                                            onOpenReader(paper, item.link, item.title)
-                                        }
+                                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .subtleClickable(pressedScale = 0.985f) {
+                                                onOpenReader(paper, item.link, item.title)
+                                            },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                                     ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
+                                        Column(modifier = Modifier.padding(11.dp)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 PaperAvatar(paper = paper, size = 18.dp)
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -255,7 +299,7 @@ fun SearchScreen(
                                                         fontSize = 11.5.sp,
                                                         lineHeight = 15.sp
                                                     ),
-                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    color = MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Spacer(modifier = Modifier.weight(1f))
@@ -277,7 +321,7 @@ fun SearchScreen(
                                                 text = item.title,
                                                 style = MaterialTheme.typography.bodyMedium.copy(
                                                     fontSize = 15.sp,
-                                                    lineHeight = 21.sp
+                                                    lineHeight = 20.5.sp
                                                 ),
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = FontFamily.Serif

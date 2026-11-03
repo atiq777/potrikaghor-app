@@ -35,41 +35,35 @@ fun PotrikaghorTheme(
             darkColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.22f),
-                onPrimaryContainer = Color(0xFFFFEDE9),
-                secondary = DeepTealLight,
+                primaryContainer = primaryAccent.copy(alpha = 0.2f),
+                onPrimaryContainer = Color.White,
+                secondary = BrandGreen,
                 onSecondary = Color.White,
-                secondaryContainer = DeepTeal.copy(alpha = 0.28f),
-                onSecondaryContainer = Color(0xFFD9F4F6),
-                tertiary = BrandCoral,
                 background = AmoledBackground,
                 onBackground = Color(0xFFF3F6F7),
                 surface = AmoledSurface,
                 onSurface = Color(0xFFF3F6F7),
                 surfaceVariant = AmoledCard,
-                onSurfaceVariant = Color(0xFFAEC0C4),
-                outline = Color(0xFF344146),
+                onSurfaceVariant = Color(0xFFA0AEB1),
+                outline = AmoledBorder,
                 outlineVariant = AmoledBorder
             )
         } else {
             darkColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.24f),
-                onPrimaryContainer = Color(0xFFFFF0ED),
-                secondary = DeepTealLight,
+                primaryContainer = primaryAccent.copy(alpha = 0.25f),
+                onPrimaryContainer = Color.White,
+                secondary = BrandGreen,
                 onSecondary = Color.White,
-                secondaryContainer = DeepTeal.copy(alpha = 0.34f),
-                onSecondaryContainer = Color(0xFFDDF5F7),
-                tertiary = BrandCoral,
-                background = DarkGlassBackground,
-                onBackground = Color(0xFFEDF3F4),
-                surface = DarkGlassSurface,
-                onSurface = Color(0xFFEDF3F4),
-                surfaceVariant = DarkGlassSurfaceVariant,
-                onSurfaceVariant = Color(0xFFB2C4C8),
-                outline = Color(0xFF3B5158),
-                outlineVariant = DarkGlassBorder
+                background = Color(0xFF0E1112),
+                onBackground = Color(0xFFEFF3F4),
+                surface = Color(0xFF161B1D),
+                onSurface = Color(0xFFEFF3F4),
+                surfaceVariant = Color(0xFF1E2528),
+                onSurfaceVariant = Color(0xFFA2AFB2),
+                outline = Color(0xFF333E42),
+                outlineVariant = Color(0xFF283135)
             )
         }
     } else {
@@ -79,11 +73,8 @@ fun PotrikaghorTheme(
                 onPrimary = Color.White,
                 primaryContainer = Color(0xFFEADDC2),
                 onPrimaryContainer = SepiaText,
-                secondary = DeepTeal,
+                secondary = BrandGreen,
                 onSecondary = Color.White,
-                secondaryContainer = Color(0xFFDCE7E3),
-                onSecondaryContainer = DeepTeal,
-                tertiary = BrandCoral,
                 background = SepiaBackground,
                 onBackground = SepiaText,
                 surface = SepiaSurface,
@@ -94,25 +85,24 @@ fun PotrikaghorTheme(
                 outlineVariant = Color(0xFFDDD0B3)
             )
         } else {
-            // Premium Editorial Cream/White + Frosted Teal-Coral palette
+            // Warm Editorial Paper Light Theme
             lightColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.13f),
+                primaryContainer = primaryAccent.copy(alpha = 0.14f),
                 onPrimaryContainer = InkColor,
-                secondary = DeepTeal,
+                secondary = BrandGreen,
                 onSecondary = Color.White,
-                secondaryContainer = DeepTeal.copy(alpha = 0.11f),
-                onSecondaryContainer = DeepTeal,
-                tertiary = BrandCoral,
+                secondaryContainer = BrandGreen.copy(alpha = 0.14f),
+                onSecondaryContainer = BrandGreen,
                 background = PaperColor,
                 onBackground = InkColor,
                 surface = Color(0xFFFFFDF9),
                 onSurface = InkColor,
-                surfaceVariant = Color(0xFFEBE7DD),
-                onSurfaceVariant = Color(0xFF535D5F),
-                outline = Color(0xFFB5BEB9),
-                outlineVariant = Color(0xFFD8DDD8)
+                surfaceVariant = Color(0xFFEBE5D8),
+                onSurfaceVariant = Color(0xFF565E60),
+                outline = Color(0xFFB5ADA0),
+                outlineVariant = Color(0xFFDAD2C5)
             )
         }
     }

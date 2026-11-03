@@ -3,17 +3,14 @@ package com.potrikaghor.ui.theme
 import androidx.compose.ui.graphics.Color
 
 val InkColor = Color(0xFF141819)
-val PaperColor = Color(0xFFF5F2EB)
+val PaperColor = Color(0xFFF6F2EA)
 val FlagRed = Color(0xFFE04332)
 val BrandGreen = Color(0xFF0E6B4A)
-val DeepTeal = Color(0xFF0D5C63)
-val DeepTealLight = Color(0xFF177E89)
-val BrandCoral = Color(0xFFF04E37)
 val SalmonPink = Color(0xFFFF6E6E) // User's requested AMOLED pink/salmon accent
 
 val AccentColors = listOf(
-    Color(0xFFD83E2E), // লাল / কোরাল (ডিফল্ট)
-    Color(0xFF0D5C63), // ডিপ টিল / নীলচে সবুজ
+    Color(0xFFD83E2E), // লাল (ডিফল্ট)
+    Color(0xFF0F6B94), // নীল
     Color(0xFF6A3FB5), // বেগুনি
     Color(0xFFD9622B), // কমলা
     SalmonPink,        // স্যামন পিংক
@@ -34,10 +31,3 @@ val AmoledBackground = Color(0xFF000000)
 val AmoledSurface = Color(0xFF101314)
 val AmoledCard = Color(0xFF171C1E)
 val AmoledBorder = Color(0xFF283134)
-
-// Dark Editorial Liquid Glass palette (Deep Teal + Obsidian)
-val DarkGlassBackground = Color(0xFF0D1416)
-val DarkGlassSurface = Color(0xFF152023)
-val DarkGlassSurfaceVariant = Color(0xFF1D2B2F)
-val DarkGlassBorder = Color(0xFF2E4248)
-
