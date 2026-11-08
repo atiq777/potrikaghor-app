@@ -130,9 +130,11 @@ fun ReaderScreen(
         initialTitle.trim().ifEmpty { paper.bn }
     }
 
-    // Open in Website View by default so news opens directly on the publisher's site,
-    // with Clean Reader Mode, AI Summary, and TTS accessible via the top toolbar.
-    var isCleanReaderMode by remember { mutableStateOf(false) }
+    // Open news articles in the user's preferred mode (Clean Reader Mode by default),
+    // while direct newspaper homepages (without an article headline) open in Website View.
+    var isCleanReaderMode by remember {
+        mutableStateOf(if (initialTitle.isNotBlank()) appState.preferCleanReader else false)
+    }
     var cleanArticle by remember { mutableStateOf<CleanArticle?>(null) }
     var isExtracting by remember { mutableStateOf(true) }
 
@@ -303,10 +305,18 @@ fun ReaderScreen(
         }
     }
 
-    // Track recently read paper
-    LaunchedEffect(paper.url) {
+    // Track recently read paper & mark article read
+    LaunchedEffect(paper.url, initialUrl, initialTitle) {
         if (!paper.url.contains("news.google.com")) {
             appRepo.addRecent(paper.url)
+        }
+        if (initialTitle.isNotBlank() || !initialUrl.contains("news.google.com")) {
+            appRepo.markArticleRead(
+                url = initialUrl,
+                title = initialTitle.ifBlank { paper.bn },
+                sourceName = paper.bn,
+                paperUrl = paper.url
+            )
         }
     }
 
@@ -539,6 +549,7 @@ fun ReaderScreen(
                         onClick = {
                             val switchingToClean = !isCleanReaderMode
                             isCleanReaderMode = switchingToClean
+                            appRepo.setPreferCleanReader(switchingToClean)
                             if (switchingToClean) {
                                 extractLiveFromWebView(webViewRef)
                             }
@@ -641,6 +652,123 @@ fun ReaderScreen(
                 .background(if (isCleanReaderMode) readerBgColor else MaterialTheme.colorScheme.background)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Prominent Clean Reader vs Website View Segmented Switch Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (!isCleanReaderMode) {
+                                        isCleanReaderMode = true
+                                        appRepo.setPreferCleanReader(true)
+                                        extractLiveFromWebView(webViewRef)
+                                    }
+                                },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isCleanReaderMode) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MenuBook,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = if (isCleanReaderMode) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ক্লিন রিডার",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 12.sp,
+                                        lineHeight = 15.sp
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCleanReaderMode) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (isCleanReaderMode) {
+                                        isCleanReaderMode = false
+                                        appRepo.setPreferCleanReader(false)
+                                    }
+                                },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (!isCleanReaderMode) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Language,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = if (!isCleanReaderMode) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "মূল ওয়েবসাইট",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 12.sp,
+                                        lineHeight = 15.sp
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (!isCleanReaderMode) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Subtle reading progress indicator bar at the top of Reader Mode
                 if (isCleanReaderMode && !isExtracting && cleanArticle != null) {
                     LinearProgressIndicator(

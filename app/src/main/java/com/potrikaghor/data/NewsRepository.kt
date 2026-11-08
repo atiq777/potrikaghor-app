@@ -17,15 +17,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
-import java.time.Instant
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import kotlin.math.abs
+import kotlin.math.pow
 
 data class DirectRssFeedSpec(
     val sourceBn: String,
@@ -80,10 +80,15 @@ class NewsRepository {
             logDiag(sb.toString())
         }
 
+        const val FUTURE_TIMESTAMP_TOLERANCE_MS = 10 * 60 * 1000L
+        const val FEED_STALE_THRESHOLD_MS = 72 * 3600 * 1000L
+        const val PINNED_STALE_ITEM_MAX_AGE_MS = 7 * 24 * 3600 * 1000L
+        const val DUPLICATE_TIME_WINDOW_MS = 12 * 3600 * 1000L
+
         /**
          * Curated direct publisher RSS/Atom feeds.
-         * Direct feeds with embedded images (<media:content>, <media:thumbnail>, <enclosure>, <img>)
-         * are prioritized first so cards receive verified publisher image URLs directly from RSS XML.
+         * Excludes stale/abandoned feeds (such as The Daily Star root /rss.xml frozen in June 2026
+         * and CNN World RSS frozen in April 2023).
          */
         val DIRECT_PUBLISHER_FEEDS = listOf(
             // Bangla / Domestic feeds with verified embedded RSS images
@@ -118,7 +123,7 @@ class NewsRepository {
             DirectRssFeedSpec(
                 sourceBn = "দৈনিক আমার দেশ",
                 sourceEn = "Dainik Amar Desh",
-                feedUrl = "https://dailyamardesh.com/feed",
+                feedUrl = "https://www.dailyamardesh.com/feed",
                 baseUrl = "https://dailyamardesh.com",
                 isIntl = false
             ),
@@ -150,13 +155,6 @@ class NewsRepository {
                 baseUrl = "https://tv9bangla.com",
                 isIntl = false
             ),
-            DirectRssFeedSpec(
-                sourceBn = "দ্য ডেইলি স্টার",
-                sourceEn = "The Daily Star",
-                feedUrl = "https://www.thedailystar.net/rss.xml",
-                baseUrl = "https://www.thedailystar.net",
-                isIntl = false
-            ),
             // Additional Bangla feeds (text RSS; OG image available for Channel i / DW Bangla)
             DirectRssFeedSpec(
                 sourceBn = "ডিডব্লিউ বাংলা",
@@ -168,7 +166,7 @@ class NewsRepository {
             DirectRssFeedSpec(
                 sourceBn = "চ্যানেল আই",
                 sourceEn = "Channel i",
-                feedUrl = "https://www.channelionline.com/feed/",
+                feedUrl = "https://www.channelionline.com/rss.xml",
                 baseUrl = "https://www.channelionline.com",
                 isIntl = false
             ),
@@ -179,7 +177,51 @@ class NewsRepository {
                 baseUrl = "https://www.jagonews24.com",
                 isIntl = false
             ),
-            // International feeds with verified embedded RSS images
+            // 6 New Live-Verified Bangla / Domestic Official Feeds
+            DirectRssFeedSpec(
+                sourceBn = "রাইজিংবিডি",
+                sourceEn = "RisingBD",
+                feedUrl = "https://www.risingbd.com/rss/rss.xml",
+                baseUrl = "https://www.risingbd.com",
+                isIntl = false
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "সংবাদ প্রতিদিন",
+                sourceEn = "Sangbad Pratidin",
+                feedUrl = "https://www.sangbadpratidin.in/feed/",
+                baseUrl = "https://www.sangbadpratidin.in",
+                isIntl = false
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "জুমবাংলা",
+                sourceEn = "ZoomBangla",
+                feedUrl = "https://inews.zoombangla.com/feed/",
+                baseUrl = "https://inews.zoombangla.com",
+                isIntl = false
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "অর্থসূচক",
+                sourceEn = "Arthosuchak",
+                feedUrl = "https://www.arthosuchak.com/feed/",
+                baseUrl = "https://www.arthosuchak.com",
+                isIntl = false,
+                defaultCategory = "biz"
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "দৈনিক আজাদী",
+                sourceEn = "Daily Azadi (Chattogram)",
+                feedUrl = "https://dainikazadi.net/feed/",
+                baseUrl = "https://dainikazadi.net",
+                isIntl = false
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "দৈনিক পূর্বকোণ",
+                sourceEn = "Purbokone (Chattogram)",
+                feedUrl = "https://dainikpurbokone.net/feed/",
+                baseUrl = "https://www.dainikpurbokone.net",
+                isIntl = false
+            ),
+            // Existing International feeds with verified embedded RSS images
             DirectRssFeedSpec(
                 sourceBn = "বিবিসি নিউজ",
                 sourceEn = "BBC News",
@@ -237,6 +279,72 @@ class NewsRepository {
                 feedUrl = "https://www.aljazeera.com/xml/rss/all.xml",
                 baseUrl = "https://www.aljazeera.com",
                 isIntl = true
+            ),
+            // 9 New Live-Verified International Feeds (CNN 2023 & ambiguous EST feeds excluded)
+            DirectRssFeedSpec(
+                sourceBn = "ফ্রান্স ২৪",
+                sourceEn = "France 24",
+                feedUrl = "https://www.france24.com/en/rss",
+                baseUrl = "https://www.france24.com",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "জাতিসংঘ সংবাদ",
+                sourceEn = "UN News",
+                feedUrl = "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+                baseUrl = "https://news.un.org",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "ডয়চে ভেলে (ইংরেজি)",
+                sourceEn = "DW English",
+                feedUrl = "https://rss.dw.com/xml/rss-en-all",
+                baseUrl = "https://www.dw.com/en",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "স্কাই নিউজ",
+                sourceEn = "Sky News",
+                feedUrl = "https://feeds.skynews.com/feeds/rss/world.xml",
+                baseUrl = "https://news.sky.com",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "এবিসি নিউজ",
+                sourceEn = "ABC News",
+                feedUrl = "https://abcnews.com/abcnews/internationalheadlines",
+                baseUrl = "https://abcnews.go.com",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "দ্য হিন্দু",
+                sourceEn = "The Hindu",
+                feedUrl = "https://www.thehindu.com/news/international/feeder/default.rss",
+                baseUrl = "https://www.thehindu.com",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "সাউথ চায়না মর্নিং পোস্ট",
+                sourceEn = "SCMP",
+                feedUrl = "https://www.scmp.com/rss/91/feed/",
+                baseUrl = "https://www.scmp.com",
+                isIntl = true
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "টেকক্রাঞ্চ",
+                sourceEn = "TechCrunch",
+                feedUrl = "https://techcrunch.com/feed/",
+                baseUrl = "https://techcrunch.com",
+                isIntl = true,
+                defaultCategory = "tech"
+            ),
+            DirectRssFeedSpec(
+                sourceBn = "আর্স টেকনিকা",
+                sourceEn = "Ars Technica",
+                feedUrl = "https://feeds.arstechnica.com/arstechnica/index",
+                baseUrl = "https://arstechnica.com",
+                isIntl = true,
+                defaultCategory = "tech"
             )
         )
     }
@@ -276,6 +384,7 @@ class NewsRepository {
     private val verifiedHttp200Cache = ConcurrentHashMap<String, Pair<Boolean, String>>()
     private val inFlightLookups = ConcurrentHashMap<String, Deferred<String?>>()
     private val imageSemaphore = Semaphore(6)
+    private val directFeedSemaphore = Semaphore(6)
 
     // In-memory cache for direct publisher RSS feeds (TTL: 3 minutes)
     @Volatile
@@ -289,45 +398,135 @@ class NewsRepository {
     private var cachedDirectIntlTimestamp: Long = 0L
 
     private val directFeedCacheTtlMs = 3 * 60 * 1000L
+    private val categoryFeedMemoryCache = ConcurrentHashMap<String, List<NewsItem>>()
 
-    private fun parseDate(str: String): Long? {
-        val trimmed = str.trim()
-        if (trimmed.isEmpty()) return null
+    @Volatile
+    var dataSaverMode: Boolean = false
 
-        try {
-            return ZonedDateTime.parse(trimmed, DateTimeFormatter.RFC_1123_DATE_TIME)
-                .toInstant()
-                .toEpochMilli()
-        } catch (_: Exception) {}
+    fun getMemoryCachedCategoryFeed(categoryId: String): List<NewsItem> {
+        return categoryFeedMemoryCache[categoryId.ifBlank { "top" }] ?: emptyList()
+    }
 
-        try {
-            return Instant.parse(trimmed).toEpochMilli()
-        } catch (_: Exception) {}
+    fun putMemoryCachedCategoryFeed(categoryId: String, items: List<NewsItem>) {
+        if (items.isNotEmpty()) {
+            categoryFeedMemoryCache[categoryId.ifBlank { "top" }] = items
+        }
+    }
 
-        try {
-            return ZonedDateTime.parse(trimmed, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                .toInstant()
-                .toEpochMilli()
-        } catch (_: Exception) {}
+    /**
+     * API 24-compatible date parser using fresh [SimpleDateFormat] instances per call.
+     * - Supports '+06:00' and '-05:00' colon offsets in both RFC-1123 and ISO-8601 strings.
+     * - Rejects ambiguous timezone abbreviations (such as EST, EDT, CST, PST, IST, BST) as null.
+     * - Rejects timestamps without an explicit timezone indicator as null.
+     * - Rejects untrusted future timestamps exceeding [nowMs] + 10 minutes as null.
+     */
+    fun parseDate(str: String, nowMs: Long = System.currentTimeMillis()): Long? {
+        val raw = str.trim().replace(Regex("\\s+"), " ")
+        if (raw.isEmpty()) return null
+
+        // Normalize trailing ISO colon offset "+06:00" / "-05:00" -> "+0600" / "-0500"
+        var normalized = raw.replace(Regex("([+-]\\d{2}):(\\d{2})$"), "$1$2")
+
+        // Normalize ISO-8601 trailing 'Z' / 'z' (after digits) to "+0000"
+        if (normalized.matches(Regex(".*\\d[Zz]$"))) {
+            normalized = normalized.dropLast(1) + "+0000"
+        }
+
+        // Normalize explicit unambiguous UTC labels (" UTC", " UT") to " GMT"
+        normalized = normalized.replace(Regex("\\s+(?:UTC|UT)$", RegexOption.IGNORE_CASE), " GMT")
+
+        // Validate that the string ends with an unambiguous timezone:
+        // either a numeric offset ([+-]HHmm with HH in 00..14 and mm in 00..59) or " GMT".
+        val numericTzMatch = Regex("([+-])(\\d{2})(\\d{2})$").find(normalized)
+        val hasValidTimezone = if (numericTzMatch != null) {
+            val hh = numericTzMatch.groupValues[2].toIntOrNull() ?: 99
+            val mm = numericTzMatch.groupValues[3].toIntOrNull() ?: 99
+            hh in 0..14 && mm in 0..59
+        } else {
+            normalized.endsWith(" GMT", ignoreCase = true)
+        }
+
+        if (!hasValidTimezone) {
+            return null
+        }
 
         val patterns = listOf(
             "EEE, dd MMM yyyy HH:mm:ss Z",
             "EEE, d MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH:mm Z",
+            "EEE, d MMM yyyy HH:mm Z",
             "EEE, dd MMM yyyy HH:mm:ss z",
+            "EEE, d MMM yyyy HH:mm:ss z",
             "EEE, dd MMM yy HH:mm:ss Z",
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+            "EEE, d MMM yy HH:mm:ss Z",
+            "EEE, dd MMM yy HH:mm:ss z",
+            "EEE, d MMM yy HH:mm:ss z",
+            "dd MMM yyyy HH:mm:ss Z",
+            "d MMM yyyy HH:mm:ss Z",
+            "dd MMM yyyy HH:mm:ss z",
+            "d MMM yyyy HH:mm:ss z",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SZ",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mmZ",
+            "yyyy-MM-dd HH:mm:ss Z",
+            "yyyy-MM-dd HH:mm:ss z"
         )
-        for (p in patterns) {
+
+        for (pattern in patterns) {
             try {
-                val sdf = SimpleDateFormat(p, Locale.ENGLISH).apply {
+                val sdf = SimpleDateFormat(pattern, Locale.US).apply {
+                    isLenient = false
                     timeZone = TimeZone.getTimeZone("GMT")
                 }
-                val d = sdf.parse(trimmed)
-                if (d != null) return d.time
-            } catch (_: Exception) {}
+                val pos = ParsePosition(0)
+                val parsedDate = sdf.parse(normalized, pos)
+                if (parsedDate != null && pos.index == normalized.length) {
+                    val epochMs = parsedDate.time
+                    if (epochMs <= 0L) return null
+                    if (epochMs > nowMs + FUTURE_TIMESTAMP_TOLERANCE_MS) {
+                        return null
+                    }
+                    return epochMs
+                }
+            } catch (_: Throwable) {
+                // Safe across all Android API levels (24+)
+            }
         }
         return null
+    }
+
+    /**
+     * Feed-level stale check: returns true if the feed has timestamped items and its newest
+     * valid timestamp is older than [maxFeedStaleAgeMs] (default 72 hours).
+     */
+    fun isFeedStale(
+        items: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis(),
+        maxFeedStaleAgeMs: Long = FEED_STALE_THRESHOLD_MS
+    ): Boolean {
+        val newest = items.mapNotNull { it.time }.maxOrNull() ?: return false
+        return (nowMs - newest) > maxFeedStaleAgeMs
+    }
+
+    /**
+     * Article-level pinned stale item filter for direct publisher RSS feeds:
+     * When a direct publisher feed contains fresh articles (within 72 hours of [nowMs]),
+     * filters out individual pinned old articles older than 7 days (e.g. DW Bangla's March 2026
+     * pinned item at index 0). Never deletes items if the entire feed is older or offline.
+     */
+    fun filterPinnedStaleDirectItems(
+        items: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<NewsItem> {
+        if (items.size <= 1) return items
+        val hasFreshItems = items.any { it.time != null && (nowMs - it.time) in 0..FEED_STALE_THRESHOLD_MS }
+        if (!hasFreshItems) return items
+        return items.filter { item ->
+            val t = item.time ?: return@filter true
+            (nowMs - t) <= PINNED_STALE_ITEM_MAX_AGE_MS
+        }
     }
 
     fun getCachedArticleImage(item: NewsItem, fallbackItems: List<NewsItem> = emptyList()): String? {
@@ -356,7 +555,8 @@ class NewsRepository {
     suspend fun fetchNews(
         query: String = "",
         intl: Boolean = false,
-        section: String = ""
+        section: String = "",
+        forceRefresh: Boolean = false
     ): List<NewsItem> = withContext(Dispatchers.IO) {
         val q = query.trim()
         val isIntlQuery = intl || q == "আন্তর্জাতিক"
@@ -364,7 +564,7 @@ class NewsRepository {
         coroutineScope {
             // 1. Fetch direct publisher RSS feeds (which embed real <media:content>, <media:thumbnail>, <enclosure>, <img>)
             val directDeferred = async {
-                fetchDirectPublisherFeeds(isIntl = isIntlQuery)
+                fetchDirectPublisherFeeds(isIntl = isIntlQuery, forceRefresh = forceRefresh)
             }
 
             // 2. Fetch Google News RSS feed for broad multi-newspaper aggregation
@@ -398,15 +598,21 @@ class NewsRepository {
         }
     }
 
-    private suspend fun fetchDirectPublisherFeeds(isIntl: Boolean): List<NewsItem> = coroutineScope {
+    internal suspend fun fetchDirectPublisherFeeds(
+        isIntl: Boolean,
+        forceRefresh: Boolean = false,
+        fetcher: (DirectRssFeedSpec) -> List<NewsItem> = ::fetchSingleDirectFeed
+    ): List<NewsItem> = coroutineScope {
         val now = System.currentTimeMillis()
-        if (isIntl) {
-            if (cachedDirectIntlItems.isNotEmpty() && (now - cachedDirectIntlTimestamp) < directFeedCacheTtlMs) {
-                return@coroutineScope cachedDirectIntlItems
-            }
-        } else {
-            if (cachedDirectDomesticItems.isNotEmpty() && (now - cachedDirectDomesticTimestamp) < directFeedCacheTtlMs) {
-                return@coroutineScope cachedDirectDomesticItems
+        if (!forceRefresh) {
+            if (isIntl) {
+                if (cachedDirectIntlItems.isNotEmpty() && (now - cachedDirectIntlTimestamp) < directFeedCacheTtlMs) {
+                    return@coroutineScope cachedDirectIntlItems
+                }
+            } else {
+                if (cachedDirectDomesticItems.isNotEmpty() && (now - cachedDirectDomesticTimestamp) < directFeedCacheTtlMs) {
+                    return@coroutineScope cachedDirectDomesticItems
+                }
             }
         }
 
@@ -418,18 +624,22 @@ class NewsRepository {
 
         val deferreds = feedsToFetch.map { spec ->
             async(Dispatchers.IO) {
-                fetchSingleDirectFeed(spec)
+                directFeedSemaphore.withPermit {
+                    val rawItems = fetcher(spec)
+                    filterPinnedStaleDirectItems(rawItems, now)
+                }
             }
         }
 
         val fetched = deferreds.awaitAll().flatten()
         if (fetched.isNotEmpty()) {
+            val finishedAt = System.currentTimeMillis()
             if (isIntl) {
                 cachedDirectIntlItems = fetched
-                cachedDirectIntlTimestamp = now
+                cachedDirectIntlTimestamp = finishedAt
             } else {
                 cachedDirectDomesticItems = fetched
-                cachedDirectDomesticTimestamp = now
+                cachedDirectDomesticTimestamp = finishedAt
             }
         }
         fetched
@@ -572,15 +782,12 @@ class NewsRepository {
         val directWithImages = directItems.filter { !it.imageUrl.isNullOrBlank() }
         if (directWithImages.isEmpty() || googleItems.isEmpty()) return googleItems
 
-        val tokenizedDirect = directWithImages.map { it to tokens(it.title) }
-
         return googleItems.map { gItem ->
-            val gTokens = tokens(gItem.title)
             var matchedImage: String? = gItem.imageUrl
 
-            if (matchedImage.isNullOrBlank() && gTokens.size >= 3) {
-                for ((dItem, dTokens) in tokenizedDirect) {
-                    if (dTokens.size >= 3 && jaccard(gTokens, dTokens) >= 0.32) {
+            if (matchedImage.isNullOrBlank()) {
+                for (dItem in directWithImages) {
+                    if (areArticlesDuplicate(gItem, dItem)) {
                         matchedImage = dItem.imageUrl
                         break
                     }
@@ -591,12 +798,9 @@ class NewsRepository {
                 if (!rel.imageUrl.isNullOrBlank()) {
                     rel
                 } else {
-                    val rTokens = tokens(rel.title)
-                    val relMatch = if (rTokens.size >= 3) {
-                        tokenizedDirect.firstOrNull { (_, dTokens) ->
-                            dTokens.size >= 3 && jaccard(rTokens, dTokens) >= 0.32
-                        }?.first?.imageUrl
-                    } else null
+                    val relMatch = directWithImages.firstOrNull { dItem ->
+                        areArticlesDuplicate(rel, dItem)
+                    }?.imageUrl
                     if (relMatch != null) {
                         articleImageCache[cacheKeyFor(rel)] = relMatch
                         rel.copy(imageUrl = relMatch)
@@ -771,11 +975,12 @@ class NewsRepository {
                         }
                         val rLink = unescape(am.group(1) ?: "")
                         if (rt.isNotEmpty() && rs.isNotEmpty() && rLink.isNotEmpty()) {
+                            val relSourceUrl = if (rs.equals(source, ignoreCase = true)) sourceUrl else ""
                             related.add(
                                 NewsItem(
                                     title = rt,
                                     source = rs,
-                                    sourceUrl = "",
+                                    sourceUrl = relSourceUrl,
                                     link = rLink,
                                     time = parseDate(pub),
                                     imageUrl = articleImageCache[rLink]
@@ -1538,14 +1743,329 @@ class NewsRepository {
 
     private class Group {
         val items = mutableListOf<NewsItem>()
-        val tokens = mutableListOf<Set<String>>()
     }
 
-    private fun tokens(s: String): Set<String> {
-        return s.lowercase(Locale.ROOT)
+    private val builtInPublisherLookup: Map<String, String> by lazy {
+        val map = mutableMapOf<String, String>()
+        for (paper in PapersData.builtInPapers) {
+            val host = extractNormalizedHost(paper.openUrl)
+            if (host.isEmpty()) continue
+            val bnKey = paper.bn.trim().lowercase(Locale.ROOT)
+            val enKey = paper.en.trim().lowercase(Locale.ROOT)
+            if (bnKey.isNotEmpty()) map.putIfAbsent(bnKey, host)
+            if (enKey.isNotEmpty()) map.putIfAbsent(enKey, host)
+            map.putIfAbsent(host, host)
+            val rawHost = paper.host.trim().lowercase(Locale.ROOT)
+            if (rawHost.isNotEmpty()) map.putIfAbsent(rawHost, host)
+        }
+        for (spec in DIRECT_PUBLISHER_FEEDS) {
+            val host = extractNormalizedHost(spec.baseUrl)
+            if (host.isEmpty()) continue
+            map.putIfAbsent(spec.sourceBn.trim().lowercase(Locale.ROOT), host)
+            map.putIfAbsent(spec.sourceEn.trim().lowercase(Locale.ROOT), host)
+            map.putIfAbsent(host, host)
+        }
+        // Explicit, reviewed publisher aliases observed in Google News RSS <source> and <font> tags
+        val verifiedAliases = mapOf(
+            "দৈনিক প্রথম আলো" to "prothomalo.com",
+            "prothom alo" to "prothomalo.com",
+            "jagonews24" to "jagonews24.com",
+            "jagonews24.com" to "jagonews24.com",
+            "jago news 24" to "jagonews24.com",
+            "জাগো নিউজ" to "jagonews24.com",
+            "জাগোনিউজ২৪.কম" to "jagonews24.com",
+            "দ্য ডেইলি স্টার বাংলা" to "thedailystar.net",
+            "the daily star" to "thedailystar.net",
+            "daily star" to "thedailystar.net",
+            "দৈনিক ইত্তেফাক" to "ittefaq.com.bd",
+            "the daily ittefaq" to "ittefaq.com.bd",
+            "ইত্তেফাক" to "ittefaq.com.bd",
+            "দৈনিক যুগান্তর" to "jugantor.com",
+            "দৈনিক কালের কণ্ঠ" to "kalerkantho.com",
+            "দৈনিক সমকাল" to "samakal.com",
+            "দৈনিক ইনকিলাব" to "dailyinqilab.com",
+            "দৈনিক নয়া দিগন্ত" to "dailynayadiganta.com",
+            "দৈনিক নয়া দিগন্ত" to "dailynayadiganta.com",
+            "নয়া দিগন্ত" to "dailynayadiganta.com",
+            "দৈনিক মানবজমিন" to "mzamin.com",
+            "দৈনিক জনকণ্ঠ" to "dailyjanakantha.com",
+            "দৈনিক ভোরের কাগজ" to "bhorerkagoj.com",
+            "দৈনিক কালবেলা" to "kalbela.com",
+            "দৈনিক আমাদের সময়" to "amadershomoy.com",
+            "দৈনিক যায়যায়দিন" to "jaijaidinbd.com",
+            "দৈনিক যায়যায়দিন" to "jaijaidinbd.com",
+            "যায়যায়দিন" to "jaijaidinbd.com",
+            "আমার দেশ" to "dailyamardesh.com",
+            "দৈনিক আমার দেশ" to "dailyamardesh.com",
+            "রাইজিংবিডি.কম" to "risingbd.com",
+            "risingbd.com" to "risingbd.com",
+            "বিডিনিউজ টোয়েন্টিফোর ডটকম" to "bdnews24.com",
+            "বিডিনিউজ২৪.কম" to "bdnews24.com",
+            "বিডিনিউজ২৪" to "bdnews24.com",
+            "bdnews24.com" to "bdnews24.com",
+            "banglanews24.com" to "banglanews24.com",
+            "বাংলানিউজটোয়েন্টিফোর.কম" to "banglanews24.com",
+            "bd-pratidin.com" to "bd-pratidin.com",
+            "চ্যানেল আই অনলাইন" to "channelionline.com",
+            "channel i online" to "channelionline.com",
+            "সময় টিভি" to "somoynews.tv",
+            "সময় টিভি" to "somoynews.tv",
+            "সময় সংবাদ" to "somoynews.tv",
+            "সময় সংবাদ" to "somoynews.tv",
+            "somoy tv" to "somoynews.tv",
+            "somoy news" to "somoynews.tv",
+            "bbc" to "bbc.com",
+            "বিবিসি" to "bbc.com",
+            "bbc news বাংলা" to "bbc.com",
+            "bbc bangla" to "bbc.com",
+            "dw.com" to "dw.com",
+            "ডয়চে ভেলে" to "dw.com",
+            "dhakatimes24" to "dhakatimes24.com",
+            "dhakatimes24.com" to "dhakatimes24.com",
+            "dhaka times" to "dhakatimes24.com",
+            "dhaka times 24" to "dhakatimes24.com",
+            "ঢাকা টাইমস" to "dhakatimes24.com",
+            "bangladesh sangbad sangstha (bss)" to "bssnews.net",
+            "bangladesh sangbad sangstha" to "bssnews.net",
+            "বাংলাদেশ সংবাদ সংস্থা (বাসস)" to "bssnews.net",
+            "বাংলাদেশ সংবাদ সংস্থা" to "bssnews.net",
+            "বাসস" to "bssnews.net",
+            "bss" to "bssnews.net",
+            "bss news" to "bssnews.net",
+            "rtv news" to "rtvonline.com",
+            "rtv online" to "rtvonline.com",
+            "আরটিভি অনলাইন" to "rtvonline.com",
+            "ntv online" to "ntvbd.com",
+            "এনটিভি অনলাইন" to "ntvbd.com",
+            "channel 24" to "channel24bd.tv",
+            "চ্যানেল টুয়েন্টিফোর" to "channel24bd.tv",
+            "jamuna television" to "jamuna.tv",
+            "যমুনা টেলিভিশন" to "jamuna.tv",
+            "ekattor tv" to "ekattor.tv",
+            "একাত্তর" to "ekattor.tv",
+            "independent television" to "itvbd.com",
+            "ইনডিপেনডেন্ট টেলিভিশন" to "itvbd.com",
+            "dbc news" to "dbcnews.tv",
+            "ডিবিসি" to "dbcnews.tv",
+            "dhaka post" to "dhakapost.com",
+            "dhakapost.com" to "dhakapost.com",
+            "dhaka mail" to "dhakamail.com",
+            "dhakamail.com" to "dhakamail.com",
+            "barta24" to "barta24.com",
+            "barta 24" to "barta24.com",
+            "barta24.com" to "barta24.com",
+            "বার্তা২৪.কম" to "barta24.com",
+            "news18 bengali" to "news18.com",
+            "news18" to "news18.com",
+            "sarabangla" to "sarabangla.net",
+            "sarabangla.net" to "sarabangla.net",
+            "সারাবাংলা.নেট" to "sarabangla.net",
+            "the daily campus" to "thedailycampus.com",
+            "ডেইলি ক্যাম্পাস" to "thedailycampus.com",
+            "দৈনিক শিক্ষা" to "dainikshiksha.com",
+            "dainikshiksha" to "dainikshiksha.com",
+            "প্রবাসীর দিগন্ত" to "probashirdiganta.com",
+            "probashir diganta" to "probashirdiganta.com",
+            "দৈনিক আজাদী" to "dainikazadi.net",
+            "dainik azadi" to "dainikazadi.net",
+            "দৈনিক পূর্বকোণ" to "dainikpurbokone.net",
+            "dainik purbokone" to "dainikpurbokone.net",
+            "জুমবাংলা" to "inews.zoombangla.com",
+            "zoombangla" to "inews.zoombangla.com",
+            "অর্থসূচক" to "arthosuchak.com",
+            "arthosuchak" to "arthosuchak.com",
+            "জাতিসংঘ সংবাদ" to "news.un.org",
+            "un news" to "news.un.org",
+            "এবিসি নিউজ" to "abcnews.go.com",
+            "abc news" to "abcnews.go.com",
+            "south china morning post" to "scmp.com"
+        )
+        for ((alias, host) in verifiedAliases) {
+            map[alias] = host
+        }
+        map
+    }
+
+    private val verifiedTierPublishers: Set<String> by lazy {
+        val set = mutableSetOf<String>()
+        for (spec in DIRECT_PUBLISHER_FEEDS) {
+            val host = extractNormalizedHost(spec.baseUrl)
+            if (host.isNotEmpty()) set.add(host)
+        }
+        for (paper in PapersData.builtInPapers) {
+            if (paper.cat in setOf("bn", "en", "online", "intl", "biz", "sports", "tech", "tv")) {
+                val host = extractNormalizedHost(paper.openUrl)
+                if (host.isNotEmpty()) set.add(host)
+            }
+        }
+        set
+    }
+
+    private fun extractNormalizedHost(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return ""
+        return try {
+            val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                trimmed
+            } else {
+                "https://$trimmed"
+            }
+            val h = URI(withScheme.replace(" ", "%20")).host?.lowercase(Locale.ROOT).orEmpty()
+            val noWww = if (h.startsWith("www.")) h.substring(4) else h
+            if (noWww.startsWith("bangla.") && noWww != "bangla.abplive.com") {
+                noWww.removePrefix("bangla.")
+            } else if (noWww.startsWith("en.")) {
+                noWww.removePrefix("en.")
+            } else {
+                noWww
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /**
+     * Resolves a canonical publisher identifier in strict priority order:
+     * 1. Canonical publisher ID extracted from [sourceUrl] (when a valid non-Google domain host is present).
+     * 2. Explicit, reviewed alias mapping ([builtInPublisherLookup] from [PapersData.builtInPapers],
+     *    [DIRECT_PUBLISHER_FEEDS], and reviewed publisher aliases).
+     * 3. Distinct, stable ID (`"raw:<cleanName>"`) for unknown publishers so distinct publishers
+     *    are never falsely merged.
+     */
+    fun canonicalPublisherId(sourceName: String, sourceUrl: String = ""): String {
+        // Priority 1: Canonical publisher ID from sourceUrl
+        val urlHost = extractNormalizedHost(sourceUrl)
+        if (urlHost.isNotEmpty() && !urlHost.contains("google.com")) {
+            builtInPublisherLookup[urlHost]?.let { return it }
+            return urlHost
+        }
+
+        // Priority 2: Explicit, reviewed alias mapping
+        val cleanName = sourceName.trim().lowercase(Locale.ROOT)
+            .replace(Regex("\\s+"), " ")
+        if (cleanName.isNotEmpty()) {
+            builtInPublisherLookup[cleanName]?.let { return it }
+            if (cleanName.contains(".") && !cleanName.contains(" ")) {
+                val hostFromName = extractNormalizedHost(cleanName)
+                if (hostFromName.isNotEmpty()) {
+                    builtInPublisherLookup[hostFromName]?.let { return it }
+                    return hostFromName
+                }
+            }
+        }
+
+        // Priority 3: Distinct stable ID for unknown publishers
+        return if (cleanName.isNotEmpty()) "raw:$cleanName" else "raw:unknown"
+    }
+
+    private val banglaAndEnStopwords = setOf(
+        "থেকে", "নিয়ে", "নিয়ে", "করে", "করা", "করার", "হয়", "হয়", "হবে", "হয়েছে", "হয়েছে",
+        "বলেন", "বললেন", "জানালেন", "জানিয়েছেন", "জানিয়েছেন", "দেওয়ার", "দেওয়ার", "পাওয়া", "পাওয়া",
+        "গেছে", "জন্য", "সঙ্গে", "কাছে", "মধ্যে", "পরে", "আগে", "আজ", "কাল", "এক", "দুই", "তিন",
+        "চার", "পাঁচ", "না", "নয়", "নয়", "নেই", "নাই", "ও", "বা", "এবং", "কিন্তু", "যদি", "তবে",
+        "এই", "সেই", "কোনো", "কোন", "আরও", "আরো", "সব", "কী", "কি", "কেন", "কীভাবে", "যা", "যার",
+        "তা", "তার", "তাদের", "যাদের", "আমাদের", "নিজের", "হতে", "হলো", "হল", "পারে", "উপর", "ওপর",
+        "দিয়ে", "দিয়ে", "থাকা", "থাকে", "গেল", "যায়", "যায়", "শুরু", "শেষ", "নতুন", "বড়", "বড়",
+        "the", "and", "for", "with", "from", "that", "this", "are", "was", "were", "has", "have",
+        "had", "will", "would", "after", "before", "over", "into", "about", "amid", "says", "said"
+    )
+
+    private val protectedBanglaWords = setOf(
+        "কাদের", "তাহের", "জাহের", "নাসের", "সাদের", "খায়ের", "খায়ের", "জুবায়ের", "জুবায়ের",
+        "আগের", "মেয়ের", "মেয়ের", "দেশের", "শহরের", "দলের", "মাসের", "বছরের", "দিনের", "রাতের"
+    )
+
+    private val districtLocations = mapOf(
+        "ঢাকা" to "dhaka", "ঢাকায়" to "dhaka", "ঢাকায়" to "dhaka", "ঢাকার" to "dhaka",
+        "চট্টগ্রাম" to "chattogram", "চট্টগ্রামে" to "chattogram", "চট্টগ্রামের" to "chattogram",
+        "রাজশাহী" to "rajshahi", "রাজশাহীতে" to "rajshahi", "রাজশাহীর" to "rajshahi",
+        "খুলনা" to "khulna", "খুলনায়" to "khulna", "খুলনায়" to "khulna", "খুলনার" to "khulna",
+        "বরিশাল" to "barishal", "বরিশালে" to "barishal", "বরিশালের" to "barishal",
+        "সিলেট" to "sylhet", "সিলেটে" to "sylhet", "সিলেটের" to "sylhet",
+        "রংপুর" to "rangpur", "রংপুরে" to "rangpur", "রংপুরের" to "rangpur",
+        "ময়মনসিংহ" to "mymensingh", "ময়মনসিংহ" to "mymensingh", "ময়মনসিংহে" to "mymensingh",
+        "কুমিল্লা" to "cumilla", "কুমিল্লায়" to "cumilla", "কুমিল্লায়" to "cumilla", "কুমিল্লার" to "cumilla",
+        "গাজীপুর" to "gazipur", "গাজীপুরে" to "gazipur", "গাজীপুরের" to "gazipur",
+        "নারায়ণগঞ্জ" to "narayanganj", "নারায়ণগঞ্জ" to "narayanganj", "নারায়ণগঞ্জে" to "narayanganj",
+        "বগুড়া" to "bogura", "বগুড়া" to "bogura", "বগুড়ায়" to "bogura", "বগুড়ার" to "bogura",
+        "কক্সবাজার" to "coxsbazar", "কক্সবাজারে" to "coxsbazar", "কক্সবাজারের" to "coxsbazar",
+        "যশোর" to "jashore", "যশোরে" to "jashore", "যশোরের" to "jashore",
+        "ফরিদপুর" to "faridpur", "ফরিদপুরে" to "faridpur", "ফরিদপুরের" to "faridpur",
+        "দিনাজপুর" to "dinajpur", "দিনাজপুরে" to "dinajpur", "দিনাজপুরের" to "dinajpur",
+        "নোয়াখালী" to "noakhali", "নোয়াখালী" to "noakhali", "নোয়াখালীতে" to "noakhali",
+        "পাবনা" to "pabna", "পাবনায়" to "pabna", "পাবনায়" to "pabna", "পাবনার" to "pabna",
+        "টাঙ্গাইল" to "tangail", "টাঙ্গাইলে" to "tangail", "টাঙ্গাইলের" to "tangail",
+        "কুষ্টিয়া" to "kushtia", "কুষ্টিয়া" to "kushtia", "কুষ্টিয়ায়" to "kushtia",
+        "সাতক্ষীরা" to "satkhira", "সাতক্ষীরায়" to "satkhira", "সাতক্ষীরায়" to "satkhira", "সাতক্ষীরার" to "satkhira",
+        "মাদারীপুর" to "madaripur", "মাদারীপুরে" to "madaripur", "মাদারীপুরের" to "madaripur",
+        "লক্ষ্মীপুর" to "lakshmipur", "লক্ষ্মীপুরে" to "lakshmipur",
+        "ফেনী" to "feni", "ফেনীতে" to "feni", "ফেনীর" to "feni",
+        "ব্রাহ্মণবাড়িয়া" to "brahmanbaria", "ব্রাহ্মণবাড়িয়া" to "brahmanbaria",
+        "চাঁদপুর" to "chandpur", "চাঁদপুরে" to "chandpur", "চাঁদপুরের" to "chandpur",
+        "কিশোরগঞ্জ" to "kishoreganj", "কিশোরগঞ্জে" to "kishoreganj",
+        "নেত্রকোনা" to "netrokona", "নেত্রকোনায়" to "netrokona",
+        "শেরপুর" to "sherpur", "শেরপুরে" to "sherpur",
+        "জামালপুর" to "jamalpur", "জামালপুরে" to "jamalpur",
+        "সিরাজগঞ্জ" to "sirajganj", "সিরাজগঞ্জে" to "sirajganj",
+        "নাটোর" to "natore", "নাটোরে" to "natore",
+        "নওগাঁ" to "naogaon", "নওগাঁয়" to "naogaon", "নওগাঁয়" to "naogaon",
+        "ঝিনাইদহ" to "jhenaidah", "ঝিনাইদহে" to "jhenaidah",
+        "বাগেরহাট" to "bagerhat", "বাগেরহাটে" to "bagerhat",
+        "চুয়াডাঙ্গা" to "chuadanga", "চুয়াডাঙ্গা" to "chuadanga", "চুয়াডাঙ্গায়" to "chuadanga",
+        "ভোলা" to "bhola", "ভোলায়" to "bhola", "ভোলায়" to "bhola",
+        "পটুয়াখালী" to "patuakhali", "পটুয়াখালী" to "patuakhali",
+        "সুনামগঞ্জ" to "sunamganj", "সুনামগঞ্জে" to "sunamganj",
+        "হবিগঞ্জ" to "habiganj", "হবিগঞ্জে" to "habiganj",
+        "মৌলভীবাজার" to "moulvibazar", "মৌলভীবাজারে" to "moulvibazar",
+        "কুড়িগ্রাম" to "kurigram", "কুড়িগ্রাম" to "kurigram",
+        "রাঙামাটি" to "rangamati", "বান্দরবান" to "bandarban", "খাগড়াছড়ি" to "khagrachhari",
+        "মুন্সিগঞ্জ" to "munshiganj", "মানিকগঞ্জ" to "manikganj", "নরসিংদী" to "narsingdi",
+        "গোপালগঞ্জ" to "gopalganj", "শরীয়তপুর" to "shariatpur", "রাজবাড়ী" to "rajbari"
+    )
+
+    internal fun normalizeBanglaToken(word: String): String {
+        if (word.length < 6 || word in protectedBanglaWords) return word
+        val pluralSuffixes = listOf("গুলোকে", "গুলোতে", "গুলোর", "দেরকে", "গুলো", "টিকে", "টির")
+        for (suf in pluralSuffixes) {
+            if (word.length >= suf.length + 4 && word.endsWith(suf)) {
+                return word.dropLast(suf.length)
+            }
+        }
+        // Only strip case suffixes (-কে, -ের) on long words (>= 7 chars) leaving at least 5 chars stem
+        if (word.length >= 7) {
+            for (suf in listOf("কে", "ের")) {
+                if (word.endsWith(suf) && word.length - suf.length >= 5) {
+                    return word.dropLast(suf.length)
+                }
+            }
+        }
+        return word
+    }
+
+    fun meaningfulTokens(s: String): Set<String> {
+        val rawWords = s.lowercase(Locale.ROOT)
             .split(Regex("[^\\p{L}\\p{M}\\p{N}]+"))
             .filter { it.length >= 2 }
-            .toSet()
+        val result = mutableSetOf<String>()
+        for (w in rawWords) {
+            if (w in banglaAndEnStopwords) continue
+            val norm = normalizeBanglaToken(w)
+            if (norm.length >= 2 && norm !in banglaAndEnStopwords) {
+                result.add(norm)
+            }
+        }
+        return result
+    }
+
+    private fun extractDistrictEntities(title: String): Set<String> {
+        val rawWords = title.lowercase(Locale.ROOT)
+            .split(Regex("[^\\p{L}\\p{M}\\p{N}]+"))
+            .filter { it.length >= 2 }
+        val districts = mutableSetOf<String>()
+        for (w in rawWords) {
+            districtLocations[w]?.let { districts.add(it) }
+        }
+        return districts
     }
 
     private fun jaccard(a: Set<String>, b: Set<String>): Double {
@@ -1554,19 +2074,57 @@ class NewsRepository {
         return inter.toDouble() / (a.size + b.size - inter).toDouble()
     }
 
-    fun buildCoverage(all: List<NewsItem>): List<Coverage> {
+    /**
+     * Conservative 4-Gate Duplicate Detection Rule:
+     * Gate 1: Time window <= 12 hours when both items have timestamps.
+     * Location Conflict Check: Disjoint district entities are never merged.
+     * Gate 2: Both titles must have >= 4 meaningful non-stopword tokens (unless titles are identical).
+     * Gate 3: Meaningful token intersection >= 4 (or intersection == 3 with Jaccard >= 0.50).
+     * Gate 4: Meaningful token Jaccard similarity >= 0.42.
+     */
+    fun areArticlesDuplicate(a: NewsItem, b: NewsItem): Boolean {
+        val t1 = a.time
+        val t2 = b.time
+        if (t1 != null && t2 != null && abs(t1 - t2) > DUPLICATE_TIME_WINDOW_MS) {
+            return false
+        }
+
+        val normTitleA = a.title.trim().replace(Regex("\\s+"), " ")
+        val normTitleB = b.title.trim().replace(Regex("\\s+"), " ")
+        if (normTitleA.isNotEmpty() && normTitleA.equals(normTitleB, ignoreCase = true)) {
+            return true
+        }
+
+        val districtsA = extractDistrictEntities(normTitleA)
+        val districtsB = extractDistrictEntities(normTitleB)
+        if (districtsA.isNotEmpty() && districtsB.isNotEmpty() && districtsA.intersect(districtsB).isEmpty()) {
+            return false
+        }
+
+        val tokensA = meaningfulTokens(normTitleA)
+        val tokensB = meaningfulTokens(normTitleB)
+        if (tokensA.size < 4 || tokensB.size < 4) {
+            return false
+        }
+
+        val inter = tokensA.count { tokensB.contains(it) }
+        if (inter < 3) return false
+
+        val jac = inter.toDouble() / (tokensA.size + tokensB.size - inter).toDouble()
+        if (inter == 3 && jac < 0.50) return false
+        return jac >= 0.42
+    }
+
+    private fun clusterItemsIntoCoverage(all: List<NewsItem>): List<Coverage> {
         val groups = mutableListOf<Group>()
-        val byTitle = mutableMapOf<String, Group>()
 
         for (n in all) {
-            val tk = tokens(n.title)
-            var hit = byTitle[n.title]
-            if (hit == null && tk.size >= 3) {
-                for (g in groups) {
-                    if (g.tokens.any { t -> t.size >= 3 && jaccard(t, tk) >= 0.45 }) {
-                        hit = g
-                        break
-                    }
+            var hit: Group? = null
+            for (g in groups) {
+                val anchor = g.items.firstOrNull()
+                if (anchor != null && g.items.any { existing -> areArticlesDuplicate(existing, n) }) {
+                    hit = g
+                    break
                 }
             }
 
@@ -1576,32 +2134,52 @@ class NewsRepository {
             }
 
             hit.items.add(n)
-            hit.items.addAll(n.related)
-            hit.tokens.add(tk)
-            byTitle[n.title] = hit
-            for (r in n.related) {
-                if (!byTitle.containsKey(r.title)) {
-                    byTitle[r.title] = hit
+            for (rel in n.related) {
+                // Only include related items that are within the valid time window
+                val tMain = n.time
+                val tRel = rel.time
+                if (tMain == null || tRel == null || abs(tMain - tRel) <= DUPLICATE_TIME_WINDOW_MS) {
+                    hit.items.add(rel)
                 }
             }
         }
 
         val out = mutableListOf<Coverage>()
         for (g in groups) {
-            // Order items so items with a verified RSS imageUrl and sourceUrl come first in the coverage group
-            val ordered = g.items.sortedWith(
-                compareByDescending<NewsItem> { !it.imageUrl.isNullOrBlank() }
+            val groupImageUrl = g.items.firstOrNull { !it.imageUrl.isNullOrBlank() }?.imageUrl
+
+            // Sort candidates so for each canonical publisher we keep its newest timestamped report
+            // (with image/sourceUrl as tie-breakers), and order the final cluster with the newest
+            // timestamped report first so Coverage.headline is always the latest report.
+            val sortedCandidates = g.items.sortedWith(
+                compareByDescending<NewsItem> { it.time ?: Long.MIN_VALUE }
+                    .thenByDescending { !it.imageUrl.isNullOrBlank() }
                     .thenByDescending { it.sourceUrl.isNotEmpty() }
             )
-            val groupImageUrl = ordered.firstOrNull { !it.imageUrl.isNullOrBlank() }?.imageUrl
 
-            val seen = mutableSetOf<String>()
+            val domainBackedSourceNames = sortedCandidates.mapNotNull { cand ->
+                val raw = cand.source.trim()
+                if (raw.isEmpty() || raw == "অজানা উৎস") return@mapNotNull null
+                val pid = canonicalPublisherId(raw, cand.sourceUrl)
+                if (!pid.startsWith("raw:")) {
+                    raw.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+                } else {
+                    null
+                }
+            }.toSet()
+
+            val seenPublishers = mutableSetOf<String>()
             val uniq = mutableListOf<NewsItem>()
 
-            for (it in ordered) {
-                val k = it.source.trim().lowercase(Locale.ROOT)
-                if (k.isEmpty() || k == "অজানা উৎস") continue
-                if (seen.add(k)) {
+            for (it in sortedCandidates) {
+                val rawSource = it.source.trim()
+                if (rawSource.isEmpty() || rawSource == "অজানা উৎস") continue
+                val cleanSourceName = rawSource.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+                val pubId = canonicalPublisherId(rawSource, it.sourceUrl)
+                if (pubId.startsWith("raw:") && cleanSourceName in domainBackedSourceNames) {
+                    continue
+                }
+                if (seenPublishers.add(pubId)) {
                     val itemWithImg = if (it.imageUrl.isNullOrBlank() && !groupImageUrl.isNullOrBlank()) {
                         it.copy(imageUrl = groupImageUrl)
                     } else {
@@ -1612,21 +2190,190 @@ class NewsRepository {
             }
 
             if (uniq.isNotEmpty()) {
-                out.add(Coverage(uniq))
+                val orderedByNewest = uniq.sortedWith(
+                    compareByDescending<NewsItem> { it.time ?: Long.MIN_VALUE }
+                        .thenByDescending { !it.imageUrl.isNullOrBlank() }
+                        .thenByDescending { it.sourceUrl.isNotEmpty() }
+                )
+                out.add(Coverage(orderedByNewest))
             }
         }
+        return out
+    }
 
-        return out.sortedWith(
+    /**
+     * Zero-drop source diversity limiter: ensures at most [maxConsecutive] consecutive items
+     * from the same canonical publisher appear in a row when other publishers are available,
+     * deferring excess items in FIFO order without ever dropping any item.
+     */
+    fun applyZeroDropSourceDiversity(
+        clusters: List<Coverage>,
+        maxConsecutive: Int = 2
+    ): List<Coverage> {
+        if (clusters.size <= maxConsecutive) return clusters
+        val remaining = clusters.toMutableList()
+        val result = mutableListOf<Coverage>()
+        var lastPubId: String? = null
+        var streak = 0
+
+        while (remaining.isNotEmpty()) {
+            val pickIndex = if (streak >= maxConsecutive && lastPubId != null) {
+                remaining.indexOfFirst { cov ->
+                    val lead = cov.items.firstOrNull()
+                    val pubId = if (lead != null) canonicalPublisherId(lead.source, lead.sourceUrl) else ""
+                    pubId != lastPubId
+                }.takeIf { it >= 0 } ?: 0
+            } else {
+                0
+            }
+
+            val chosen = remaining.removeAt(pickIndex)
+            val chosenLead = chosen.items.firstOrNull()
+            val chosenPubId = if (chosenLead != null) canonicalPublisherId(chosenLead.source, chosenLead.sourceUrl) else ""
+
+            if (chosenPubId == lastPubId) {
+                streak++
+            } else {
+                lastPubId = chosenPubId
+                streak = 1
+            }
+            result.add(chosen)
+        }
+        return result
+    }
+
+    /**
+     * Builds the Latest News (সর্বশেষ সংবাদ) feed:
+     * - Strictly sorted by [Coverage.latest] descending (newest first).
+     * - Clusters with null timestamps are placed at the very end.
+     * - Does NOT sort or demote by image presence.
+     * - Applies zero-drop source diversity (max 2 consecutive from the same canonical publisher).
+     */
+    fun buildLatestNews(
+        all: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> {
+        val clusters = clusterItemsIntoCoverage(all)
+        val withTime = clusters
+            .filter { (it.latest ?: 0L) > 0L }
+            .sortedByDescending { it.latest ?: 0L }
+        val withoutTime = clusters
+            .filter { (it.latest ?: 0L) <= 0L }
+
+        val diversifiedWithTime = applyZeroDropSourceDiversity(withTime, maxConsecutive = 2)
+        return diversifiedWithTime + withoutTime
+    }
+
+    suspend fun buildLatestNewsAsync(
+        all: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> = withContext(Dispatchers.Default) {
+        buildLatestNews(all, nowMs)
+    }
+
+    fun computeTopStoryScore(
+        cov: Coverage,
+        favoriteCanonicalIds: Set<String> = emptySet(),
+        favoriteUrls: Set<String> = emptySet(),
+        nowMs: Long = System.currentTimeMillis()
+    ): Double {
+        val domainBackedNames = cov.items.mapNotNull { cand ->
+            val raw = cand.source.trim()
+            if (raw.isEmpty() || raw == "অজানা উৎস") return@mapNotNull null
+            val pid = canonicalPublisherId(raw, cand.sourceUrl)
+            if (!pid.startsWith("raw:")) {
+                raw.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+            } else {
+                null
+            }
+        }.toSet()
+
+        val seenPubIds = mutableSetOf<String>()
+        var uniquePublisherCount = 0
+        for (item in cov.items) {
+            val raw = item.source.trim()
+            if (raw.isEmpty() || raw == "অজানা উৎস") continue
+            val cleanName = raw.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+            val pubId = canonicalPublisherId(raw, item.sourceUrl)
+            if (pubId.startsWith("raw:") && cleanName in domainBackedNames) {
+                continue
+            }
+            if (seenPubIds.add(pubId)) {
+                uniquePublisherCount++
+            }
+        }
+        val uniquePublishers = uniquePublisherCount.coerceIn(1, 8)
+
+        val hasVerifiedTier = cov.items.any { item ->
+            val pubId = canonicalPublisherId(item.source, item.sourceUrl)
+            pubId in verifiedTierPublishers
+        }
+        val tierBonus = if (hasVerifiedTier) 8.0 else 0.0
+
+        val hasFavorite = (favoriteCanonicalIds.isNotEmpty() || favoriteUrls.isNotEmpty()) &&
+            cov.items.any { item ->
+                val pubId = canonicalPublisherId(item.source, item.sourceUrl)
+                pubId in favoriteCanonicalIds || (item.sourceUrl.isNotEmpty() && item.sourceUrl in favoriteUrls)
+            }
+        val favoriteTieBreaker = if (hasFavorite) 2.0 else 0.0
+
+        val latestMs = cov.latest
+        val ageHours = if (latestMs != null && latestMs > 0L) {
+            ((nowMs - latestMs).coerceAtLeast(0L).toDouble() / 3_600_000.0).coerceAtLeast(0.25)
+        } else {
+            48.0
+        }
+
+        // Image bonus = 0.0, Keyword bonus = 0.0
+        val numerator = (30.0 * uniquePublishers) + tierBonus + favoriteTieBreaker
+        val decay = (1.0 + (ageHours / 4.0)).pow(1.25)
+        return numerator / decay
+    }
+
+    /**
+     * Builds the Top Stories (প্রধান সংবাদ) feed:
+     * - Ranks clusters by [computeTopStoryScore] (unique canonical publisher count, verified tier bonus,
+     *   favorite tie-breaker +2.0, zero image bonus, zero keyword bonus, and time decay).
+     */
+    fun buildTopStories(
+        all: List<NewsItem>,
+        favoriteUrls: Set<String> = emptySet(),
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> {
+        val clusters = clusterItemsIntoCoverage(all)
+        val favCanonicalIds = favoriteUrls.mapNotNull { url ->
+            extractNormalizedHost(url).takeIf { it.isNotEmpty() }
+        }.toSet()
+
+        return clusters.sortedWith(
             compareByDescending<Coverage> { cov ->
-                cov.items.any { !it.imageUrl.isNullOrBlank() }
-            }.thenByDescending { cov ->
-                cov.count > 1
-            }.thenByDescending { cov ->
-                cov.count
+                computeTopStoryScore(cov, favCanonicalIds, favoriteUrls, nowMs)
             }.thenByDescending { cov ->
                 cov.latest ?: 0L
             }
         )
+    }
+
+    suspend fun buildTopStoriesAsync(
+        all: List<NewsItem>,
+        favoriteUrls: Set<String> = emptySet(),
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> = withContext(Dispatchers.Default) {
+        buildTopStories(all, favoriteUrls, nowMs)
+    }
+
+    fun buildCoverage(
+        all: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> {
+        return buildTopStories(all = all, favoriteUrls = emptySet(), nowMs = nowMs)
+    }
+
+    suspend fun buildCoverageAsync(
+        all: List<NewsItem>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> = withContext(Dispatchers.Default) {
+        buildCoverage(all, nowMs)
     }
 
     suspend fun checkUrl(url: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {

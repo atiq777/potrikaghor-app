@@ -1,0 +1,734 @@
+﻿app_order,newspaper_name,website_url,slug,categories,category_slugs,division,district,logo_asset_key,verification_status
+1,Daily Amardesh,https://dailyamardesh.com,daily-amardesh,Bangla,bangla,,,bn_daily_amardesh,NOT_LIVE_VERIFIED
+2,Jugantor,https://www.jugantor.com,jugantor,Bangla,bangla,,,bn_jugantor,NOT_LIVE_VERIFIED
+3,Ittefaq,https://www.ittefaq.com.bd,ittefaq,Bangla,bangla,,,bn_ittefaq,NOT_LIVE_VERIFIED
+4,Dainik Amader Shomoy,https://www.dainikamadershomoy.com,dainik-amader-shomoy,Bangla,bangla,,,bn_dainik_amader_shomoy,NOT_LIVE_VERIFIED
+5,Kalerkantho,https://www.kalerkantho.com,kalerkantho,Bangla,bangla,,,bn_kalerkantho,NOT_LIVE_VERIFIED
+6,Nayadiganta,https://www.dailynayadiganta.com,nayadiganta,Bangla,bangla,,,bn_nayadiganta,NOT_LIVE_VERIFIED
+7,Inqilab,https://dailyinqilab.com,inqilab,Bangla,bangla,,,bn_inqilab,NOT_LIVE_VERIFIED
+8,Samakal,https://samakal.com,samakal,Bangla,bangla,,,bn_samakal,NOT_LIVE_VERIFIED
+9,Prothom Alo,https://www.prothomalo.com,prothom-alo,Bangla,bangla,,,bn_prothom_alo,NOT_LIVE_VERIFIED
+10,Janakantha,https://www.dailyjanakantha.com,janakantha,Bangla,bangla,,,bn_janakantha,NOT_LIVE_VERIFIED
+11,Manob Zamin,https://mzamin.com,manob-zamin,Bangla,bangla,,,bn_manob_zamin,NOT_LIVE_VERIFIED
+12,Sangram,https://dailysangram.com,sangram,Bangla,bangla,,,bn_sangram,NOT_LIVE_VERIFIED
+13,Bhorer Kagoj,https://www.bhorerkagoj.com,bhorer-kagoj,Bangla,bangla,,,bn_bhorer_kagoj,NOT_LIVE_VERIFIED
+14,BD Bulletin,https://www.bd-bulletin.com,bd-bulletin,Bangla,bangla,,,bn_bd_bulletin,NOT_LIVE_VERIFIED
+15,Sangbad,https://sangbad.net.bd,sangbad,Bangla,bangla,,,bn_sangbad,NOT_LIVE_VERIFIED
+16,Alokito Bangladesh,https://www.alokitobangladesh.com,alokito-bangladesh,Bangla,bangla,,,bn_alokito_bangladesh,NOT_LIVE_VERIFIED
+17,Vorerpata,https://www.dailyvorerpata.com,vorerpata,Bangla,bangla,,,bn_vorerpata,NOT_LIVE_VERIFIED
+18,Manobkantha,https://www.manobkantha.com.bd,manobkantha,Bangla,bangla,,,bn_manobkantha,NOT_LIVE_VERIFIED
+19,Ajkaler Khobor,https://ajkalerkhobor.net,ajkaler-khobor,Bangla,bangla,,,bn_ajkaler_khobor,NOT_LIVE_VERIFIED
+20,Gonokantho,https://www.gonokantho.com,gonokantho,Bangla,bangla,,,bn_gonokantho,NOT_LIVE_VERIFIED
+21,Lakho kantho,https://lakhokantho.com,lakho-kantho,Bangla,bangla,,,bn_lakho_kantho,NOT_LIVE_VERIFIED
+22,Dainik Bangla,https://www.dainikbangla.com.bd,dainik-bangla,Bangla,bangla,,,bn_dainik_bangla,NOT_LIVE_VERIFIED
+23,Shomoyer Alo,https://www.shomoyeralo.com,shomoyer-alo,Bangla,bangla,,,bn_shomoyer_alo,NOT_LIVE_VERIFIED
+24,Ajker Patrika,https://www.ajkerpatrika.com,ajker-patrika,Bangla,bangla,,,bn_ajker_patrika,NOT_LIVE_VERIFIED
+25,Bartoman,https://www.dailybartoman.com,bartoman,Bangla,bangla,,,bn_bartoman,NOT_LIVE_VERIFIED
+26,Jai Jai Din,https://www.jaijaidinbd.com,jai-jai-din,Bangla,bangla,,,bn_jai_jai_din,NOT_LIVE_VERIFIED
+27,Amar Desh24,https://amar-desh24.com/bangla,amar-desh24,Bangla,bangla,,,bn_amar_desh24,NOT_LIVE_VERIFIED
+28,Bangladesh pratidin,https://www.bd-pratidin.com,bangladesh-pratidin,Bangla,bangla,,,bn_bangladesh_pratidin,NOT_LIVE_VERIFIED
+29,Dinkal,https://dainikdinkal.net,dinkal,Bangla,bangla,,,bn_dinkal,NOT_LIVE_VERIFIED
+30,Khola Kagoj,https://www.kholakagojbd.com,khola-kagoj,Bangla,bangla,,,bn_khola_kagoj,NOT_LIVE_VERIFIED
+31,Amar Sangbad,https://www.amarsangbad.com,amar-sangbad,Bangla,bangla,,,bn_amar_sangbad,NOT_LIVE_VERIFIED
+32,Protidiner Sangbad,https://www.protidinersangbad.com,protidiner-sangbad,Bangla,bangla,,,bn_protidiner_sangbad,NOT_LIVE_VERIFIED
+33,Bangladesher Khabor,https://www.bangladesherkhabor.net,bangladesher-khabor,Bangla,bangla,,,bn_bangladesher_khabor,NOT_LIVE_VERIFIED
+34,Kalbela,https://www.kalbela.com,kalbela,Bangla,bangla,,,bn_kalbela,NOT_LIVE_VERIFIED
+35,Naya Shatabdi,https://www.nayashatabdi.news,naya-shatabdi,Bangla,bangla,,,bn_naya_shatabdi,NOT_LIVE_VERIFIED
+36,Desh Rupantor,https://www.deshrupantor.com,desh-rupantor,Bangla,bangla,,,bn_desh_rupantor,NOT_LIVE_VERIFIED
+37,Fulki,https://dailyfulki.com,fulki,Bangla,bangla,,,bn_fulki,NOT_LIVE_VERIFIED
+38,Sakalbela,https://www.dainiksakalbela.com,sakalbela,Bangla,bangla,,,bn_sakalbela,NOT_LIVE_VERIFIED
+39,Nabochatona,https://dailynabochatona.com,nabochatona,Bangla,bangla,,,bn_nabochatona,NOT_LIVE_VERIFIED
+40,Delta Times,https://www.deltatimes24.com,delta-times,Bangla,bangla,,,bn_delta_times,NOT_LIVE_VERIFIED
+41,Bijoy Bangladesh,https://bijoybangladesh.com,bijoy-bangladesh,Bangla,bangla,,,bn_bijoy_bangladesh,NOT_LIVE_VERIFIED
+42,Shampratik Deshkal,https://shampratikdeshkal.com,shampratik-deshkal,Bangla,bangla,,,bn_shampratik_deshkal,NOT_LIVE_VERIFIED
+43,Amar Somoy,https://www.dailyamarsomoy.com,amar-somoy,Bangla,bangla,,,bn_amar_somoy,NOT_LIVE_VERIFIED
+44,Sokaler Somoy,https://www.dailysokalersomoy.com,sokaler-somoy,Bangla,bangla,,,bn_sokaler_somoy,NOT_LIVE_VERIFIED
+45,Tritiya Matra,https://www.tritiyamatra.com,tritiya-matra,Bangla,bangla,,,bn_tritiya_matra,NOT_LIVE_VERIFIED
+46,Ajker Darpon,https://ajkerdarpon.com,ajker-darpon,Bangla,bangla,,,bn_ajker_darpon,NOT_LIVE_VERIFIED
+47,Ajker Prottasha,https://ajkerprottasha.com,ajker-prottasha,Bangla,bangla,,,bn_ajker_prottasha,NOT_LIVE_VERIFIED
+48,Asia Bani,https://dailyasiabani.com,asia-bani,Bangla,bangla,,,bn_asia_bani,NOT_LIVE_VERIFIED
+49,Protidiner Bangladesh,https://protidinerbangladesh.com,protidiner-bangladesh,Bangla,bangla,,,bn_protidiner_bangladesh,NOT_LIVE_VERIFIED
+50,Swadhin Bangla,https://dailyswadhinbangla.com,swadhin-bangla,Bangla,bangla,,,bn_swadhin_bangla,NOT_LIVE_VERIFIED
+51,Amader Notun Shomoy,https://amadernotunshomoy.com,amader-notun-shomoy,Bangla,bangla,,,bn_amader_notun_shomoy,NOT_LIVE_VERIFIED
+52,Ganomukti,https://dailyganomukti.com,ganomukti,Bangla,bangla,,,bn_ganomukti,NOT_LIVE_VERIFIED
+53,Prothom Surjadoy,https://www.prothomsurjadoy.com,prothom-surjadoy,Bangla,bangla,,,bn_prothom_surjadoy,NOT_LIVE_VERIFIED
+54,Bhorer Darpan,https://bhorerdarpan.com,bhorer-darpan,Bangla,bangla,,,bn_bhorer_darpan,NOT_LIVE_VERIFIED
+55,Ajker Ograbani,https://ajkerograbani.com,ajker-ograbani,Bangla,bangla,,,bn_ajker_ograbani,NOT_LIVE_VERIFIED
+56,Banglar Chokh,https://www.banglarchokh.com.bd,bnanglar-chokh,Bangla,bangla,,,bn_bnanglar_chokh,NOT_LIVE_VERIFIED
+57,Jobabdihi,https://jobabdihi.com,jobabdihi,Bangla,bangla,,,bn_jobabdihi,NOT_LIVE_VERIFIED
+58,Swadesh Pratidin,https://www.swadeshpratidin.com,swadesh-pratidin,Bangla,bangla,,,bn_swadesh_pratidin,NOT_LIVE_VERIFIED
+59,Prothom Bhor,https://prothombhor.net,prothom-bhor,Bangla,bangla,,,bn_prothom_bhor,NOT_LIVE_VERIFIED
+60,Daily Alokito Sakal,https://alokitosakal.net,daily-alokito-sakal,Bangla,bangla,,,bn_daily_alokito_sakal,NOT_LIVE_VERIFIED
+61,Bangla Kagoj,https://www.banglakagoj.com,bangla-kagoj,Bangla,bangla,,,bn_bangla_kagoj,NOT_LIVE_VERIFIED
+62,Khoborpatra,https://khoborpatrabd.com,khoborpatra,Bangla,bangla,,,bn_khoborpatra,NOT_LIVE_VERIFIED
+63,New Age,https://www.newagebd.net,new-age,English,english,,,en_new_age,NOT_LIVE_VERIFIED
+64,Daily Sun,https://www.daily-sun.com,daily-sun,English,english,,,en_daily_sun,NOT_LIVE_VERIFIED
+65,Observer,https://observerbd.com,observer,English,english,,,en_observer,NOT_LIVE_VERIFIED
+66,Dhaka Tribune,https://www.dhakatribune.com,dhaka-tribune,English,english,,,en_dhaka_tribune,NOT_LIVE_VERIFIED
+67,Financial Express,https://thefinancialexpress.com.bd,financial-express,"English, Business","english, business",,,en_financial_express,NOT_LIVE_VERIFIED
+68,Bangladesh Today,https://thebangladeshtoday.com,bangladesh-today,English,english,,,en_bangladesh_today,NOT_LIVE_VERIFIED
+69,Daily Star,https://www.thedailystar.net,daily-star,English,english,,,en_daily_star,NOT_LIVE_VERIFIED
+70,United News of Bangladesh,https://unb.com.bd,united-news-of-bangladesh,English,english,,,en_united_news_of_bangladesh,NOT_LIVE_VERIFIED
+71,New Nation,https://dailynewnation.com,new-nation,English,english,,,en_new_nation,NOT_LIVE_VERIFIED
+72,BD News24,https://bdnews24.com,bd-news24,English,english,,,en_bd_news24,NOT_LIVE_VERIFIED
+73,Asian Age,https://dailyasianage.com,asian-age,English,english,,,en_asian_age,NOT_LIVE_VERIFIED
+74,BSS News,https://www.bssnews.net,bss-news,English,english,,,en_bss_news,NOT_LIVE_VERIFIED
+75,Good Morning,https://thegoodmorning.net,good-morning,English,english,,,en_good_morning,NOT_LIVE_VERIFIED
+76,Tribunal,https://www.dailytribunal24.com,tribunal,English,english,,,en_tribunal,NOT_LIVE_VERIFIED
+77,Bangladesh Info,https://www.bangladeshinfo.com,bangladesh-info,English,english,,,en_bangladesh_info,NOT_LIVE_VERIFIED
+78,Dhaka Courier,https://www.dhakacourier.com.bd,dhaka-courier,English,english,,,en_dhaka_courier,NOT_LIVE_VERIFIED
+79,Telegraph,https://www.telegraph.co.uk,telegraph,International,international,,,in_telegraph,NOT_LIVE_VERIFIED
+80,Guardian,https://www.theguardian.com,guardian,International,international,,,in_guardian,NOT_LIVE_VERIFIED
+81,Al Jazeera,https://www.aljazeera.com,al-jazeera,International,international,,,in_al_jazeera,NOT_LIVE_VERIFIED
+82,USA Today,https://www.usatoday.com,usa-today,International,international,,,in_usa_today,NOT_LIVE_VERIFIED
+83,BBC,https://www.bbc.com,bbc,International,international,,,in_bbc,NOT_LIVE_VERIFIED
+84,CNN,https://edition.cnn.com,cnn,International,international,,,in_cnn,NOT_LIVE_VERIFIED
+85,Daily Mail,https://www.dailymail.co.uk,daily-mail,International,international,,,in_daily_mail,NOT_LIVE_VERIFIED
+86,Mirror,https://www.mirror.co.uk,mirror,International,international,,,in_mirror,NOT_LIVE_VERIFIED
+87,Times of India,https://timesofindia.com,times-of-india,International,international,,,in_times_of_india,NOT_LIVE_VERIFIED
+88,Express,https://www.express.co.uk,express,International,international,,,in_express,NOT_LIVE_VERIFIED
+89,DW,https://www.dw.com/en,dw,International,international,,,in_dw,NOT_LIVE_VERIFIED
+90,VOA News,https://www.voanews.com,voa-news,International,international,,,in_voa_news,NOT_LIVE_VERIFIED
+91,China Daily,https://www.chinadaily.com.cn,china-daily,International,international,,,in_china_daily,NOT_LIVE_VERIFIED
+92,Metro,https://metro.co.uk,metro,International,international,,,in_metro,NOT_LIVE_VERIFIED
+93,The Sun,https://www.thesun.co.uk,the-sun,International,international,,,in_the_sun,NOT_LIVE_VERIFIED
+94,ABC News,https://abcnews.go.com,abc-news,International,international,,,in_abc_news,NOT_LIVE_VERIFIED
+95,Fox News,https://www.foxnews.com,fox-news,International,international,,,in_fox_news,NOT_LIVE_VERIFIED
+96,Sky News,https://news.sky.com,sky-news,International,international,,,in_sky_news,NOT_LIVE_VERIFIED
+97,The Moscow Times,https://www.themoscowtimes.com,the-moscow-times,International,international,,,in_the_moscow_times,NOT_LIVE_VERIFIED
+98,CCTV,https://english.cctv.com,cctv,International,international,,,in_cctv,NOT_LIVE_VERIFIED
+99,Reuters,https://www.reuters.com,reuters,International,international,,,in_reuters,NOT_LIVE_VERIFIED
+100,Euronews,https://www.euronews.com,euronews,International,international,,,in_euronews,NOT_LIVE_VERIFIED
+101,RT,https://www.rt.com,rt,International,international,,,in_rt,NOT_LIVE_VERIFIED
+102,Press TV,https://www.presstv.ir,press-tv,International,international,,,in_press_tv,NOT_LIVE_VERIFIED
+103,Daily News,https://www.nydailynews.com,daily-news,International,international,,,in_daily_news,NOT_LIVE_VERIFIED
+104,CBS News,https://www.cbsnews.com,cbs-news,International,international,,,in_cbs_news,NOT_LIVE_VERIFIED
+105,Chron,https://www.chron.com,chron,International,international,,,in_chron,NOT_LIVE_VERIFIED
+106,MSNBC News,https://www.msnbc.com,msnbc-news,International,international,,,in_msnbc_news,NOT_LIVE_VERIFIED
+107,Al Arabiya,https://english.alarabiya.net,al-arabiya,International,international,,,in_al_arabiya,NOT_LIVE_VERIFIED
+108,CGTN,https://www.cgtn.com,cgtn,International,international,,,in_cgtn,NOT_LIVE_VERIFIED
+109,TRT World,https://www.trtworld.com,trt-world,International,international,,,in_trt_world,NOT_LIVE_VERIFIED
+110,Bangkok Post,https://www.bangkokpost.com,bangkok-post,International,international,,,in_bangkok_post,NOT_LIVE_VERIFIED
+111,The Epoch Times,https://www.theepochtimes.com,the-epoch-times,International,international,,,in_the_epoch_times,NOT_LIVE_VERIFIED
+112,The Korean Times,https://www.koreatimes.co.kr,the-korean-times,International,international,,,in_the_korean_times,NOT_LIVE_VERIFIED
+113,The South African,https://www.thesouthafrican.com,the-south-african,International,international,,,in_the_south_african,NOT_LIVE_VERIFIED
+114,Egypt Daily News,https://egyptdailynews.com,egypt-daily-news,International,international,,,in_egypt_daily_news,NOT_LIVE_VERIFIED
+115,Daily Nation,https://nation.africa,daily-nation,International,international,,,in_daily_nation,NOT_LIVE_VERIFIED
+116,The Jerusalem Post,https://www.jpost.com,the-jerusalem-post,International,international,,,in_the_jerusalem_post,NOT_LIVE_VERIFIED
+117,Kuwait Times,https://kuwaittimes.com,kuwait-times,International,international,,,in_kuwait_times,NOT_LIVE_VERIFIED
+118,The Peninsula,https://thepeninsulaqatar.com,the-peninsula,International,international,,,in_the_peninsula,NOT_LIVE_VERIFIED
+119,Saudi Gazette,https://www.saudigazette.com.sa,saudi-gazette,International,international,,,in_saudi_gazette,NOT_LIVE_VERIFIED
+120,Pakistan Observer,https://pakobserver.net,pakistan-observer,International,international,,,in_pakistan_observer,NOT_LIVE_VERIFIED
+121,Al Watan,https://alwatan.sy,al-watan,International,international,,,in_al_watan,NOT_LIVE_VERIFIED
+122,Daily News Egypt,https://www.dailynewsegypt.com,daily-news-egypt,International,international,,,in_daily_news_egypt,NOT_LIVE_VERIFIED
+123,Tehran Times,https://www.tehrantimes.com,tehran-times,International,international,,,in_tehran_times,NOT_LIVE_VERIFIED
+124,The Borneo Post,https://www.theborneopost.com,the-borneo-post,International,international,,,in_the_borneo_post,NOT_LIVE_VERIFIED
+125,Daily Sabah,https://www.dailysabah.com,daily-sabah,International,international,,,in_daily_sabah,NOT_LIVE_VERIFIED
+126,Macau Daily Times,https://macaudailytimes.com.mo,macau-daily-times,International,international,,,in_macau_daily_times,NOT_LIVE_VERIFIED
+127,The Kathmandu Post,https://kathmandupost.com,the-kathmandu-post,International,international,,,in_the_kathmandu_post,NOT_LIVE_VERIFIED
+128,CNA,https://www.channelnewsasia.com,cna,International,international,,,in_cna,NOT_LIVE_VERIFIED
+129,Business Times,https://www.businesstimes.com.sg,business-times,"International, Business","international, business",,,in_business_times,NOT_LIVE_VERIFIED
+130,Boston Globe,https://www.bostonglobe.com,boston-globe,International,international,,,in_boston_globe,NOT_LIVE_VERIFIED
+131,Corriere Della Sera,https://www.corriere.it,corriere-della-sera,International,international,,,in_corriere_della_sera,NOT_LIVE_VERIFIED
+132,Der Spiegel,https://www.spiegel.de,der-spiegel,International,international,,,in_der_spiegel,NOT_LIVE_VERIFIED
+133,The Manila Times,https://www.manilatimes.net,the-manila-times,International,international,,,in_the_manila_times,NOT_LIVE_VERIFIED
+134,Blaze,https://www.theblaze.com,blaze,International,international,,,in_blaze,NOT_LIVE_VERIFIED
+135,Indian Express,https://indianexpress.com,indian-express,International,international,,,in_indian_express,NOT_LIVE_VERIFIED
+136,Le Monde,https://www.lemonde.fr,le-monde,International,international,,,in_le_monde,NOT_LIVE_VERIFIED
+137,The Irish Times,https://www.irishtimes.com,the-irish-times,International,international,,,in_the_irish_times,NOT_LIVE_VERIFIED
+138,The Times of India,https://timesofindia.indiatimes.com,the-times-of-india,International,international,,,in_the_times_of_india,NOT_LIVE_VERIFIED
+139,The Jakarta Post,https://www.thejakartapost.com,the-jakarta-post,International,international,,,in_the_jakarta_post,NOT_LIVE_VERIFIED
+140,The JoongAng,https://www.joongang.co.kr,the-joongang,International,international,,,in_the_joongang,NOT_LIVE_VERIFIED
+141,The Independent,https://www.independent.co.ug,the-independent,International,international,,,in_the_independent,NOT_LIVE_VERIFIED
+142,The Rio Times,https://www.riotimesonline.com,the-rio-times,International,international,,,in_the_rio_times,NOT_LIVE_VERIFIED
+143,South China Morning Post,https://www.scmp.com,south-china-morning-post,International,international,,,in_south_china_morning_post,NOT_LIVE_VERIFIED
+144,Independent,https://www.independent.co.uk,independent,International,international,,,in_independent,NOT_LIVE_VERIFIED
+145,Sydney Morning Herald,https://www.smh.com.au,sydney-morning-herald,International,international,,,in_sydney_morning_herald,NOT_LIVE_VERIFIED
+146,New York Post,https://nypost.com,new-york-post,International,international,,,in_new_york_post,NOT_LIVE_VERIFIED
+147,Economist,https://www.economist.com,economist,International,international,,,in_economist,NOT_LIVE_VERIFIED
+148,Los Angeles Times,https://www.latimes.com,los-angeles-times,International,international,,,in_los_angeles_times,NOT_LIVE_VERIFIED
+149,Chicago Tribune,https://www.chicagotribune.com,chicago-tribune,International,international,,,in_chicago_tribune,NOT_LIVE_VERIFIED
+150,Examiner,https://www.examiner.com.au,examiner,International,international,,,in_examiner,NOT_LIVE_VERIFIED
+151,Jamuna TV,https://jamuna.tv,jamuna-tv,TV News,tv-news,,,tv_jamuna_tv,NOT_LIVE_VERIFIED
+152,Somoy News,https://www.somoynews.tv,somoy-news,TV News,tv-news,,,tv_somoy_news,NOT_LIVE_VERIFIED
+153,Channel 24,https://www.channel24bd.tv,channel-24,TV News,tv-news,,,tv_channel_24,NOT_LIVE_VERIFIED
+154,ATN News,https://www.atnnewstv.com,atn-news,TV News,tv-news,,,tv_atn_news,NOT_LIVE_VERIFIED
+155,DBC News,https://dbcnews.tv,dbc-news,TV News,tv-news,,,tv_dbc_news,NOT_LIVE_VERIFIED
+156,NTV,https://www.ntvbd.com,ntv,TV News,tv-news,,,tv_ntv,NOT_LIVE_VERIFIED
+157,RTV News,https://www.rtvonline.com,rtv-news,TV News,tv-news,,,tv_rtv_news,NOT_LIVE_VERIFIED
+158,Bangla Vision,https://www.bvnews24.com,bangla-vision,TV News,tv-news,,,tv_bangla_vision,NOT_LIVE_VERIFIED
+159,Independent Tv,https://www.itvbd.com,independent-tv,TV News,tv-news,,,tv_independent_tv,NOT_LIVE_VERIFIED
+160,Channel I Online,https://www.channelionline.com,channel-i-online,TV News,tv-news,,,tv_channel_i_online,NOT_LIVE_VERIFIED
+161,Ekushey Tv,https://ekushey-tv.com,ekushey-tv,TV News,tv-news,,,tv_ekushey_tv,NOT_LIVE_VERIFIED
+162,Desh TV,https://www.desh.tv,desh-tv,TV News,tv-news,,,tv_desh_tv,NOT_LIVE_VERIFIED
+163,Maasranga TV,https://maasranga.tv,maasranga-tv,TV News,tv-news,,,tv_maasranga_tv,NOT_LIVE_VERIFIED
+164,Bijoy TV,https://bijoy.tv,bijoy-tv,TV News,tv-news,,,tv_bijoy_tv,NOT_LIVE_VERIFIED
+165,Ekattor TV,https://ekattor.tv,ekattor-tv,TV News,tv-news,,,tv_ekattor_tv,NOT_LIVE_VERIFIED
+166,GTV,https://gazitv.com,gtv,TV News,tv-news,,,tv_gtv,NOT_LIVE_VERIFIED
+167,My TV,https://mytvbd.tv,my-tv,TV News,tv-news,,,tv_my_tv,NOT_LIVE_VERIFIED
+168,Boishakhi TV,https://boishakhionline.com,boishakhi-tv,TV News,tv-news,,,tv_boishakhi_tv,NOT_LIVE_VERIFIED
+169,ATN Bangla,https://www.atnbangla.tv,atn-bangla,TV News,tv-news,,,tv_atn_bangla,NOT_LIVE_VERIFIED
+170,Mohona TV,https://mohona.tv,mohona-tv,TV News,tv-news,,,tv_mohona_tv,NOT_LIVE_VERIFIED
+171,SA TV,https://www.satv.tv,sa-tv,TV News,tv-news,,,tv_sa_tv,NOT_LIVE_VERIFIED
+172,Business Standard,https://www.tbsnews.net,business-standard,Business,business,,,bu_business_standard,NOT_LIVE_VERIFIED
+173,Business Post,https://businesspostbd.com,business-post,Business,business,,,bu_business_post,NOT_LIVE_VERIFIED
+174,Bonik Barta,https://www.bonikbarta.com,bonik-barta,Business,business,,,bu_bonik_barta,NOT_LIVE_VERIFIED
+175,Business Insider Bangladesh,https://www.businessinsiderbd.com,business-insider-bangladesh,Business,business,,,bu_business_insider_bangladesh,NOT_LIVE_VERIFIED
+176,Artho Suchak,https://www.arthosuchak.com,artho-suchak,Business,business,,,bu_artho_suchak,NOT_LIVE_VERIFIED
+177,Corporate News,https://corporatenews.com.bd,corporate-news,Business,business,,,bu_corporate_news,NOT_LIVE_VERIFIED
+178,Corporate Sangbad,https://corporatesangbad.com,corporate-sangbad,Business,business,,,bu_corporate_sangbad,NOT_LIVE_VERIFIED
+179,Pujibazar,https://pujibazar.com,pujibazar,Business,business,,,bu_pujibazar,NOT_LIVE_VERIFIED
+180,Daily Industry,https://dailyindustry.news,daily-industry,Business,business,,,bu_daily_industry,NOT_LIVE_VERIFIED
+181,Biniyougbarta,https://biniyougbarta.com,biniyougbarta,Business,business,,,bu_biniyougbarta,NOT_LIVE_VERIFIED
+182,Arthoniteer Kagoj,https://arthoniteerkagoj.com,arthoniteer-kagoj,Business,business,,,bu_arthoniteer_kagoj,NOT_LIVE_VERIFIED
+183,Orthosongbad,https://orthosongbad.com,orthosongbad,Business,business,,,bu_orthosongbad,NOT_LIVE_VERIFIED
+184,Share Bazar News,https://www.sharebazarnews.com,share-bazar-news,Business,business,,,bu_share_bazar_news,NOT_LIVE_VERIFIED
+185,Share Market BD,https://www.sharemarketbd.com,share-market-bd,Business,business,,,bu_share_market_bd,NOT_LIVE_VERIFIED
+186,Share Business 24,https://www.sharebusiness24.com,share-business-24,Business,business,,,bu_share_business_24,NOT_LIVE_VERIFIED
+187,Share Biz,https://sharebiz.net,share-biz,Business,business,,,bu_share_biz,NOT_LIVE_VERIFIED
+188,Share News 24,https://sharenews24.com,share-news-24,Business,business,,,bu_share_news_24,NOT_LIVE_VERIFIED
+189,Sun BD 24,https://sunbd24.com,sun-bd-24,Business,business,,,bu_sun_bd_24,NOT_LIVE_VERIFIED
+190,Energy Bangla,https://energybangla.com,energy-bangla,Business,business,,,bu_energy_bangla,NOT_LIVE_VERIFIED
+191,DSE BD,https://www.dsebd.org,dse-bd,Business,business,,,bu_dse_bd,NOT_LIVE_VERIFIED
+192,CSE,https://www.cse.com.bd,cse,Business,business,,,bu_cse,NOT_LIVE_VERIFIED
+193,Banking News Bangladesh,https://www.bankingnewsbd.com,banking-news-bangladesh,Business,business,,,bu_banking_news_bangladesh,NOT_LIVE_VERIFIED
+194,Business News 24,https://thebusinessnews24.com,business-news-24,Business,business,,,bu_business_news_24,NOT_LIVE_VERIFIED
+195,Insurance News Bangladesh,https://insurancenewsbd.com,insurance-news-bangladesh,Business,business,,,bu_insurance_news_bangladesh,NOT_LIVE_VERIFIED
+196,Biasl,http://www.biasl.net,biasl,Business,business,,,bu_biasl,NOT_LIVE_VERIFIED
+197,BD News 24,https://bangla.bdnews24.com,bd-news-24,Online,online,,,on_bd_news_24,NOT_LIVE_VERIFIED
+198,Bangla News 24,https://www.banglanews24.com,bangla-news-24,Online,online,,,on_bangla_news_24,NOT_LIVE_VERIFIED
+199,Bangladesh Journal,https://www.bd-journal.com,bangladesh-journal,Online,online,,,on_bangladesh_journal,NOT_LIVE_VERIFIED
+200,BBC - Bengali,https://www.bbc.com/bengali,bbc-bengali,Online,online,,,on_bbc_bengali,NOT_LIVE_VERIFIED
+201,DW - Bangla,https://www.dw.com/bn,dw-bangla,Online,online,,,on_dw_bangla,NOT_LIVE_VERIFIED
+202,Just News BD,https://www.justnewsbd.com,just-news-bd,Online,online,,,on_just_news_bd,NOT_LIVE_VERIFIED
+203,Rising BD,https://www.risingbd.com,rising-bd,Online,online,,,on_rising_bd,NOT_LIVE_VERIFIED
+204,Dhaka Times,https://www.dhakatimes24.com,dhaka-times,Online,online,,,on_dhaka_times,NOT_LIVE_VERIFIED
+205,Bangla Tribune,https://www.banglatribune.com,bangla-tribune,Online,online,,,on_bangla_tribune,NOT_LIVE_VERIFIED
+206,The Dhaka Post,https://thedhakapost.com,the-dhaka-post,"Online, English","online, english",,,on_the_dhaka_post,NOT_LIVE_VERIFIED
+207,Jago News 24,https://www.jagonews24.com,jago-news-24,Online,online,,,on_jago_news_24,NOT_LIVE_VERIFIED
+208,One News BD,https://www.onenewsbd.com,one-news-bd,Online,online,,,on_one_news_bd,NOT_LIVE_VERIFIED
+209,Zoom Bangla,https://zoombangla.com,zoom-bangla,Online,online,,,on_zoom_bangla,NOT_LIVE_VERIFIED
+210,VOA bangla,https://www.voabangla.com,voa-bangla,Online,online,,,on_voa_bangla,NOT_LIVE_VERIFIED
+211,ABnews24BD,https://www.abnews24bd.com,abnews24bd,Online,online,,,on_abnews24bd,NOT_LIVE_VERIFIED
+212,BSS News Bangla,https://www.bssnews.net/bangla,bss-news-bangla,Online,online,,,on_bss_news_bangla,NOT_LIVE_VERIFIED
+213,Bajro Shakti,https://www.bajroshakti.com,bajro-shakti,Online,online,,,on_bajro_shakti,NOT_LIVE_VERIFIED
+214,The Mirror Asia,https://bangla.themirrorasia.net,the-mirror-asia,Online,online,,,on_the_mirror_asia,NOT_LIVE_VERIFIED
+215,Sheersho Khobor,https://sheershokhobor.com,sheersho-khobor,Online,online,,,on_sheersho_khobor,NOT_LIVE_VERIFIED
+216,Ajker Dhaka 24,https://ajkerdhaka24.com,ajker-dhaka-24,Online,online,,,on_ajker_dhaka_24,NOT_LIVE_VERIFIED
+217,24 Live Newspaper,https://www.bangla.24livenewspaper.com,24-live-newspaper,Online,online,,,on_24_live_newspaper,NOT_LIVE_VERIFIED
+218,BD 24 Live,https://www.bd24live.com,bd-24-live,"Online, English","online, english",,,on_bd_24_live,NOT_LIVE_VERIFIED
+219,Odhikarbd,https://odhikarbd.net,odhikarbd,Online,online,,,on_odhikarbd,NOT_LIVE_VERIFIED
+220,Natun Barta,https://www.natun-barta.com,natun-barta,Online,online,,,on_natun_barta,NOT_LIVE_VERIFIED
+221,Dhaka Mail,https://dhakamail.com,dhaka-mail,Online,online,,,on_dhaka_mail,NOT_LIVE_VERIFIED
+222,Ei Bela,https://eibela.com,ei-bela,Online,online,,,on_ei_bela,NOT_LIVE_VERIFIED
+223,Bengali Times,https://www.thebengalitimes.com,bengali-times,Online,online,,,on_bengali_times,NOT_LIVE_VERIFIED
+224,Sara Bangla,https://sarabangla.net/,sara-bangla,Online,online,,,on_sara_bangla,NOT_LIVE_VERIFIED
+225,Prime News BD,https://primenewsbd.net,prime-news-bd,Online,online,,,on_prime_news_bd,NOT_LIVE_VERIFIED
+226,Protidiner Chitro,https://www.protidinerchitrobd.com,protidiner-chitro,Online,online,,,on_protidiner_chitro,NOT_LIVE_VERIFIED
+227,Daily Sangbad Pratidin,https://www.dainiksangbadpratidin.com,daily-sangbad-pratidin,Online,online,,,on_daily_sangbad_pratidin,NOT_LIVE_VERIFIED
+228,Somoyer Konthosor,https://www.somoyerkonthosor.com,somoyer-konthosor,Online,online,,,on_somoyer_konthosor,NOT_LIVE_VERIFIED
+229,Report 24,https://bangla.thereport24.com,report-24,Online,online,,,on_report_24,NOT_LIVE_VERIFIED
+230,Dainik Bayanno,https://dainikbayanno.com,dainik-bayanno,Online,online,,,on_dainik_bayanno,NOT_LIVE_VERIFIED
+231,Daily Amar Barta,https://www.amarbarta.com,daily-amar-barta,Online,online,,,on_daily_amar_barta,NOT_LIVE_VERIFIED
+232,Banglar Jagoron,https://banglarjagoron.com,banglar-jagoron,Online,online,,,on_banglar_jagoron,NOT_LIVE_VERIFIED
+233,Dhaka Protidin,https://www.dhakaprotidin.com,dhaka-protidin,Online,online,,,on_dhaka_protidin,NOT_LIVE_VERIFIED
+234,BD Report 24,https://bdreport24.com,bd-report-24,Online,online,,,on_bd_report_24,NOT_LIVE_VERIFIED
+235,Bangladesh Police News,https://news.police.gov.bd,bangladesh-police-news,Online,online,,,on_bangladesh_police_news,NOT_LIVE_VERIFIED
+236,Dhaka news 24,https://www.dhakanews24.com,dhaka-news-24,Online,online,,,on_dhaka_news_24,NOT_LIVE_VERIFIED
+237,Netra News,https://netra.news,netra-news,Online,online,,,on_netra_news,NOT_LIVE_VERIFIED
+238,DMP News,https://dmpnews.org,dmp-news,Online,online,,,on_dmp_news,NOT_LIVE_VERIFIED
+239,Priyo,https://news.priyo.com,priyo,Online,online,,,on_priyo,NOT_LIVE_VERIFIED
+240,News Bangla 24,https://www.newsbangla24.com,news-bangla-24,Online,online,,,on_news_bangla_24,NOT_LIVE_VERIFIED
+241,Saradesh Protidin,https://saradeshprotidin.com,saradesh-protidin,Online,online,,,on_saradesh_protidin,NOT_LIVE_VERIFIED
+242,Notun Shomoy,https://notunshomoy.com,notun-shomoy,Online,online,,,on_notun_shomoy,NOT_LIVE_VERIFIED
+243,BD Morning,https://www.bdmorning.com,bd-morning,Online,online,,,on_bd_morning,NOT_LIVE_VERIFIED
+244,BBC 24 news,https://www.bbc24news.com,bbc-24-news,Online,online,,,on_bbc_24_news,NOT_LIVE_VERIFIED
+245,Barta Bazar,https://bartabazar.com,barta-bazar,Online,online,,,on_barta_bazar,NOT_LIVE_VERIFIED
+246,Times of Bangla,https://www.timesofbangla24.com,times-of-bangla,Online,online,,,on_times_of_bangla,NOT_LIVE_VERIFIED
+247,Our Islam 24,https://www.ourislam24.com,our-islam-24,Online,online,,,on_our_islam_24,NOT_LIVE_VERIFIED
+248,News 71 Online,https://news71online.com,news-71-online,Online,online,,,on_news_71_online,NOT_LIVE_VERIFIED
+249,71 Sangbad,https://www.71sangbad.com,71-sangbad,Online,online,,,on_71_sangbad,NOT_LIVE_VERIFIED
+250,BD 24 Report,https://bn.bd24report.com,bd-24-report,Online,online,,,on_bd_24_report,NOT_LIVE_VERIFIED
+251,Doinik Barta,https://www.doinikbarta.com,doinik-barta,Online,online,,,on_doinik_barta,NOT_LIVE_VERIFIED
+252,Muktijoddhar Kantho,https://muktijoddharkantho.com,muktijoddhar-kantho,Online,online,,,on_muktijoddhar_kantho,NOT_LIVE_VERIFIED
+253,Punorutthan,https://www.dailypunorutthan.com,punorutthan,Online,online,,,on_punorutthan,NOT_LIVE_VERIFIED
+254,Agami News,https://www.agaminews.com,agami-news,Online,online,,,on_agami_news,NOT_LIVE_VERIFIED
+255,Moumachi Kantho,https://mkantho.com,moumachi-kantho,Online,online,,,on_moumachi_kantho,NOT_LIVE_VERIFIED
+256,Matobad,https://dailymatobad.com,matobad,Online,online,,,on_matobad,NOT_LIVE_VERIFIED
+257,Ndtv BD,https://www.ndtvbd.com,ndtv-bd,Online,online,,,on_ndtv_bd,NOT_LIVE_VERIFIED
+258,Protikhon,https://www.protikhon.com,protikhon,Online,online,,,on_protikhon,NOT_LIVE_VERIFIED
+259,Mukto Provat,https://muktoprovat.com.bd,mukto-provat,Online,online,,,on_mukto_provat,NOT_LIVE_VERIFIED
+260,Bangladesh Monitor,https://www.bangladeshmonitor.com.bd,bangladesh-monitor,Online,online,,,on_bangladesh_monitor,NOT_LIVE_VERIFIED
+261,Bangladesh News Agency,https://bnanews24.com,bangladesh-news-agency,Online,online,,,on_bangladesh_news_agency,NOT_LIVE_VERIFIED
+262,Sotto Kotha Protidin,https://dainiksottokothaprotidin.com,sotto-kotha-protidin,Online,online,,,on_sotto_kotha_protidin,NOT_LIVE_VERIFIED
+263,Uttarkon,https://uttarkon.com,uttarkon,Online,online,,,on_uttarkon,NOT_LIVE_VERIFIED
+264,Kaler Khobor,https://dainikkalerkhobor.com,kaler-khobor,Online,online,,,on_kaler_khobor,NOT_LIVE_VERIFIED
+265,Mozlumer Kontha,https://www.mozlumerkontha.com,mozlumer-kontha,Online,online,,,on_mozlumer_kontha,NOT_LIVE_VERIFIED
+266,Provater Alo,https://www.doinikprovateralo.com,provater-alo,Online,online,,,on_provater_alo,NOT_LIVE_VERIFIED
+267,Sorejomin Barta,https://sorejominbarta.com,sorejomin-barta,Online,online,,,on_sorejomin_barta,NOT_LIVE_VERIFIED
+268,Medi Voice,https://medivoicebd.com,medi-voice,Online,online,,,on_medi_voice,NOT_LIVE_VERIFIED
+269,Aloava News 24,https://www.aloavanews24.com,aloava-news-24,Online,online,,,on_aloava_news_24,NOT_LIVE_VERIFIED
+270,Nirapad News,https://www.nirapadnews.com,nirapad-news,Online,online,,,on_nirapad_news,NOT_LIVE_VERIFIED
+271,Deshbd 24,https://www.deshbd24.com,deshbd-24,Online,online,,,on_deshbd_24,NOT_LIVE_VERIFIED
+272,Weekly Bangalee,https://www.weeklybangalee.com,weekly-bangalee,Online,online,,,on_weekly_bangalee,NOT_LIVE_VERIFIED
+273,Probashir Diganta,https://www.probashirdiganta.com,probashir-diganta,Online,online,,,on_probashir_diganta,NOT_LIVE_VERIFIED
+274,Sonali News,https://www.sonalinews.com,sonali-news,Online,online,,,on_sonali_news,NOT_LIVE_VERIFIED
+275,Desher Sangbad,https://deshersangbad.com,desher-sangbad,Online,online,,,on_desher_sangbad,NOT_LIVE_VERIFIED
+276,Deshe Bideshe,https://www.deshebideshe.com,deshe-bideshe,Online,online,,,on_deshe_bideshe,NOT_LIVE_VERIFIED
+277,Desh News,https://deshnews.net,desh-news,Online,online,,,on_desh_news,NOT_LIVE_VERIFIED
+278,Akhon Samoy,https://akhonsamoy.com,akhon-samoy,Online,online,,,on_akhon_samoy,NOT_LIVE_VERIFIED
+279,Our News BD,https://ournewsbd.net,our-news-bd,Online,online,,,on_our_news_bd,NOT_LIVE_VERIFIED
+280,Hawker,https://hawker.com.bd,hawker,Online,online,,,on_hawker,NOT_LIVE_VERIFIED
+281,Sangbad Protidin 24,https://sangbadprotidin24.com,sangbad-protidin-24,Online,online,,,on_sangbad_protidin_24,NOT_LIVE_VERIFIED
+282,E News Up,https://enewsup.com,e-news-up,Online,online,,,on_e_news_up,NOT_LIVE_VERIFIED
+283,Khaborer Kagoj,https://www.khaborerkagoj.com,khaborer-kagoj,Online,online,,,on_khaborer_kagoj,NOT_LIVE_VERIFIED
+284,Jago kantha,https://jagokantha.com,jago-kantha,Online,online,,,on_jago_kantha,NOT_LIVE_VERIFIED
+285,BD Type,https://bdtype.com,bd-type,Online,online,,,on_bd_type,NOT_LIVE_VERIFIED
+286,Natun Chokh,https://www.natunchokh.com,natun-chokh,Online,online,,,on_natun_chokh,NOT_LIVE_VERIFIED
+287,MT News 24,https://bn.mtnews24.com,mt-news-24,Online,online,,,on_mt_news_24,NOT_LIVE_VERIFIED
+288,Sokaler Khobor 24,https://sokalerkhobor24.com,sokaler-khobor-24,Online,online,,,on_sokaler_khobor_24,NOT_LIVE_VERIFIED
+289,BNC 24,https://www.bnc24.com,bnc-24,Online,online,,,on_bnc_24,NOT_LIVE_VERIFIED
+290,FNS 24,https://www.fns24.com,fns-24,Online,online,,,on_fns_24,NOT_LIVE_VERIFIED
+291,Kaler Alo,https://www.kaleralo.com,kaler-alo,Online,online,,,on_kaler_alo,NOT_LIVE_VERIFIED
+292,Amader Protidin,https://amaderprotidin.com,amader-protidin,Online,online,,,on_amader_protidin,NOT_LIVE_VERIFIED
+293,Patrika 71,https://www.patrika71.com,patrika-71,Online,online,,,on_patrika_71,NOT_LIVE_VERIFIED
+294,NEWS 71,https://news71.com,news-71,Online,online,,,on_news_71,NOT_LIVE_VERIFIED
+295,Life Tv 24,https://www.lifetv24.com,life-tv-24,Online,online,,,on_life_tv_24,NOT_LIVE_VERIFIED
+296,Boishakhi News,https://www.boishakhinews24.net,boishakhi-news,Online,online,,,on_boishakhi_news,NOT_LIVE_VERIFIED
+297,Saatkahon,https://satkahonnews.com,saatkahon,Online,online,,,on_saatkahon,NOT_LIVE_VERIFIED
+298,Daily Jago Janata,https://dailyjagojanata.com,daily-jago-janata,Online,online,,,on_daily_jago_janata,NOT_LIVE_VERIFIED
+299,Kings News,https://www.kingsnews24.com,kings-news,Online,online,,,on_kings_news,NOT_LIVE_VERIFIED
+300,Bartoman Khobor,https://bartomankhobor.com,bartoman-khobor,Online,online,,,on_bartoman_khobor,NOT_LIVE_VERIFIED
+301,Dainik Ananda Bazar,https://dainikanandabazar.com,dainik-ananda-bazar,Online,online,,,on_dainik_ananda_bazar,NOT_LIVE_VERIFIED
+302,Bangla Daily 24,https://www.bangladaily24.com,bangla-daily-24,Online,online,,,on_bangla_daily_24,NOT_LIVE_VERIFIED
+303,BD View 24,https://www.bdview24.com,bd-view-24,Online,online,,,on_bd_view_24,NOT_LIVE_VERIFIED
+304,Banglar Khobor 24,https://banglarkhobor24.com,banglar-khobor-24,Online,online,,,on_banglar_khobor_24,NOT_LIVE_VERIFIED
+305,Last News BD,https://www.lastnewsbd.com,last-news-bd,Online,online,,,on_last_news_bd,NOT_LIVE_VERIFIED
+306,Latest BD News,https://www.latestbdnews.com,latest-bd-news,Online,online,,,on_latest_bd_news,NOT_LIVE_VERIFIED
+307,Pars Today,https://parstoday.ir/bn,pars-today,Online,online,,,on_pars_today,NOT_LIVE_VERIFIED
+308,Khobor Protidin 24,https://www.khoborprotidin24.com,khobor-protidin-24,Online,online,,,on_khobor_protidin_24,NOT_LIVE_VERIFIED
+309,Alert News 24,https://www.alertnews24.com,alert-news-24,Online,online,,,on_alert_news_24,NOT_LIVE_VERIFIED
+310,Aparadh chokh 24,https://aparadhchokh24.com,aparadh-chokh-24,Online,online,,,on_aparadh_chokh_24,NOT_LIVE_VERIFIED
+311,Amader Shomoy,https://www.amadershomoy.com,amader-shomoy,Online,online,,,on_amader_shomoy,NOT_LIVE_VERIFIED
+312,Barta 24,https://barta24.com,barta-24,Online,online,,,on_barta_24,NOT_LIVE_VERIFIED
+313,Desh Sangbad,https://www.deshsangbad.com,desh-sangbad,Online,online,,,on_desh_sangbad,NOT_LIVE_VERIFIED
+314,Bbarta 24,https://www.bbarta24.net,bbarta-24,Online,online,,,on_bbarta_24,NOT_LIVE_VERIFIED
+315,Uttaradhikar 71 News,https://www.u71news.com,uttaradhikar-71-news,Online,online,,,on_uttaradhikar_71_news,NOT_LIVE_VERIFIED
+316,Projonmo Kantho,https://projonmokantho.com,projonmo-kantho,Online,online,,,on_projonmo_kantho,NOT_LIVE_VERIFIED
+317,Quick News BD,https://quicknewsbd.com,quick-news-bd,Online,online,,,on_quick_news_bd,NOT_LIVE_VERIFIED
+318,Bangla Vor,https://www.banglavor.com,bangla-vor,Online,online,,,on_bangla_vor,NOT_LIVE_VERIFIED
+319,Prothom Sangbad,https://www.prothomsangbad.com,prothom-sangbad,Online,online,,,on_prothom_sangbad,NOT_LIVE_VERIFIED
+320,Nokshi Bangla,http://doiniknokshibangla.com,nokshi-bangla,Online,online,,,on_nokshi_bangla,NOT_LIVE_VERIFIED
+321,Ajker Sotto Prokash,https://ajkersottoprokash.com,ajker-sotto-prokash,Online,online,,,on_ajker_sotto_prokash,NOT_LIVE_VERIFIED
+322,Aparajeo Bangla,https://www.aparajeobangla.com,aparajeo-bangla,Online,online,,,on_aparajeo_bangla,NOT_LIVE_VERIFIED
+323,Hello Bangla News,https://www.hellobangla.news,hello-bangla-news,Online,online,,,on_hello_bangla_news,NOT_LIVE_VERIFIED
+324,Dainik Ajker Sangbad,https://www.dainikajkersangbad.com,dainik-ajker-sangbad,Online,online,,,on_dainik_ajker_sangbad,NOT_LIVE_VERIFIED
+325,Vorer Kontho,https://vorerkontho.com,vorer-kontho,Online,online,,,on_vorer_kontho,NOT_LIVE_VERIFIED
+326,Dainik Ajker Bangla,https://dainikajkerbangla.net,dainik-ajker-bangla,Online,online,,,on_dainik_ajker_bangla,NOT_LIVE_VERIFIED
+327,Ajker Bazar,https://www.ajkerbazzar.com,ajker-bazar,Online,online,,,on_ajker_bazar,NOT_LIVE_VERIFIED
+328,Mukto Barta,https://muktobarta24.com,mukto-barta,Online,online,,,on_mukto_barta,NOT_LIVE_VERIFIED
+329,Deshkal,https://deshkalbd.com,deshkal,Online,online,,,on_deshkal,NOT_LIVE_VERIFIED
+330,SNN 24,https://www.snn24.com,snn-24,Online,online,,,on_snn_24,NOT_LIVE_VERIFIED
+331,Banglarchithi,https://banglarchithi.com,banglarchithi,Online,online,,,on_banglarchithi,NOT_LIVE_VERIFIED
+332,The Daily Matrikantha,https://matrikantha.com,the-daily-matrikantha,Online,online,,,on_the_daily_matrikantha,NOT_LIVE_VERIFIED
+333,Sottokohta Bangladesh,https://www.sottokothabd.news,sottokohta-bangladesh,Online,online,,,on_sottokohta_bangladesh,NOT_LIVE_VERIFIED
+334,Bangla71News,https://bangla71news.com,bangla71news,Online,online,,,on_bangla71news,NOT_LIVE_VERIFIED
+335,Bangla Pratidin,https://banglapratidin.net,bangla-pratidin,Online,online,,,on_bangla_pratidin,NOT_LIVE_VERIFIED
+336,Bangla Tech 24,https://banglatech24.com,bangla-tech-24,Technology,technology,,,te_bangla_tech_24,NOT_LIVE_VERIFIED
+337,Techzoom.TV,https://techzoom.tv,techzoom-tv,Technology,technology,,,te_techzoom_tv,NOT_LIVE_VERIFIED
+338,Tech Shohor,https://techshohor.com,tech-shohor,Technology,technology,,,te_tech_shohor,NOT_LIVE_VERIFIED
+339,Tech Jano,https://techjano.com,tech-jano,Technology,technology,,,te_tech_jano,NOT_LIVE_VERIFIED
+340,Tech Tunes,https://www.techtunes.io,tech-tunes,Technology,technology,,,te_tech_tunes,NOT_LIVE_VERIFIED
+341,Tunerpage,https://tunerpage.com,tunerpage,Technology,technology,,,te_tunerpage,NOT_LIVE_VERIFIED
+342,ICT News,https://www.dailyictnews.com,ict-news,Technology,technology,,,te_ict_news,NOT_LIVE_VERIFIED
+343,Android khothon,https://www.androidkothon.com,android-khothon,Technology,technology,,,te_android_khothon,NOT_LIVE_VERIFIED
+344,Tech Interval,https://www.techinterval.com,tech-interval,Technology,technology,,,te_tech_interval,NOT_LIVE_VERIFIED
+345,Web Coarch BD,https://www.webcoachbd.com,web-coarch-bd,Technology,technology,,,te_web_coarch_bd,NOT_LIVE_VERIFIED
+346,Campus Times,https://campustimes.press,campus-times,Education,education,,,ed_campus_times,NOT_LIVE_VERIFIED
+347,Lekha Pora BD,https://lekhaporabd.net,lekha-pora-bd,Education,education,,,ed_lekha_pora_bd,NOT_LIVE_VERIFIED
+348,Daily Campus,https://thedailycampus.com,daily-campus,Education,education,,,ed_daily_campus,NOT_LIVE_VERIFIED
+349,Ministry of Education,https://moedu.portal.gov.bd,ministry-of-education,Education,education,,,ed_ministry_of_education,NOT_LIVE_VERIFIED
+350,National University,https://www.nu.ac.bd,national-university,Education,education,,,ed_national_university,NOT_LIVE_VERIFIED
+351,10 Minute School,https://10minuteschool.com,10-minute-school,Education,education,,,ed_10_minute_school,NOT_LIVE_VERIFIED
+352,10 Minute Madrasah,http://www.10minutesmadrasah.com,10-minute-madrasah,Education,education,,,ed_10_minute_madrasah,NOT_LIVE_VERIFIED
+353,ePakhi,https://epakhi.com,epakhi,Education,education,,,ed_epakhi,NOT_LIVE_VERIFIED
+354,Teachers GOV BD,https://www.teachers.gov.bd,teachers-gov-bd,Education,education,,,ed_teachers_gov_bd,NOT_LIVE_VERIFIED
+355,Teaching BD,https://teachingbd24.com,teaching-bd,Education,education,,,ed_teaching_bd,NOT_LIVE_VERIFIED
+356,EDPDU,https://edpdu.com,edpdu,Education,education,,,ed_edpdu,NOT_LIVE_VERIFIED
+357,eShikhon,https://eshikhon.com,eshikhon,Education,education,,,ed_eshikhon,NOT_LIVE_VERIFIED
+358,Study Press,https://studypress.org,study-press,Education,education,,,ed_study_press,NOT_LIVE_VERIFIED
+359,Bangladesh Result,https://bangladeshresult.com,bangladesh-result,Education,education,,,ed_bangladesh_result,NOT_LIVE_VERIFIED
+360,BD REN,https://www.bdren.net.bd,bd-ren,Education,education,,,ed_bd_ren,NOT_LIVE_VERIFIED
+361,Dainik Shiksha,https://www.dainikshiksha.com,dainik-shiksha,Education,education,,,ed_dainik_shiksha,NOT_LIVE_VERIFIED
+362,Shikkhok.com,http://shikkhok.com,shikkhok-com,Education,education,,,ed_shikkhok_com,NOT_LIVE_VERIFIED
+363,Bangla Books PDF,https://banglabookspdf.blogspot.com,bangla-books-pdf,Education,education,,,ed_bangla_books_pdf,NOT_LIVE_VERIFIED
+364,Educarnival,https://www.educarnival.com,educarnival,Education,education,,,ed_educarnival,NOT_LIVE_VERIFIED
+365,Exam Resultbd,https://examresultbd.com,exam-resultbd,Education,education,,,ed_exam_resultbd,NOT_LIVE_VERIFIED
+366,Courstika,https://courstika.com,courstika,Education,education,,,ed_courstika,NOT_LIVE_VERIFIED
+367,Edutube,https://www.edutubebd.com,edutube,Education,education,,,ed_edutube,NOT_LIVE_VERIFIED
+368,Bangladesh Education Article,https://bdeduarticle.com,bangladesh-education-article,Education,education,,,ed_bangladesh_education_article,NOT_LIVE_VERIFIED
+369,Srijonshil,https://srijonshil.com,srijonshil,Education,education,,,ed_srijonshil,NOT_LIVE_VERIFIED
+370,Result In BD,https://resultinbd.net,result-in-bd,Education,education,,,ed_result_in_bd,NOT_LIVE_VERIFIED
+371,BD CampusLive,https://www.bd-campuslive.com,bd-campuslive,Education,education,,,ed_bd_campuslive,NOT_LIVE_VERIFIED
+372,Kounik Barta,https://www.kounikbarta.com,kounik-barta,Education,education,,,ed_kounik_barta,NOT_LIVE_VERIFIED
+373,FOCUS Bangladesh,https://www.focusonlinebd.com,focus-bangladesh,Education,education,,,ed_focus_bangladesh,NOT_LIVE_VERIFIED
+374,Bangladesher Khela,https://bangladesherkhela.com,bangladesher-khela,Sports,sports,,,sp_bangladesher_khela,NOT_LIVE_VERIFIED
+375,BBC Sport,https://www.bbc.com/sport,bbc-sport,Sports,sports,,,sp_bbc_sport,NOT_LIVE_VERIFIED
+376,Sports Mail 24,https://www.sportsmail24.com,sports-mail-24,Sports,sports,,,sp_sports_mail_24,NOT_LIVE_VERIFIED
+377,Daily Cricket,https://dailycricket.com.bd,daily-cricket,Sports,sports,,,sp_daily_cricket,NOT_LIVE_VERIFIED
+378,ICC Cricket,https://www.icc-cricket.com,icc-cricket,Sports,sports,,,sp_icc_cricket,NOT_LIVE_VERIFIED
+379,BFF,https://www.bff.com.bd,bff,Sports,sports,,,sp_bff,NOT_LIVE_VERIFIED
+380,ESPN Cricinfo,https://www.espncricinfo.com,espn-cricinfo,Sports,sports,,,sp_espn_cricinfo,NOT_LIVE_VERIFIED
+381,BD Cric Time,https://www.bdcrictime.com,bd-cric-time,Sports,sports,,,sp_bd_cric_time,NOT_LIVE_VERIFIED
+382,Tiger Cricket,https://www.tigercricket.com.bd,tiger-cricket,Sports,sports,,,sp_tiger_cricket,NOT_LIVE_VERIFIED
+383,T Sports,https://www.tsports.com,t-sports,Sports,sports,,,sp_t_sports,NOT_LIVE_VERIFIED
+384,Daily Notice Publish,https://www.dailynoticepublish.com,daily-notice-publish,Jobs,jobs,,,jo_daily_notice_publish,NOT_LIVE_VERIFIED
+385,bd jobs plan,https://www.bdjobsplan.com,bd_jobs_plan,Jobs,jobs,,,jo_bd_jobs_plan,NOT_LIVE_VERIFIED
+386,Jobs Notice BD,https://jobsnoticebd.com,jobs-notice-bd,Jobs,jobs,,,jo_jobs_notice_bd,NOT_LIVE_VERIFIED
+387,Bikroy,https://bikroy.com/bn/jobs,bikroy,Jobs,jobs,,,jo_bikroy,NOT_LIVE_VERIFIED
+388,BD Jobs,https://bdjobs.com,bd-jobs,Jobs,jobs,,,jo_bd_jobs,NOT_LIVE_VERIFIED
+389,BD Gov Job,https://bangladesh.gov.bd/site/view/job_category,bd-gov-job,Jobs,jobs,,,jo_bd_gov_job,NOT_LIVE_VERIFIED
+390,Chakri Khobor,https://chakrikhobor.com,chakri-khobor,Jobs,jobs,,,jo_chakri_khobor,NOT_LIVE_VERIFIED
+391,Bdjobs,https://bdjobs.com.bd,bdjobs,Jobs,jobs,,,jo_bdjobs,NOT_LIVE_VERIFIED
+392,bdgovt.com,https://bdgovt.com,bdgovt-com,Jobs,jobs,,,jo_bdgovt_com,NOT_LIVE_VERIFIED
+393,BD Govt Jobs,https://bdgovtjobs.com,bd-govt-jobs,Jobs,jobs,,,jo_bd_govt_jobs,NOT_LIVE_VERIFIED
+394,JOB.COM.BD,https://job.com.bd,job-com-bd,Jobs,jobs,,,jo_job_com_bd,NOT_LIVE_VERIFIED
+395,Skill Jobs,https://skill.jobs,skill-jobs,Jobs,jobs,,,jo_skill_jobs,NOT_LIVE_VERIFIED
+396,Ejobs Alert,https://ejobsalert.com,ejobs-alert,Jobs,jobs,,,jo_ejobs_alert,NOT_LIVE_VERIFIED
+397,BD Tutors,https://bdtutors.com,bd-tutors,Jobs,jobs,,,jo_bd_tutors,NOT_LIVE_VERIFIED
+398,BD Jobs Today,https://www.bdjobstoday.com,bd-jobs-today,Jobs,jobs,,,jo_bd_jobs_today,NOT_LIVE_VERIFIED
+399,Jobsite UK,https://www.jobsite.co.uk,jobsite-uk,Jobs,jobs,,,jo_jobsite_uk,NOT_LIVE_VERIFIED
+400,Careerjet,https://www.careerjet.com.bd,careerjet,Jobs,jobs,,,jo_careerjet,NOT_LIVE_VERIFIED
+401,All Jobs Circular BD,https://alljobscircularbd.com,all-jobs-circular-bd,Jobs,jobs,,,jo_all_jobs_circular_bd,NOT_LIVE_VERIFIED
+402,Anandabazar,https://www.anandabazar.com,anandabazar,Kolkata,kolkata,,,ko_anandabazar,NOT_LIVE_VERIFIED
+403,Bartaman Patrika,https://bartamanpatrika.com,bartaman-patrika,Kolkata,kolkata,,,ko_bartaman_patrika,NOT_LIVE_VERIFIED
+404,Aajkaal,https://aajkaal.in,aajkaal,Kolkata,kolkata,,,ko_aajkaal,NOT_LIVE_VERIFIED
+405,Aamader Malda,https://www.aamadermalda.in,aamader-malda,Kolkata,kolkata,,,ko_aamader_malda,NOT_LIVE_VERIFIED
+406,News18 Bangla,https://bengali.news18.com,news18-bangla,Kolkata,kolkata,,,ko_news18_bangla,NOT_LIVE_VERIFIED
+407,Ei Samay,https://eisamay.com,ei-samay,Kolkata,kolkata,,,ko_ei_samay,NOT_LIVE_VERIFIED
+408,Sangbad Pratidin,https://www.sangbadpratidin.in,sangbad-pratidin,Kolkata,kolkata,,,ko_sangbad_pratidin,NOT_LIVE_VERIFIED
+409,Bengali Oneindia,https://bengali.oneindia.com,bengali-oneindia,Kolkata,kolkata,,,ko_bengali_oneindia,NOT_LIVE_VERIFIED
+410,Uttarbanga Sambad,https://uttarbangasambad.com,uttarbanga-sambad,Kolkata,kolkata,,,ko_uttarbanga_sambad,NOT_LIVE_VERIFIED
+411,Jagaran Tripura,https://jagarantripura.com,jagaran-tripura,Kolkata,kolkata,,,ko_jagaran_tripura,NOT_LIVE_VERIFIED
+412,Dainik Sambad,https://www.dainiksambad.net,dainik-sambad,Kolkata,kolkata,,,ko_dainik_sambad,NOT_LIVE_VERIFIED
+413,Zeenews India,https://zeenews.india.com,zeenews-india,Kolkata,kolkata,,,ko_zeenews_india,NOT_LIVE_VERIFIED
+414,Hindustan Times,https://www.hindustantimes.com,hindustan-times,Kolkata,kolkata,,,ko_hindustan_times,NOT_LIVE_VERIFIED
+415,The Statesman,https://www.thestatesman.com,the-statesman,Kolkata,kolkata,,,ko_the_statesman,NOT_LIVE_VERIFIED
+416,Ganadabi,https://ganadabi.com,ganadabi,Kolkata,kolkata,,,ko_ganadabi,NOT_LIVE_VERIFIED
+417,Ganashakti,https://www.ganashakti.com,ganashakti,Kolkata,kolkata,,,ko_ganashakti,NOT_LIVE_VERIFIED
+418,Puber Kalom,https://puberkalom.com,puber-kalom,Kolkata,kolkata,,,ko_puber_kalom,NOT_LIVE_VERIFIED
+419,Kolkata 24x7,https://kolkata24x7.in,kolkata-24x7,Kolkata,kolkata,,,ko_kolkata_24x7,NOT_LIVE_VERIFIED
+420,Barisal Times 24,https://www.barishaltimes.com,barisal-times-24,Local,local,Barisal,Barisal,lo_barisal_times_24,NOT_LIVE_VERIFIED
+421,Barisal Sangbad,https://barisalsangbad.com,barisal-sangbad,Local,local,Barisal,Barisal,lo_barisal_sangbad,NOT_LIVE_VERIFIED
+422,Vorer Alo,https://dailyvoreralo.com,vorer-alo,Local,local,Barisal,Barisal,lo_vorer_alo,NOT_LIVE_VERIFIED
+423,Barisal Bani,https://barisalbani.com,barisal-bani,Local,local,Barisal,Barisal,lo_barisal_bani,NOT_LIVE_VERIFIED
+424,Barisal News,https://barishalnews.com,barisal-news,Local,local,Barisal,Barisal,lo_barisal_news,NOT_LIVE_VERIFIED
+425,Barisal Today,https://barisaltoday.com,barisal-today,Local,local,Barisal,Barisal,lo_barisal_today,NOT_LIVE_VERIFIED
+426,Bd crime 24,https://bdcrime24.com,bd-crime-24,Local,local,Barisal,Barisal,lo_bd_crime_24,NOT_LIVE_VERIFIED
+427,Amader Barisal,http://www.amaderbarisal.com,amader-barisal,Local,local,Barisal,Barisal,lo_amader_barisal,NOT_LIVE_VERIFIED
+428,Dipkantho News 24,https://www.dipkanthonews24.com,dipkantho-news-24,Local,local,Barisal,Barisal,lo_dipkantho_news_24,NOT_LIVE_VERIFIED
+429,Ajker paribartan,https://ajkerparibartan.com,ajker-paribartan,Local,local,Barisal,Barisal,lo_ajker_paribartan,NOT_LIVE_VERIFIED
+430,Barishal Crime News,https://barishalcrimenews.com,barishal-crime-news,Local,local,Barisal,Barisal,lo_barishal_crime_news,NOT_LIVE_VERIFIED
+431,Barisal Protidin,https://barisalprotidin.com,barisal-protidin,Local,local,Barisal,Barisal,lo_barisal_protidin,NOT_LIVE_VERIFIED
+432,Bhola News,https://bholanews.com,bhola-news,Local,local,Barisal,Bhola,lo_bhola_news,NOT_LIVE_VERIFIED
+433,Banglar Kantha,https://dailybanglarkantha.com,banglar-kantha,Local,local,Barisal,Bhola,lo_banglar_kantha,NOT_LIVE_VERIFIED
+434,Bholar Sangbad,https://www.bholarsangbad.com,bholar-sangbad,Local,local,Barisal,Bhola,lo_bholar_sangbad,NOT_LIVE_VERIFIED
+435,Bholar Bani,https://bholarbani.com,bholar-bani,Local,local,Barisal,Bhola,lo_bholar_bani,NOT_LIVE_VERIFIED
+436,Ajker Bhola,https://www.ajkerbhola.com,ajker-bhola,Local,local,Barisal,Bhola,lo_ajker_bhola,NOT_LIVE_VERIFIED
+437,Amader Bhola,https://amaderbhola.com,amader-bhola,Local,local,Barisal,Bhola,lo_amader_bhola,NOT_LIVE_VERIFIED
+438,Kuakata News,https://www.kuakatanews.com,kuakata-news,Local,local,Barisal,Patuakhali,lo_kuakata_news,NOT_LIVE_VERIFIED
+439,Pirojpur Kantho,https://pirojpurkantho.com,pirojpur-kantho,Local,local,Barisal,Pirojpur,lo_pirojpur_kantho,NOT_LIVE_VERIFIED
+440,Pahar Barta,https://paharbarta.com,pahar-barta,Local,local,Chittagong,Bandarban,lo_pahar_barta,NOT_LIVE_VERIFIED
+441,Brahmanbaria Times,https://brahmanbariatimes.com,brahmanbaria-times,Local,local,Chittagong,Brahmanbaria,lo_brahmanbaria_times,NOT_LIVE_VERIFIED
+442,Brahmanbaria 24,https://brahmanbaria24.com,brahmanbaria-24,Local,local,Chittagong,Brahmanbaria,lo_brahmanbaria_24,NOT_LIVE_VERIFIED
+443,Chandpur Khabar,https://chandpurkhobor.com,chandpur-khabar,Local,local,Chittagong,Chandpur,lo_chandpur_khabar,NOT_LIVE_VERIFIED
+444,Chandpur Kantho,https://www.chandpurkantha24.com,chandpur-kantho,Local,local,Chittagong,Chandpur,lo_chandpur_kantho,NOT_LIVE_VERIFIED
+445,Chandpur Times,https://chandpurtimes.com,chandpur-times,Local,local,Chittagong,Chandpur,lo_chandpur_times,NOT_LIVE_VERIFIED
+446,Focus Mohona,https://www.focusmohona.com,focus-mohona,Local,local,Chittagong,Chandpur,lo_focus_mohona,NOT_LIVE_VERIFIED
+447,Chandpur Protidin,https://chandpurprotidin.com,chandpur-protidin,Local,local,Chittagong,Chandpur,lo_chandpur_protidin,NOT_LIVE_VERIFIED
+448,Banglar Odhikar,https://dainikbanglarodhikar.com,banglar-odhikar,Local,local,Chittagong,Chandpur,lo_banglar_odhikar,NOT_LIVE_VERIFIED
+449,Dainik Azadi,https://dainikazadi.net,dainik-azadi,Local,local,Chittagong,Chittagong,lo_dainik_azadi,NOT_LIVE_VERIFIED
+450,Purbokone,https://dainikpurbokone.net,purbokone,Local,local,Chittagong,Chittagong,lo_purbokone,NOT_LIVE_VERIFIED
+451,Chittagong Daily,https://chattogramdaily.com,chittagong-daily,Local,local,Chittagong,Chittagong,lo_chittagong_daily,NOT_LIVE_VERIFIED
+452,Chattogram Pratidin,https://ctgpratidin.com,chattogram-pratidin,Local,local,Chittagong,Chittagong,lo_chattogram_pratidin,NOT_LIVE_VERIFIED
+453,Chattagram News,https://chattogramnews.com,chattagram-news,Local,local,Chittagong,Chittagong,lo_chattagram_news,NOT_LIVE_VERIFIED
+454,Ekushey Patrika,https://www.ekusheypatrika.com,ekushey-patrika,Local,local,Chittagong,Chittagong,lo_ekushey_patrika,NOT_LIVE_VERIFIED
+455,CTG Times,https://ctgtimes.com,ctg-times,Local,local,Chittagong,Chittagong,lo_ctg_times,NOT_LIVE_VERIFIED
+456,Suprovat Bangladesh,https://suprobhat.com,suprovat-bangladesh,Local,local,Chittagong,Chittagong,lo_suprovat_bangladesh,NOT_LIVE_VERIFIED
+457,Chatganr Bani,https://chatganrbani.com,chatganr-bani,Local,local,Chittagong,Chittagong,lo_chatganr_bani,NOT_LIVE_VERIFIED
+458,Parbatta News,https://www.parbattanews.com,parbatta-news,Local,local,Chittagong,Chittagong,lo_parbatta_news,NOT_LIVE_VERIFIED
+459,Paathok News,https://www.paathok.com,paathok-news,Local,local,Chittagong,Chittagong,lo_paathok_news,NOT_LIVE_VERIFIED
+460,Bangladesh Protidin Khabor,https://bdprotidinkhabor.com,bangladesh-protidin-khabor,Local,local,Chittagong,Chittagong,lo_bangladesh_protidin_khabor,NOT_LIVE_VERIFIED
+461,Purbodesh,https://new.dailypurbodesh.com,purbodesh,Local,local,Chittagong,Chittagong,lo_purbodesh,NOT_LIVE_VERIFIED
+462,Shangu,https://thedailyshangu.com,shangu,Local,local,Chittagong,Chittagong,lo_shangu,NOT_LIVE_VERIFIED
+463,Ctgsun.com,https://ctgsun.com,ctgsun-com,Local,local,Chittagong,Chittagong,lo_ctgsun_com,NOT_LIVE_VERIFIED
+464,Raozan News,https://raozannews.com,raozan-news,Local,local,Chittagong,Chittagong,lo_raozan_news,NOT_LIVE_VERIFIED
+465,Bangla Post BD,https://www.banglapostbd.com,bangla-post-bd,Local,local,Chittagong,Chittagong,lo_bangla_post_bd,NOT_LIVE_VERIFIED
+466,Bangladesh Sangbad Pratidin,https://bdsangbadpratidin.com,bangladesh-sangbad-pratidin,Local,local,Chittagong,Chittagong,lo_bangladesh_sangbad_pratidin,NOT_LIVE_VERIFIED
+467,Chittagong Tribune,https://www.chittagongtribune.com,chittagong-tribune,Local,local,Chittagong,Chittagong,lo_chittagong_tribune,NOT_LIVE_VERIFIED
+468,Current Times News,https://www.ctnewsbd.com,current-times-news,Local,local,Chittagong,Chittagong,lo_current_times_news,NOT_LIVE_VERIFIED
+469,Comillar Kagoj,https://www.comillarkagoj.com,comillar-kagoj,Local,local,Chittagong,Comilla,lo_comillar_kagoj,NOT_LIVE_VERIFIED
+470,Kaljoyi,https://dailykaljoyi.com,kaljoyi,Local,local,Chittagong,Comilla,lo_kaljoyi,NOT_LIVE_VERIFIED
+471,Comilla News,https://dailycomillanews.com,comilla-news,Local,local,Chittagong,Comilla,lo_comilla_news,NOT_LIVE_VERIFIED
+472,Amader Comillaa,https://www.dailyamadercomilla.com,amader-comillaa,Local,local,Chittagong,Comilla,lo_amader_comillaa,NOT_LIVE_VERIFIED
+473,Rupashi Bangla,https://dailyrupashibangla.com,rupashi-bangla,Local,local,Chittagong,Comilla,lo_rupashi_bangla,NOT_LIVE_VERIFIED
+474,Ukhiya News,https://www.ukhiyanews.com,ukhiya-news,Local,local,Chittagong,Cox's Bazar,lo_ukhiya_news,NOT_LIVE_VERIFIED
+475,Coxs Bazar News,https://www.coxsbazarnews.com,coxs-bazar-news,Local,local,Chittagong,Cox's Bazar,lo_coxs_bazar_news,NOT_LIVE_VERIFIED
+476,Chakaria News,https://chakarianews.com,chakaria-news,Local,local,Chittagong,Cox's Bazar,lo_chakaria_news,NOT_LIVE_VERIFIED
+477,Teknaf Today,https://teknaftoday.com,teknaf-today,Local,local,Chittagong,Cox's Bazar,lo_teknaf_today,NOT_LIVE_VERIFIED
+478,Cox Bangla,https://coxbangla.com,cox-bangla,Local,local,Chittagong,Cox's Bazar,lo_cox_bangla,NOT_LIVE_VERIFIED
+479,Coxsbazar Journal,https://www.coxsbazarjournal.com,coxsbazar-journal,Local,local,Chittagong,Cox's Bazar,lo_coxsbazar_journal,NOT_LIVE_VERIFIED
+480,BD News Times,https://bdnewstimes.com,bd-news-times,Local,local,Chittagong,Cox's Bazar,lo_bd_news_times,NOT_LIVE_VERIFIED
+481,Dainik Coxsbazar,https://www.dainikcoxsbazar.com,dainik-coxsbazar,Local,local,Chittagong,Cox's Bazar,lo_dainik_coxsbazar,NOT_LIVE_VERIFIED
+482,Ajker desh bidesh,https://dbncox.com,ajker-desh-bidesh,Local,local,Chittagong,Cox's Bazar,lo_ajker_desh_bidesh,NOT_LIVE_VERIFIED
+483,Fenir Shomoy,https://fenirshomoy.com,fenir-shomoy,Local,local,Chittagong,Feni,lo_fenir_shomoy,NOT_LIVE_VERIFIED
+484,Feni Online,https://fenionline.net,feni-online,Local,local,Chittagong,Feni,lo_feni_online,NOT_LIVE_VERIFIED
+485,Doinik Amar Feni,https://epaper.doinikamarfeni.com,doinik-amar-feni,Local,local,Chittagong,Feni,lo_doinik_amar_feni,NOT_LIVE_VERIFIED
+486,Lakshmipur24,https://lakshmipur24.com,lakshmipur24,Local,local,Chittagong,Lakshmipur,lo_lakshmipur24,NOT_LIVE_VERIFIED
+487,Sheersha Sangbad,https://www.sheershasangbad.com,sheersha-sangbad,Local,local,Chittagong,Lakshmipur,lo_sheersha_sangbad,NOT_LIVE_VERIFIED
+488,Pahar 24,https://pahar24.com,pahar-24,Local,local,Chittagong,Rangamati,lo_pahar_24,NOT_LIVE_VERIFIED
+489,CHT Times 24,https://www.chttimes24.com,cht-times-24,Local,local,Chittagong,Rangamati,lo_cht_times_24,NOT_LIVE_VERIFIED
+490,Dhaka Post,https://www.dhakapost.com,dhaka-post,Local,local,Dhaka,Dhaka,lo_dhaka_post,NOT_LIVE_VERIFIED
+491,Dhaka Today,https://www.dhakatoday.com,dhaka-today,Local,local,Dhaka,Dhaka,lo_dhaka_today,NOT_LIVE_VERIFIED
+492,Dhaka Barta 24,https://dhakabarta24.com,dhaka-barta-24,Local,local,Dhaka,Dhaka,lo_dhaka_barta_24,NOT_LIVE_VERIFIED
+493,United News 24,https://www.unitednews24.com,united-news-24,Local,local,Dhaka,Dhaka,lo_united_news_24,NOT_LIVE_VERIFIED
+494,Matribhumir Khobor,https://matribhumirkhobor.com,matribhumir-khobor,Local,local,Dhaka,Dhaka,lo_matribhumir_khobor,NOT_LIVE_VERIFIED
+495,Chomok News,https://chomoknews.com,chomok-news,Local,local,Dhaka,Dhaka,lo_chomok_news,NOT_LIVE_VERIFIED
+496,Dhaka Sangbad,https://www.dailydhakasangbad.com,dhaka-sangbad,Local,local,Dhaka,Dhaka,lo_dhaka_sangbad,NOT_LIVE_VERIFIED
+497,The Dhaka Times,https://thedhakatimes.com,the-dhaka-times,Local,local,Dhaka,Dhaka,lo_the_dhaka_times,NOT_LIVE_VERIFIED
+498,Prothom Khabor,https://www.prothomkhabor.com,prothom-khabor,Local,local,Dhaka,Dhaka,lo_prothom_khabor,NOT_LIVE_VERIFIED
+499,UttaraNews24,https://uttaranews24.com,uttara-news-24,Local,local,Dhaka,Dhaka,lo_uttara_news_24,NOT_LIVE_VERIFIED
+500,Bangla Mail News,https://banglamailnews.com,bangla-mail-news,Local,local,Dhaka,Dhaka,lo_bangla_mail_news,NOT_LIVE_VERIFIED
+501,Daily Gazipur,https://www.dailygazipuronline.com,daily-gazipur,Local,local,Dhaka,Gazipur,lo_daily_gazipur,NOT_LIVE_VERIFIED
+502,Daily Amader Sangbad,https://www.amadersangbad.com,daily-amader-sangbad,Local,local,Dhaka,Gazipur,lo_daily_amader_sangbad,NOT_LIVE_VERIFIED
+503,Bhawal Barta,https://bhawalbarta.com,bhawal-barta,Local,local,Dhaka,Gazipur,lo_bhawal_barta,NOT_LIVE_VERIFIED
+504,Protidiner Kantho,https://protidinerkontho.com,protidiner-kantho,Local,local,Dhaka,Gazipur,lo_protidiner_kantho,NOT_LIVE_VERIFIED
+505,Ajker Alokito Sokal,https://ajkeralokitosokal.com,ajker-alokito-sokal,Local,local,Dhaka,Gazipur,lo_ajker_alokito_sokal,NOT_LIVE_VERIFIED
+506,Alochito Barta,https://www.alochitobarta.com,alochito-barta,Local,local,Dhaka,Gopalganj,lo_alochito_barta,NOT_LIVE_VERIFIED
+507,Kishoreganj News,https://kishoreganjnews.com,kishoreganj-news,Local,local,Dhaka,Kishoreganj,lo_kishoreganj_news,NOT_LIVE_VERIFIED
+508,Amar Bangladesh,https://www.amarbangladesh24.com,amar-bangladesh,Local,local,Dhaka,Kishoreganj,lo_amar_bangladesh,NOT_LIVE_VERIFIED
+509,Purbokontho,https://dailypurbokontho.com,purbokontho,Local,local,Dhaka,Kishoreganj,lo_purbokontho,NOT_LIVE_VERIFIED
+510,Tulpar,https://tulpar24.com,tulpar,Local,local,Dhaka,Kishoreganj,lo_tulpar,NOT_LIVE_VERIFIED
+511,Amar Bikrampur,https://amarbikrampur.com,amar-bikrampur,Local,local,Dhaka,Munshiganj,lo_amar_bikrampur,NOT_LIVE_VERIFIED
+512,Munshiganj khobor,https://munshigonj24.com,munshiganj-khobor,Local,local,Dhaka,Munshiganj,lo_munshiganj_khobor,NOT_LIVE_VERIFIED
+513,Narayanganj Times,https://www.narayanganjtimes.com,narayanganj-times,Local,local,Dhaka,Narayanganj,lo_narayanganj_times,NOT_LIVE_VERIFIED
+514,Narayanganj Barta 24,https://narayanganjbarta24.com,narayanganj-barta-24,Local,local,Dhaka,Narayanganj,lo_narayanganj_barta_24,NOT_LIVE_VERIFIED
+515,Dundee Barta,https://www.dundeebarta.com,dundee-barta,Local,local,Dhaka,Narayanganj,lo_dundee_barta,NOT_LIVE_VERIFIED
+516,Live Narayanganj,https://livenarayanganj.com,live-narayanganj,Local,local,Dhaka,Narayanganj,lo_live_narayanganj,NOT_LIVE_VERIFIED
+517,Press Narayanganj 24,https://www.pressnarayanganj24.net,press-narayanganj-24,Local,local,Dhaka,Narayanganj,lo_press_narayanganj_24,NOT_LIVE_VERIFIED
+518,Narsingdi Times,https://narsingditimes.com,narsingdi-times,Local,local,Dhaka,Narsingdi,lo_narsingdi_times,NOT_LIVE_VERIFIED
+519,Jago Narsingdi 24,https://www.jagonarsingdi24.com,jago-narsingdi-24,Local,local,Dhaka,Narsingdi,lo_jago_narsingdi_24,NOT_LIVE_VERIFIED
+520,Rudrabarta,https://rudrabarta.net,rudrabarta,Local,local,Dhaka,Shariatpur,lo_rudrabarta,NOT_LIVE_VERIFIED
+521,Shariatpur Journal,https://shariatpurjournal.com,shariatpur-journal,Local,local,Dhaka,Shariatpur,lo_shariatpur_journal,NOT_LIVE_VERIFIED
+522,News Tangail,https://www.newstangail.com,news-tangail,Local,local,Dhaka,Tangail,lo_news_tangail,NOT_LIVE_VERIFIED
+523,Tangail Times 24,https://www.tangailtimes24.com,tangail-times-24,Local,local,Dhaka,Tangail,lo_tangail_times_24,NOT_LIVE_VERIFIED
+524,Bagerhat 24,https://bagerhat24.com,bagerhat-24,Local,local,Khulna,Bagerhat,lo_bagerhat_24,NOT_LIVE_VERIFIED
+525,Mathabhanga,https://www.mathabhanga.com,mathabhanga,Local,local,Khulna,Chuadanga,lo_mathabhanga,NOT_LIVE_VERIFIED
+526,Somoyer Somikoron,https://dailysomoyersomikoron.com,somoyer-somikoron,Local,local,Khulna,Chuadanga,lo_somoyer_somikoron,NOT_LIVE_VERIFIED
+527,Amader Chuadanga,https://dailyamaderchuadanga.com,amader-chuadanga,Local,local,Khulna,Chuadanga,lo_amader_chuadanga,NOT_LIVE_VERIFIED
+528,Gramer Kagoj,https://www.gramerkagoj.com,gramer-kagoj,Local,local,Khulna,Jessore,lo_gramer_kagoj,NOT_LIVE_VERIFIED
+529,Spandan,https://dailyspandan.com,spandan,Local,local,Khulna,Jessore,lo_spandan,NOT_LIVE_VERIFIED
+530,Loksamaj,https://loksamaj.com,loksamaj,Local,local,Khulna,Jessore,lo_loksamaj,NOT_LIVE_VERIFIED
+531,Dainik Kalyan,https://dainikkalyan.com,dainik-kalyan,Local,local,Khulna,Jessore,lo_dainik_kalyan,NOT_LIVE_VERIFIED
+532,Projonmo Ekattor,https://projonmoekattor.com,projonmo-ekattor,Local,local,Khulna,Jessore,lo_projonmo_ekattor,NOT_LIVE_VERIFIED
+533,Protidiner Katha,https://protidinerkatha.com.bd,protidiner-katha,Local,local,Khulna,Jessore,lo_protidiner_katha,NOT_LIVE_VERIFIED
+534,Samajer Katha,https://samajerkatha.com,samajer-katha,Local,local,Khulna,Jessore,lo_samajer_katha,NOT_LIVE_VERIFIED
+535,Simantabani,https://simantabani.com,simantabani,Local,local,Khulna,Jhenaidah,lo_simantabani,NOT_LIVE_VERIFIED
+536,Nabochitro,https://dailynabochitro.com,nabochitro,Local,local,Khulna,Jhenaidah,lo_nabochitro,NOT_LIVE_VERIFIED
+537,Shesher Khobor,https://shesherkhobor.com,shesher-khobor,Local,local,Khulna,Jhenaidah,lo_shesher_khobor,NOT_LIVE_VERIFIED
+538,Duranto Prokash,https://durantoprokash.com,duranto-prokash,Local,local,Khulna,Jhenaidah,lo_duranto_prokash,NOT_LIVE_VERIFIED
+539,Khulnanchal,https://khulnanchal.com,khulnanchal,Local,local,Khulna,Khulna,lo_khulnanchal,NOT_LIVE_VERIFIED
+540,Unique News 24,https://uniquenews24.com,unique-news-24,Local,local,Khulna,Khulna,lo_unique_news_24,NOT_LIVE_VERIFIED
+541,Patradoot,https://patradoot.net,patradoot,Local,local,Khulna,Khulna,lo_patradoot,NOT_LIVE_VERIFIED
+542,Bazrapat,https://thedailybazrapat.news,bazrapat,Local,local,Khulna,Khulna,lo_bazrapat,NOT_LIVE_VERIFIED
+543,Dakhinanchal Protidin,https://dakhinanchal.com,dakhinanchal-protidin,Local,local,Khulna,Khulna,lo_dakhinanchal_protidin,NOT_LIVE_VERIFIED
+544,Daily Probaha,https://dailyprobaha.com.bd,daily-probaha,Local,local,Khulna,Khulna,lo_daily_probaha,NOT_LIVE_VERIFIED
+545,Purbanchal,https://purbanchal.com,purbanchal,Local,local,Khulna,Khulna,lo_purbanchal,NOT_LIVE_VERIFIED
+546,Andoloner Bazar,https://andolonerbazar.news,andoloner-bazar,Local,local,Khulna,Kushtia,lo_andoloner_bazar,NOT_LIVE_VERIFIED
+547,Deshtottoh,https://dailydeshtottoh.com,deshtottoh,Local,local,Khulna,Kushtia,lo_deshtottoh,NOT_LIVE_VERIFIED
+548,Kushtia Times,https://thekushtiatimes.com,kushtia-times,Local,local,Khulna,Kushtia,lo_kushtia_times,NOT_LIVE_VERIFIED
+549,Shomoyer Kagoj,https://somoyerkagoj.com,shomoyer-kagoj,Local,local,Khulna,Kushtia,lo_shomoyer_kagoj,NOT_LIVE_VERIFIED
+550,Dainik Kushtia,https://www.dainikkushtia.com,dainik-lushtia,Local,local,Khulna,Kushtia,lo_dainik_lushtia,NOT_LIVE_VERIFIED
+551,Magura News,https://www.maguranews.com,magura-news,Local,local,Khulna,Magura,lo_magura_news,NOT_LIVE_VERIFIED
+552,Magura Protidin,https://maguraprotidin.com,magura-protidin,Local,local,Khulna,Magura,lo_magura_protidin,NOT_LIVE_VERIFIED
+553,Meherpur News,https://www.meherpurnews.com,meherpur-news,Local,local,Khulna,Meherpur,lo_meherpur_news,NOT_LIVE_VERIFIED
+554,Meherpur Pratidin,https://www.meherpurpratidin.com,meherpur-pratidin,Local,local,Khulna,Meherpur,lo_meherpur_pratidin,NOT_LIVE_VERIFIED
+555,Narail Kantho,https://narailkantho.com,narail-kantho,Local,local,Khulna,Narail,lo_narail_kantho,NOT_LIVE_VERIFIED
+556,SundarbonTimes,https://www.sundarbontimes.com,sundarbon-times,Local,local,Khulna,Satkhira,lo_sundarbon_times,NOT_LIVE_VERIFIED
+557,Dristipat,https://dainikdristipat.com,dristipat,Local,local,Khulna,Satkhira,lo_dristipat,NOT_LIVE_VERIFIED
+558,Satkhira protidin,https://satkhiraprotidin.net,satkhira-protidin,Local,local,Khulna,Satkhira,lo_satkhira_protidin,NOT_LIVE_VERIFIED
+559,Satnadee,https://satnadee.com,satnadee,Local,local,Khulna,Satkhira,lo_satnadee,NOT_LIVE_VERIFIED
+560,Dainik Satkhira,https://dainiksatkhira.com,dainik-satkhira,Local,local,Khulna,Satkhira,lo_dainik_satkhira,NOT_LIVE_VERIFIED
+561,Suprovat Satkhira,https://suprovatsatkhira.com,suprovat-satkhira,Local,local,Khulna,Satkhira,lo_suprovat_satkhira,NOT_LIVE_VERIFIED
+562,Satkhira News,https://www.satkhiranews.com,satkhira-news,Local,local,Khulna,Satkhira,lo_satkhira_news,NOT_LIVE_VERIFIED
+563,Voice of Satkhira,https://voiceofsatkhira.com,voice-of-satkhira,Local,local,Khulna,Satkhira,lo_voice_of_satkhira,NOT_LIVE_VERIFIED
+564,Daily Satkhira,https://dailysatkhira.com,daily-satkhira,Local,local,Khulna,Satkhira,lo_daily_satkhira,NOT_LIVE_VERIFIED
+565,Dainik 71 Bnagla,https://dainik71bangla.com,dainik-71-bnagla,Local,local,Khulna,Satkhira,lo_dainik_71_bnagla,NOT_LIVE_VERIFIED
+566,Jamalpur Barta,https://jamalpurbarta.com,jamalpur-barta,Local,local,Mymensingh,Jamalpur,lo_jamalpur_barta,NOT_LIVE_VERIFIED
+567,Ajker Jamalpur,https://ajkerjamalpur.com,ajker-jamalpur,Local,local,Mymensingh,Jamalpur,lo_ajker_jamalpur,NOT_LIVE_VERIFIED
+568,Dainik Jamalpur Barta,https://doinikjamalpurbarta.com,dainik-jamalpur-barta,Local,local,Mymensingh,Jamalpur,lo_dainik_jamalpur_barta,NOT_LIVE_VERIFIED
+569,The Daily Ajker Jamalpur,https://www.eajkerjamalpur.com,the-daily-ajker-jamalpur,Local,local,Mymensingh,Jamalpur,lo_the_daily_ajker_jamalpur,NOT_LIVE_VERIFIED
+570,Trishal Protidin,https://trishalprotidin.com,trishal-protidin,Local,local,Mymensingh,Mymensingh,lo_trishal_protidin,NOT_LIVE_VERIFIED
+571,Digonto News,https://digontonews.com,digonto-news,Local,local,Mymensingh,Mymensingh,lo_digonto_news,NOT_LIVE_VERIFIED
+572,Bhalukar Khobor,https://www.bhalukarkhobor.com,bhalukar-khobor,Local,local,Mymensingh,Mymensingh,lo_bhalukar_khobor,NOT_LIVE_VERIFIED
+573,Durjoy Bangla,https://www.durjoybangla.com,durjoy-bangla,Local,local,Mymensingh,Netrokona,lo_durjoy_bangla,NOT_LIVE_VERIFIED
+574,Sherpur Times,https://sherpurtimes.com,sherpur-times,Local,local,Mymensingh,Sherpur,lo_sherpur_times,NOT_LIVE_VERIFIED
+575,Sherpurer Alo,https://sherpureralo.com,sherpurer-alo,Local,local,Mymensingh,Sherpur,lo_sherpurer_alo,NOT_LIVE_VERIFIED
+576,Shamol Bangla 24,https://shamolbangla24.com,shamol-bangla-24,Local,local,Mymensingh,Sherpur,lo_shamol_bangla_24,NOT_LIVE_VERIFIED
+577,Shamoly News 24,https://shamolynews24.com,shamoly-news-24,Local,local,Mymensingh,Sherpur,lo_shamoly_news_24,NOT_LIVE_VERIFIED
+578,Karatoa,https://www.dailykaratoa.com,karatoa,Local,local,Rajshahi,Bogra,lo_karatoa,NOT_LIVE_VERIFIED
+579,Chandni Bazar,https://dailychandnibazar.com.bd,chandni-bazar,Local,local,Rajshahi,Bogra,lo_chandni_bazar,NOT_LIVE_VERIFIED
+580,Ichamoti News,https://ichamotinews.com,ichamoti-news,Local,local,Rajshahi,Bogra,lo_ichamoti_news,NOT_LIVE_VERIFIED
+581,BDC News,https://bdcnews.info,bdc-news,Local,local,Rajshahi,Bogra,lo_bdc_news,NOT_LIVE_VERIFIED
+582,Sherpur News 24,https://www.sherpurnews24.net,sherpur-news-24,Local,local,Rajshahi,Bogra,lo_sherpur_news_24,NOT_LIVE_VERIFIED
+583,Dainik Bogura Mail,https://www.dainikboguramail.com,dainik-bogura-mail,Local,local,Rajshahi,Bogra,lo_dainik_bogura_mail,NOT_LIVE_VERIFIED
+584,Chapainawabganj News,http://www.chapainawabganjnews.com,chapainawabganj-news,Local,local,Rajshahi,Chapainawabganj,lo_chapainawabganj_news,NOT_LIVE_VERIFIED
+585,Gour Bangla,https://gourbangla.com,gour-bangla,Local,local,Rajshahi,Chapainawabganj,lo_gour_bangla,NOT_LIVE_VERIFIED
+586,Projonmer Alo,https://projonmeralo.com,projonmer-alo,Local,local,Rajshahi,Naogaon,lo_projonmer_alo,NOT_LIVE_VERIFIED
+587,NBN24,https://nbn24.net,nbn24,Local,local,Rajshahi,Naogaon,lo_nbn24,NOT_LIVE_VERIFIED
+588,Narad Barta,https://naradbarta.com,narad-barta,Local,local,Rajshahi,Natore,lo_narad_barta,NOT_LIVE_VERIFIED
+589,Onabil Songbad,https://onabil.net,onabil-songbad,Local,local,Rajshahi,Pabna,lo_onabil_songbad,NOT_LIVE_VERIFIED
+590,News Pabna,https://newspabnaa.blogspot.com,news-pabna,Local,local,Rajshahi,Pabna,lo_news_pabna,NOT_LIVE_VERIFIED
+591,Bishwa Barta,https://bishwabarta.com,bishwa-barta,Local,local,Rajshahi,Pabna,lo_bishwa_barta,NOT_LIVE_VERIFIED
+592,Shatakantha,https://www.shatakantha.com,shatakantha,Local,local,Rajshahi,Pabna,lo_shatakantha,NOT_LIVE_VERIFIED
+593,Ishwardi News,https://dailyishwardinews.net,ishwardi-news,Local,local,Rajshahi,Pabna,lo_ishwardi_news,NOT_LIVE_VERIFIED
+594,Pabna Samachar,https://www.pabnasamachar.com,pabna-samachar,Local,local,Rajshahi,Pabna,lo_pabna_samachar,NOT_LIVE_VERIFIED
+595,Pabnamail24,https://www.pabnamail24.com,pabnamail24,Local,local,Rajshahi,Pabna,lo_pabnamail24,NOT_LIVE_VERIFIED
+596,Pabna Barta 24,https://www.pabnabarta24.com,pabna-barta-24,Local,local,Rajshahi,Pabna,lo_pabna_barta_24,NOT_LIVE_VERIFIED
+597,AbcBarta,https://www.abcbarta.com,abcbarta,Local,local,Rajshahi,Pabna,lo_abcbarta,NOT_LIVE_VERIFIED
+598,Rajshahi News24,https://rajshahinews24.com,rajshahi-news24,Local,local,Rajshahi,Rajshahi,lo_rajshahi_news24,NOT_LIVE_VERIFIED
+599,Sonar Desh,https://dailysonardesh.com,sonar-desh,Local,local,Rajshahi,Rajshahi,lo_sonar_desh,NOT_LIVE_VERIFIED
+600,Silk City News,https://silkcitynews.com,silk-city-news,Local,local,Rajshahi,Rajshahi,lo_silk_city_news,NOT_LIVE_VERIFIED
+601,Rajshahir Somoy,https://www.rajshahirsomoy.com,rajshahir-somoy,Local,local,Rajshahi,Rajshahi,lo_rajshahir_somoy,NOT_LIVE_VERIFIED
+602,Padma News,https://padmanews24.com,padma-news,Local,local,Rajshahi,Rajshahi,lo_padma_news,NOT_LIVE_VERIFIED
+603,Sunshine,https://www.dailysunshine.com.bd,sunshine,Local,local,Rajshahi,Rajshahi,lo_sunshine,NOT_LIVE_VERIFIED
+604,GD Protidin,https://gd-protidin.com,gd-protidin,Local,local,Rajshahi,Rajshahi,lo_gd_protidin,NOT_LIVE_VERIFIED
+605,Sonali Songbad,https://sonalisangbad.com,sonali-songbad,Local,local,Rajshahi,Rajshahi,lo_sonali_songbad,NOT_LIVE_VERIFIED
+606,Muktokhobor 24,https://www.muktokhobor24.com,muktokhobor-24,Local,local,Rajshahi,Rajshahi,lo_muktokhobor_24,NOT_LIVE_VERIFIED
+607,Dainik Banglar Tori,https://dainikbanglartori.com,dainik-banglar-tori,Local,local,Rajshahi,Rajshahi,lo_dainik_banglar_tori,NOT_LIVE_VERIFIED
+608,Daily Sirajganj Kantho,https://dailysirajganjkantha.com,daily-sirajganj-kantho,Local,local,Rajshahi,Sirajganj,lo_daily_sirajganj_kantho,NOT_LIVE_VERIFIED
+609,Sirajganj Kantho,https://sirajganjkantho.news,sirajganj-kantho,Local,local,Rajshahi,Sirajganj,lo_sirajganj_kantho,NOT_LIVE_VERIFIED
+610,Sirajganj News 24,https://sirajganjnews24.com,sirajganj-news-24,Local,local,Rajshahi,Sirajganj,lo_sirajganj_news_24,NOT_LIVE_VERIFIED
+611,Sirajganj Protidin,https://sirajganjprotidin.com,sirajganj-protidin,Local,local,Rajshahi,Sirajganj,lo_sirajganj_protidin,NOT_LIVE_VERIFIED
+612,Dinajpur 24,https://dinajpur24.com,dinajpur-24,Local,local,Rangpur,Dinajpur,lo_dinajpur_24,NOT_LIVE_VERIFIED
+613,Dinajpur Barta 24,https://dinajpurbarta24.com,dinajpur-barta-24,Local,local,Rangpur,Dinajpur,lo_dinajpur_barta_24,NOT_LIVE_VERIFIED
+614,Trust News 24,https://trustnews24.com,trust-news-24,Local,local,Rangpur,Dinajpur,lo_trust_news_24,NOT_LIVE_VERIFIED
+615,Dainik Gaibandha,https://www.dainikgaibandha.com,dainik-gaibandha,Local,local,Rangpur,Gaibandha,lo_dainik_gaibandha,NOT_LIVE_VERIFIED
+616,Madhukar,https://madhukar.news,madhukar,Local,local,Rangpur,Gaibandha,lo_madhukar,NOT_LIVE_VERIFIED
+617,Daily Ghagot,https://www.dailyghagot.com,daily-ghagot,Local,local,Rangpur,Gaibandha,lo_daily_ghagot,NOT_LIVE_VERIFIED
+618,Sokaler Kagoj,https://www.dailysokalerkagoj.com,sokaler-kagoj,Local,local,Rangpur,Kurigram,lo_sokaler_kagoj,NOT_LIVE_VERIFIED
+619,Juger Khabor,https://jugerkhabor.com,juger-khabor,Local,local,Rangpur,Kurigram,lo_juger_khabor,NOT_LIVE_VERIFIED
+620,Sakaler Kagoj,https://sakalerkagoj.com,sakaler-kagoj,Local,local,Rangpur,Kurigram,lo_sakaler_kagoj,NOT_LIVE_VERIFIED
+621,Kurigram Songbad,https://kurigramsongbad.com,kurigram-songbad,Local,local,Rangpur,Kurigram,lo_kurigram_songbad,NOT_LIVE_VERIFIED
+622,Pratidin Durnitir Talash,https://pratidindurnitirtalash.com,pratidin-durnitir-talash,Local,local,Rangpur,Kurigram,lo_pratidin_durnitir_talash,NOT_LIVE_VERIFIED
+623,Ajker Kurigram,https://ajkerkurigram.com,ajker-kurigram,Local,local,Rangpur,Kurigram,lo_ajker_kurigram,NOT_LIVE_VERIFIED
+624,Lalmoni Barta,https://lalmonibarta.com,lalmoni-barta,Local,local,Rangpur,Lalmonirhat,lo_lalmoni_barta,NOT_LIVE_VERIFIED
+625,CC News 24,https://ccnews24.com,cc-news-24,Local,local,Rangpur,Nilphamari,lo_cc_news_24,NOT_LIVE_VERIFIED
+626,Daily Nilphamari Barta,https://www.nilphamaribarta.com.bd,daily-nilphamari-barta,Local,local,Rangpur,Nilphamari,lo_daily_nilphamari_barta,NOT_LIVE_VERIFIED
+627,Panchagarh News,https://panchagarhnews.com,panchagarh-news,Local,local,Rangpur,Panchagarh,lo_panchagarh_news,NOT_LIVE_VERIFIED
+628,Uttor Bangla,https://www.uttorbangla.com,uttor-bangla,Local,local,Rangpur,Rangpur,lo_uttor_bangla,NOT_LIVE_VERIFIED
+629,Rangpur Times24,https://rangpurtimes24.com,rangpur-times24,Local,local,Rangpur,Rangpur,lo_rangpur_times24,NOT_LIVE_VERIFIED
+630,AmaderProtidin,https://amader-protidin.com,amaderprotidin,Local,local,Rangpur,Rangpur,lo_amaderprotidin,NOT_LIVE_VERIFIED
+631,Rangpur 24,https://rangpur24.com,rangpur-24,Local,local,Rangpur,Rangpur,lo_rangpur_24,NOT_LIVE_VERIFIED
+632,Bangla Kantho,https://banglakantho.com,bangla-kantho,Local,local,Sylhet,Habiganj,lo_bangla_kantho,NOT_LIVE_VERIFIED
+633,Habiganj Samachar,http://habiganj-samachar.com,habiganj-samachar,Local,local,Sylhet,Habiganj,lo_habiganj_samachar,NOT_LIVE_VERIFIED
+634,Habiganj Express,https://www.habiganjexpress.com,habiganj-express,Local,local,Sylhet,Habiganj,lo_habiganj_express,NOT_LIVE_VERIFIED
+635,Habiganj Shomoy,https://dailyhabiganjshomoy.com,habiganj-shomoy,Local,local,Sylhet,Habiganj,lo_habiganj_shomoy,NOT_LIVE_VERIFIED
+636,Eye News,https://www.eyenews.news,eye-news,Local,local,Sylhet,Moulvibazar,lo_eye_news,NOT_LIVE_VERIFIED
+637,Moulvibazar 24,https://moulvibazar24.com,moulvibazar-24,Local,local,Sylhet,Moulvibazar,lo_moulvibazar_24,NOT_LIVE_VERIFIED
+638,Kulaura Songbad,https://kulaurasongbad.com,kulaura-songbad,Local,local,Sylhet,Moulvibazar,lo_kulaura_songbad,NOT_LIVE_VERIFIED
+639,Haor Oncholer Kotha,https://haoranchalerkotha.com,haor-oncholer-kotha,Local,local,Sylhet,Sunamganj,lo_haor_oncholer_kotha,NOT_LIVE_VERIFIED
+640,Sunam Kantha,https://www.sunamkantha.com,sunam-kantha,Local,local,Sylhet,Sunamganj,lo_sunam_kantha,NOT_LIVE_VERIFIED
+641,Sunamganjer Khabor,https://www.sunamganjerkhobor.com,sunamganjer-khabor,Local,local,Sylhet,Sunamganj,lo_sunamganjer_khabor,NOT_LIVE_VERIFIED
+642,Sunamganjer Somoy,https://sunamganjersomoy.com,sunamganjer-somoy,Local,local,Sylhet,Sunamganj,lo_sunamganjer_somoy,NOT_LIVE_VERIFIED
+643,Haor24,https://www.haor24.net,haor24,Local,local,Sylhet,Sunamganj,lo_haor24,NOT_LIVE_VERIFIED
+644,Shyamal Sylhet,https://www.shyamalsylhet.com,shyamal-sylhet,Local,local,Sylhet,Sylhet,lo_shyamal_sylhet,NOT_LIVE_VERIFIED
+645,Shubho Protidin,https://shubhoprotidin24.com,shubho-protidin,Local,local,Sylhet,Sylhet,lo_shubho_protidin,NOT_LIVE_VERIFIED
+646,Sylhet Express,https://sylhetexpress.net,sylhet-express,Local,local,Sylhet,Sylhet,lo_sylhet_express,NOT_LIVE_VERIFIED
+647,Sylhet News Times,https://sylhetnewstimes.com,sylhet-news-times,Local,local,Sylhet,Sylhet,lo_sylhet_news_times,NOT_LIVE_VERIFIED
+648,Sylhet View 24,https://www.sylhetview24.news,sylhet-view-24,Local,local,Sylhet,Sylhet,lo_sylhet_view_24,NOT_LIVE_VERIFIED
+649,Ekattorer Kotha,https://www.ekattorerkotha.com,ekattorer-kotha,Local,local,Sylhet,Sylhet,lo_ekattorer_kotha,NOT_LIVE_VERIFIED
+650,Sylhet News world,https://sylhetnewsworld.com,sylhet-news-world,Local,local,Sylhet,Sylhet,lo_sylhet_news_world,NOT_LIVE_VERIFIED
+651,Surma Times,https://surmatimes.com,surma-times,Local,local,Sylhet,Sylhet,lo_surma_times,NOT_LIVE_VERIFIED
+652,Provatbela,https://www.dailyprovatbela.com,provatbela,Local,local,Sylhet,Sylhet,lo_provatbela,NOT_LIVE_VERIFIED
+653,Sylhet Mirror,https://sylhetmirror.com,sylhet-mirror,Local,local,Sylhet,Sylhet,lo_sylhet_mirror,NOT_LIVE_VERIFIED
+654,Sylhet Report,https://sylhetreport.com,sylhet-report,Local,local,Sylhet,Sylhet,lo_sylhet_report,NOT_LIVE_VERIFIED
+655,Sylheter Dak,https://sylheterdak.com.bd,sylheter-dak,Local,local,Sylhet,Sylhet,lo_sylheter_dak,NOT_LIVE_VERIFIED
+656,Daily Sylhet Mirror,https://dailysylhetmirror.com,daily-sylhet-mirror,Local,local,Sylhet,Sylhet,lo_daily_sylhet_mirror,NOT_LIVE_VERIFIED
+657,Boishakhi News 24,https://www.boishakhinews24.com,boishakhi-news-24,Local,local,Sylhet,Sylhet,lo_boishakhi_news_24,NOT_LIVE_VERIFIED
+658,Sylhettoday24,https://www.sylhettoday24.news,sylhettoday24,Local,local,Sylhet,Sylhet,lo_sylhettoday24,NOT_LIVE_VERIFIED
+659,Dream Sylhet,https://dreamsylhet24.com,dream-sylhet,Local,local,Sylhet,Sylhet,lo_dream_sylhet,NOT_LIVE_VERIFIED
+660,Dainik Sylhet,https://dainiksylhet.com,dainik-sylhet,Local,local,Sylhet,Sylhet,lo_dainik_sylhet,NOT_LIVE_VERIFIED
+661,Daily Sylhet,https://dailysylhet.com,daily-sylhet,Local,local,Sylhet,Sylhet,lo_daily_sylhet,NOT_LIVE_VERIFIED
+662,Beani Bazar News 24,https://beanibazarnews24.com,beani-bazar-news-24,Local,local,Sylhet,Sylhet,lo_beani_bazar_news_24,NOT_LIVE_VERIFIED
+663,Sylhet Sangbad,https://sylhetsangbad.com,sylhet-sangbad,Local,local,Sylhet,Sylhet,lo_sylhet_sangbad,NOT_LIVE_VERIFIED
+664,Daily Sylhet Sangbad,https://www.dailysylhetsangbad.com,daily-sylhet-sangbad,Local,local,Sylhet,Sylhet,lo_daily_sylhet_sangbad,NOT_LIVE_VERIFIED
+665,Sylhet Protidin 24,https://sylhetprothidin24.com,sylhet-protidin-24,Local,local,Sylhet,Sylhet,lo_sylhet_protidin_24,NOT_LIVE_VERIFIED
+666,Surmanews 24,https://surmanews24.com,surmanews-24,Local,local,Sylhet,Sylhet,lo_surmanews_24,NOT_LIVE_VERIFIED
+667,Bijoyer Kantho,https://dailybijoyerkantho.com,bijoyer-kantho,Local,local,Sylhet,Sylhet,lo_bijoyer_kantho,NOT_LIVE_VERIFIED
+668,Jalalabad,https://dailyjalalabad.com,jalalabad,Local,local,Sylhet,Sylhet,lo_jalalabad,NOT_LIVE_VERIFIED
+669,Uttorpurbo,https://euttorpurbo.com,uttorpurbo,Local,local,Sylhet,Sylhet,lo_uttorpurbo,NOT_LIVE_VERIFIED
+670,Mukto Awaz,https://dailymuktoawaz.com,mukto-awaz,Local,local,Sylhet,Sylhet,lo_mukto_awaz,NOT_LIVE_VERIFIED
+671,Daily Uttorpurbo,https://www.dailyuttorpurbo.com,daily-uttorpurbo,Local,local,Sylhet,Sylhet,lo_daily_uttorpurbo,NOT_LIVE_VERIFIED
+672,Kali O Kalam,https://www.kaliokalam.com,kali-o-kalam,Magazines,magazines,,,ma_kali_o_kalam,NOT_LIVE_VERIFIED
+673,Al-Itisam,https://al-itisam.com,al-itisam,Magazines,magazines,,,ma_al_itisam,NOT_LIVE_VERIFIED
+674,Ananda Alo,https://www.ananda-alo.com,ananda-alo,Magazines,magazines,,,ma_ananda_alo,NOT_LIVE_VERIFIED
+675,Al-Kawsar,https://www.alkawsar.com,al-kawsar,Magazines,magazines,,,ma_al_kawsar,NOT_LIVE_VERIFIED
+676,Sagorpar,https://sagorpar.com,sagorpar,Magazines,magazines,,,ma_sagorpar,NOT_LIVE_VERIFIED
+677,Sachalayatan,https://www.sachalayatan.com,sachalayatan,Magazines,magazines,,,ma_sachalayatan,NOT_LIVE_VERIFIED
+678,Kishor Alo,https://www.kishoralo.com,kishor-alo,Magazines,magazines,,,ma_kishor_alo,NOT_LIVE_VERIFIED
+679,Cric BD 24,https://cricbd24.com,cric-bd-24,"Magazines, Sports","magazines, sports",,,ma_cric_bd_24,NOT_LIVE_VERIFIED
+680,Sananda,https://www.sananda.in,sananda,Magazines,magazines,,,ma_sananda,NOT_LIVE_VERIFIED
+681,Al Ihsan,https://www.al-ihsan.net,al-ihsan,Magazines,magazines,,,ma_al_ihsan,NOT_LIVE_VERIFIED
+682,Banglamati,https://www.banglamati.net,banglamati,Magazines,magazines,,,ma_banglamati,NOT_LIVE_VERIFIED
+683,Srishti Sandhan,https://www.srishtisandhan.com,srishti-sandhan,Magazines,magazines,,,ma_srishti_sandhan,NOT_LIVE_VERIFIED
+684,Abasar,https://abasar.net,abasar,Magazines,magazines,,,ma_abasar,NOT_LIVE_VERIFIED
+685,Anannya,https://anannya.com.bd,anannya,Magazines,magazines,,,ma_anannya,NOT_LIVE_VERIFIED
+686,Binodon 69,https://www.binodon69.com,binodon-69,Magazines,magazines,,,ma_binodon_69,NOT_LIVE_VERIFIED
+687,Career Intelligence,https://www.careerintelligencebd.com,career-intelligence,Magazines,magazines,,,ma_career_intelligence,NOT_LIVE_VERIFIED
+688,Hatpakha,https://hatpakha.com,hatpakha,Magazines,magazines,,,ma_hatpakha,NOT_LIVE_VERIFIED
+689,Parabaas,https://www.parabaas.com,parabaas,Magazines,magazines,,,ma_parabaas,NOT_LIVE_VERIFIED
+690,Anandalok,https://www.anandalok.in,anandalok,Magazines,magazines,,,ma_anandalok,NOT_LIVE_VERIFIED
+691,Canvas Magazine,https://www.canvasmagazine.com.bd,canvas-magazine,Magazines,magazines,,,ma_canvas_magazine,NOT_LIVE_VERIFIED
+692,Ice Today,https://icetoday.net,ice-today,Magazines,magazines,,,ma_ice_today,NOT_LIVE_VERIFIED
+693,Weekly Blitz,https://weeklyblitz.net,weekly-blitz,Magazines,magazines,,,ma_weekly_blitz,NOT_LIVE_VERIFIED
+694,Almodina,https://almodina.com,almodina,Magazines,magazines,,,ma_almodina,NOT_LIVE_VERIFIED
+695,Al-Qualam,https://www.alqualam.com,al-qualam,Magazines,magazines,,,ma_al_qualam,NOT_LIVE_VERIFIED
+696,Guruchandali,https://www.guruchandali.com,guruchandali,Magazines,magazines,,,ma_guruchandali,NOT_LIVE_VERIFIED
+697,Gurunchi,https://www.ghurunchi.com,gurunchi,Magazines,magazines,,,ma_gurunchi,NOT_LIVE_VERIFIED
+698,Pavilion,https://pavilion.com.bd,pavilion,Magazines,magazines,,,ma_pavilion,NOT_LIVE_VERIFIED
+699,Cric Frenzy,https://cricfrenzy.com,cric-frenzy,Magazines,magazines,,,ma_cric_frenzy,NOT_LIVE_VERIFIED
+700,Scientific Bangladesh,https://scientificbangladesh.com,scientific-bangladesh,Magazines,magazines,,,ma_scientific_bangladesh,NOT_LIVE_VERIFIED
+701,Energy & Power,https://ep-bd.com,energy-power,Magazines,magazines,,,ma_energy_power,NOT_LIVE_VERIFIED
+702,Anandamela,https://www.anandamela.in,anandamela,Magazines,magazines,,,ma_anandamela,NOT_LIVE_VERIFIED
+703,Roar Media,https://archive.roar.media,roar-media,Blogs,blogs,,,bl_roar_media,NOT_LIVE_VERIFIED
+704,Choturmatrik,http://choturmatrik.com,choturmatrik,Blogs,blogs,,,bl_choturmatrik,NOT_LIVE_VERIFIED
+705,At-Tahreek,https://at-tahreek.com,at-tahreek,Blogs,blogs,,,bl_at_tahreek,NOT_LIVE_VERIFIED
+706,BikeBD,https://www.bikebd.com,bikebd,Blogs,blogs,,,bl_bikebd,NOT_LIVE_VERIFIED
+707,Biggani org,https://biggani.org,biggani-org,Blogs,blogs,,,bl_biggani_org,NOT_LIVE_VERIFIED
+708,Pnachforon,https://www.panchforon.in,pnachforon,Blogs,blogs,,,bl_pnachforon,NOT_LIVE_VERIFIED
+709,Shoncharon,https://shoncharon.com,shoncharon,Blogs,blogs,,,bl_shoncharon,NOT_LIVE_VERIFIED
+710,Quraner Alo,https://quraneralo.com,quraner-alo,Blogs,blogs,,,bl_quraner_alo,NOT_LIVE_VERIFIED
+711,Obhijatra,https://www.obhijatra.com,obhijatra,Blogs,blogs,,,bl_obhijatra,NOT_LIVE_VERIFIED
+712,Shoily Blog,https://shoily.com,shoily-blog,Blogs,blogs,,,bl_shoily_blog,NOT_LIVE_VERIFIED
+713,Muslim Media,https://www.muslimmedia.info,muslim-media,Blogs,blogs,,,bl_muslim_media,NOT_LIVE_VERIFIED
+714,Shamokal Darpon,https://www.shamokaldarpon.com,shamokal-darpon,Blogs,blogs,,,bl_shamokal_darpon,NOT_LIVE_VERIFIED
+715,Muktangon,https://muktangon.blog,muktangon,Blogs,blogs,,,bl_muktangon,NOT_LIVE_VERIFIED
+716,Somewhere in Blog,https://www.somewhereinblog.net,somewhere-in-blog,Blogs,blogs,,,bl_somewhere_in_blog,NOT_LIVE_VERIFIED
+717,Mukto Mona,https://blog.muktomona.com,mukto-mona,Blogs,blogs,,,bl_mukto_mona,NOT_LIVE_VERIFIED
+718,Hadith BD,https://www.hadithbd.com,hadith-bd,Blogs,blogs,,,bl_hadith_bd,NOT_LIVE_VERIFIED
+719,Islamic Alo,https://www.islamicalo.com,islamic-alo,Blogs,blogs,,,bl_islamic_alo,NOT_LIVE_VERIFIED
+720,Quraner Kotha,https://quranerkotha.com,quraner-kotha,Blogs,blogs,,,bl_quraner_kotha,NOT_LIVE_VERIFIED
+721,Facebook Helps BD,https://fbhelpbd.com,facebook-helps-bd,Blogs,blogs,,,bl_facebook_helps_bd,NOT_LIVE_VERIFIED
+722,Safollo,https://www.safollo.com,safollo,Blogs,blogs,,,bl_safollo,NOT_LIVE_VERIFIED
+723,Saimoom,https://www.saimoom.com,saimoom,Blogs,blogs,,,bl_saimoom,NOT_LIVE_VERIFIED
+724,Hoicoi Bangla,https://hoicoibangla.com,hoicoi-bangla,Blogs,blogs,,,bl_hoicoi_bangla,NOT_LIVE_VERIFIED
+725,Trick Blog BD,https://trickblogbd.com,trick-blog-bd,Blogs,blogs,,,bl_trick_blog_bd,NOT_LIVE_VERIFIED
+726,Amar bangla post,https://amarbanglapost.com,amar-bangla-post,Blogs,blogs,,,bl_amar_bangla_post,NOT_LIVE_VERIFIED
+727,Banglaph,https://banglaph.com,banglaph,Blogs,blogs,,,bl_banglaph,NOT_LIVE_VERIFIED
+728,SA Associates,https://blog.saavisa.com,sa-associates,Blogs,blogs,,,bl_sa_associates,NOT_LIVE_VERIFIED
+729,Digital Muhammad Aslam Hossain,https://digitalaslamhossain.blogspot.com,digital-muhammad-aslam-hossain,Blogs,blogs,,,bl_digital_muhammad_aslam_hossain,NOT_LIVE_VERIFIED
+730,Focus Bangladesh Blog,https://www.focusbangladeshblog.com,focus-bangladesh-blog,Blogs,blogs,,,bl_focus_bangladesh_blog,NOT_LIVE_VERIFIED
+731,Galib's Journal,https://galibsjournal.com,galib-s-journal,Blogs,blogs,,,bl_galib_s_journal,NOT_LIVE_VERIFIED
+732,Rail Sheba,https://railshebabd.com,rail-sheba,Blogs,blogs,,,bl_rail_sheba,NOT_LIVE_VERIFIED
+733,Darashiko,https://darashiko.com,darashiko,Blogs,blogs,,,bl_darashiko,NOT_LIVE_VERIFIED

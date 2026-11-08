@@ -53,6 +53,7 @@ val DefaultBookmarkFolders = listOf(
     "অন্যান্য"
 )
 
+@Serializable
 data class NewsItem(
     val title: String,
     val source: String,
@@ -79,6 +80,48 @@ data class Coverage(
 }
 
 @Serializable
+data class ReadHistoryItem(
+    val url: String,
+    val title: String,
+    val sourceName: String,
+    val paperUrl: String,
+    val readAt: Long
+)
+
+data class LocalRegion(
+    val id: String,
+    val nameBn: String,
+    val query: String,
+    val isDivision: Boolean = false
+)
+
+val BangladeshLocalRegions = listOf(
+    LocalRegion("all_local", "সারাদেশ (জেলা)", "জেলা সংবাদ বাংলাদেশ", true),
+    // ৮টি বিভাগ (8 Divisions)
+    LocalRegion("dhaka", "ঢাকা বিভাগ", "ঢাকা সংবাদ", true),
+    LocalRegion("chattogram", "চট্টগ্রাম বিভাগ", "চট্টগ্রাম সংবাদ", true),
+    LocalRegion("rajshahi", "রাজশাহী বিভাগ", "রাজশাহী সংবাদ", true),
+    LocalRegion("khulna", "খুলনা বিভাগ", "খুলনা সংবাদ", true),
+    LocalRegion("barishal", "বরিশাল বিভাগ", "বরিশাল সংবাদ", true),
+    LocalRegion("sylhet", "সিলেট বিভাগ", "সিলেট সংবাদ", true),
+    LocalRegion("rangpur", "রংপুর বিভাগ", "রংপুর সংবাদ", true),
+    LocalRegion("mymensingh", "ময়মনসিংহ বিভাগ", "ময়মনসিংহ সংবাদ", true),
+    // প্রধান জেলাসমূহ (Major Districts)
+    LocalRegion("cumilla", "কুমিল্লা", "কুমিল্লা সংবাদ"),
+    LocalRegion("gazipur", "গাজীপুর", "গাজীপুর সংবাদ"),
+    LocalRegion("narayanganj", "নারায়ণগঞ্জ", "নারায়ণগঞ্জ সংবাদ"),
+    LocalRegion("bogura", "বগুড়া", "বগুড়া সংবাদ"),
+    LocalRegion("coxsbazar", "কক্সবাজার", "কক্সবাজার সংবাদ"),
+    LocalRegion("jashore", "যশোর", "যশোর সংবাদ"),
+    LocalRegion("faridpur", "ফরিদপুর", "ফরিদপুর সংবাদ"),
+    LocalRegion("dinajpur", "দিনাজপুর", "দিনাজপুর সংবাদ"),
+    LocalRegion("noakhali", "নোয়াখালী", "নোয়াখালী সংবাদ"),
+    LocalRegion("pabna", "পাবনা", "পাবনা সংবাদ"),
+    LocalRegion("tangail", "টাঙ্গাইল", "টাঙ্গাইল সংবাদ"),
+    LocalRegion("kushtia", "কুষ্টিয়া", "কুষ্টিয়া সংবাদ")
+)
+
+@Serializable
 data class HomeCategoryPref(
     val id: String,
     val label: String,
@@ -90,13 +133,21 @@ data class HomeCategoryPref(
 val DefaultHomeCategories = listOf(
     HomeCategoryPref("top", "আজকের গুরুত্বপূর্ণ", "", true, 0),
     HomeCategoryPref("bd", "বাংলাদেশ", "বাংলাদেশ", true, 1),
-    HomeCategoryPref("intl", "আন্তর্জাতিক", "আন্তর্জাতিক", true, 2),
-    HomeCategoryPref("tech", "প্রযুক্তি", "প্রযুক্তি", true, 3),
-    HomeCategoryPref("science", "বিজ্ঞান", "বিজ্ঞান", true, 4),
-    HomeCategoryPref("biz", "ব্যবসা/অর্থনীতি", "অর্থনীতি", true, 5),
-    HomeCategoryPref("jobs", "চাকরি", "চাকরি", true, 6),
-    HomeCategoryPref("sports", "খেলাধুলা", "খেলাধুলা", true, 7),
-    HomeCategoryPref("ent", "বিনোদন", "বিনোদন", true, 8),
-    HomeCategoryPref("health", "স্বাস্থ্য", "স্বাস্থ্য", true, 9),
-    HomeCategoryPref("edu", "শিক্ষা", "শিক্ষা", true, 10)
+    HomeCategoryPref("local", "স্থানীয়", "জেলা সংবাদ বাংলাদেশ", true, 2),
+    HomeCategoryPref("intl", "আন্তর্জাতিক", "আন্তর্জাতিক", true, 3),
+    HomeCategoryPref("tech", "প্রযুক্তি", "প্রযুক্তি", true, 4),
+    HomeCategoryPref("science", "বিজ্ঞান", "বিজ্ঞান", true, 5),
+    HomeCategoryPref("biz", "ব্যবসা/অর্থনীতি", "অর্থনীতি", true, 6),
+    HomeCategoryPref("jobs", "চাকরি", "চাকরি", true, 7),
+    HomeCategoryPref("sports", "খেলাধুলা", "খেলাধুলা", true, 8),
+    HomeCategoryPref("ent", "বিনোদন", "বিনোদন", true, 9),
+    HomeCategoryPref("health", "স্বাস্থ্য", "স্বাস্থ্য", true, 10),
+    HomeCategoryPref("edu", "শিক্ষা", "শিক্ষা", true, 11)
 )
+
+@Serializable
+enum class HomeFeedMode {
+    TOP_STORIES,
+    LATEST_NEWS
+}
+

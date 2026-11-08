@@ -96,4 +96,5 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.play.services.ads)
+    testImplementation(libs.junit)
 }

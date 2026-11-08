@@ -74,9 +74,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.platform.testTag
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.NewsRepository
+import com.potrikaghor.model.BangladeshLocalRegions
 import com.potrikaghor.model.Coverage
+import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.ads.AdMobConfig
@@ -111,7 +119,8 @@ fun PersonalHomeScreen(
     newsRepo: NewsRepository,
     onOpenReader: (Paper, String, String) -> Unit,
     onOpenSearch: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenCoverage: () -> Unit = {}
 ) {
     val appState by appRepo.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -119,24 +128,70 @@ fun PersonalHomeScreen(
     val nativeAdSlotManager = rememberNativeAdSlotManager()
 
     var selectedCategoryIndex by remember { mutableStateOf(0) }
-    var loadedCategoryId by remember { mutableStateOf<String?>(null) }
+    var selectedLocalRegionId by remember { mutableStateOf(BangladeshLocalRegions.first().id) }
+    var loadedCategoryKey by remember { mutableStateOf<String?>(null) }
     var newsItems by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
     var coverageList by remember { mutableStateOf<List<Coverage>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isManualRefreshing by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
     var requestVersion by remember { mutableStateOf(0) }
+
+    val currentFeedMode = appState.homeFeedMode
+    val favoriteUrls = remember(appState.favs) { appState.favs.toSet() }
 
     val activeCategories = remember(appState.homeCategories) {
         appState.homeCategories.filter { it.enabled }.sortedBy { it.order }
     }
 
     val currentCat = activeCategories.getOrNull(selectedCategoryIndex) ?: activeCategories.firstOrNull()
+    val currentLocalRegion = remember(selectedLocalRegionId) {
+        BangladeshLocalRegions.firstOrNull { it.id == selectedLocalRegionId } ?: BangladeshLocalRegions.first()
+    }
+    val effectiveCatKey = remember(currentCat?.id, selectedLocalRegionId) {
+        if (currentCat?.id == "local") "local_$selectedLocalRegionId" else (currentCat?.id ?: "top")
+    }
+
+    fun buildCoverageSyncForMode(
+        items: List<NewsItem>,
+        mode: HomeFeedMode,
+        favUrls: Set<String>
+    ): List<Coverage> {
+        if (items.isEmpty()) return emptyList()
+        return try {
+            when (mode) {
+                HomeFeedMode.TOP_STORIES -> newsRepo.buildTopStories(all = items, favoriteUrls = favUrls)
+                HomeFeedMode.LATEST_NEWS -> newsRepo.buildLatestNews(all = items)
+            }
+        } catch (_: Exception) {
+            items.map { Coverage(listOf(it)) }
+        }
+    }
+
+    suspend fun buildCoverageAsyncForMode(
+        items: List<NewsItem>,
+        mode: HomeFeedMode,
+        favUrls: Set<String>
+    ): List<Coverage> {
+        if (items.isEmpty()) return emptyList()
+        return try {
+            when (mode) {
+                HomeFeedMode.TOP_STORIES -> newsRepo.buildTopStoriesAsync(all = items, favoriteUrls = favUrls)
+                HomeFeedMode.LATEST_NEWS -> newsRepo.buildLatestNewsAsync(all = items)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            items.map { Coverage(listOf(it)) }
+        }
+    }
 
     fun loadData(force: Boolean = false) {
         val targetCat = currentCat
         val targetCatId = targetCat?.id
-        val isCategorySwitch = loadedCategoryId != targetCatId
+        val cacheKey = if (targetCatId == "local") "local_$selectedLocalRegionId" else (targetCatId ?: "top")
+        val isCategorySwitch = loadedCategoryKey != cacheKey
 
         if (!force && !isCategorySwitch && newsItems.isNotEmpty() && errorMsg == null) {
             return
@@ -151,43 +206,75 @@ fun PersonalHomeScreen(
         val currentRequestVersion = ++requestVersion
 
         if (isCategorySwitch) {
-            loadedCategoryId = targetCatId
-            newsItems = emptyList()
-            coverageList = emptyList()
-            errorMsg = null
-            isLoading = true
+            loadedCategoryKey = cacheKey
+            isManualRefreshing = false
+            val cachedItems = newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
+                appRepo.getCachedFeed(cacheKey)
+            }
+            if (cachedItems.isNotEmpty()) {
+                newsItems = cachedItems
+                coverageList = buildCoverageSyncForMode(cachedItems, currentFeedMode, favoriteUrls)
+                errorMsg = null
+                isLoading = true
+            } else {
+                newsItems = emptyList()
+                coverageList = emptyList()
+                errorMsg = null
+                isLoading = true
+            }
         } else {
             errorMsg = null
             isLoading = true
+            isManualRefreshing = force && newsItems.isNotEmpty()
         }
 
         loadJob = scope.launch {
             try {
-                val q = targetCat?.query ?: ""
-                val items = newsRepo.fetchNews(query = q, intl = (targetCatId == "intl"))
-                if (currentRequestVersion == requestVersion && loadedCategoryId == targetCatId) {
+                val q = if (targetCatId == "local") {
+                    currentLocalRegion.query
+                } else {
+                    targetCat?.query ?: ""
+                }
+                val items = newsRepo.fetchNews(
+                    query = q,
+                    intl = (targetCatId == "intl"),
+                    forceRefresh = force
+                )
+                val activeMode = appRepo.state.value.homeFeedMode
+                val activeFavs = appRepo.state.value.favs.toSet()
+                val builtCoverage = buildCoverageAsyncForMode(items, activeMode, activeFavs)
+                if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
                     newsItems = items
-                    coverageList = newsRepo.buildCoverage(items)
+                    coverageList = builtCoverage
                     errorMsg = null
+                    newsRepo.putMemoryCachedCategoryFeed(cacheKey, items)
+                    appRepo.saveCachedFeed(cacheKey, items)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (currentRequestVersion == requestVersion && loadedCategoryId == targetCatId) {
+                if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
                     if (newsItems.isEmpty()) {
                         errorMsg = "সংবাদ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
                     }
                 }
             } finally {
-                if (currentRequestVersion == requestVersion && loadedCategoryId == targetCatId) {
+                if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
                     isLoading = false
+                    isManualRefreshing = false
                 }
             }
         }
     }
 
-    LaunchedEffect(currentCat?.id) {
-        loadData()
+    LaunchedEffect(effectiveCatKey) {
+        loadData(force = false)
+    }
+
+    LaunchedEffect(currentFeedMode, favoriteUrls) {
+        if (newsItems.isNotEmpty()) {
+            coverageList = buildCoverageAsyncForMode(newsItems, currentFeedMode, favoriteUrls)
+        }
     }
 
     val recentPaper = remember(appState.recents) {
@@ -195,7 +282,7 @@ fun PersonalHomeScreen(
     }
 
     // Track which items have already animated in for the active category so scrolling never repeats reveals
-    val seenItemKeys = remember(loadedCategoryId) { HashSet<String>() }
+    val seenItemKeys = remember(loadedCategoryKey) { HashSet<String>() }
 
     // Header quick fade-in on first mount
     var headerVisible by remember { mutableStateOf(reducedMotion) }
@@ -299,6 +386,7 @@ fun PersonalHomeScreen(
                         enabled = !isLoading,
                         interactionSource = refreshBtnInteraction,
                         modifier = Modifier
+                            .testTag("home_refresh_button")
                             .size(38.dp)
                             .pressScaleEffect(refreshBtnInteraction, pressedScale = 0.90f)
                     ) {
@@ -379,21 +467,139 @@ fun PersonalHomeScreen(
                 }
             }
 
+            // Secondary Division / District Filter Chips when "স্থানীয়" ("local") is selected
+            AnimatedVisibility(visible = currentCat?.id == "local") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(
+                        items = BangladeshLocalRegions,
+                        key = { it.id }
+                    ) { region ->
+                        val isRegionSelected = region.id == selectedLocalRegionId
+                        FilterChip(
+                            selected = isRegionSelected,
+                            onClick = {
+                                if (selectedLocalRegionId != region.id) {
+                                    selectedLocalRegionId = region.id
+                                } else if (errorMsg != null || newsItems.isEmpty()) {
+                                    loadData(true)
+                                }
+                            },
+                            leadingIcon = if (region.isDivision) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Filled.LocationOn,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            } else null,
+                            label = {
+                                Text(
+                                    text = region.nameBn,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isRegionSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                    }
+                }
+            }
+
+            // Feed Mode Toggle Chips: প্রধান সংবাদ (Top Stories) | সর্বশেষ সংবাদ (Latest News)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val feedModes = remember {
+                    listOf(
+                        HomeFeedMode.TOP_STORIES to "প্রধান সংবাদ",
+                        HomeFeedMode.LATEST_NEWS to "সর্বশেষ সংবাদ"
+                    )
+                }
+                feedModes.forEach { (mode, modeLabel) ->
+                    val isModeSelected = currentFeedMode == mode
+                    val modeInteraction = remember(mode) { MutableInteractionSource() }
+                    val modeTestTag = if (mode == HomeFeedMode.TOP_STORIES) {
+                        "mode_chip_top_stories"
+                    } else {
+                        "mode_chip_latest_news"
+                    }
+                    FilterChip(
+                        selected = isModeSelected,
+                        onClick = {
+                            if (currentFeedMode != mode) {
+                                appRepo.setHomeFeedMode(mode)
+                            } else if (errorMsg != null || newsItems.isEmpty()) {
+                                loadData(true)
+                            }
+                        },
+                        interactionSource = modeInteraction,
+                        modifier = Modifier
+                            .testTag(modeTestTag)
+                            .pressScaleEffect(modeInteraction, pressedScale = 0.95f),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (mode == HomeFeedMode.TOP_STORIES) {
+                                    Icons.Filled.Bolt
+                                } else {
+                                    Icons.Filled.Schedule
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = modeLabel,
+                                fontSize = 12.sp,
+                                fontWeight = if (isModeSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.primary,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            iconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        border = null
+                    )
+                }
+            }
+
             val bodyState = when {
-                (isLoading && newsItems.isEmpty()) || loadedCategoryId != currentCat?.id -> HomeBodyState.LOADING
+                (isLoading && newsItems.isEmpty()) || loadedCategoryKey != effectiveCatKey -> HomeBodyState.LOADING
                 errorMsg != null && newsItems.isEmpty() -> HomeBodyState.ERROR
                 newsItems.isEmpty() -> HomeBodyState.EMPTY
                 else -> HomeBodyState.CONTENT
             }
 
-            Crossfade(
-                targetState = bodyState,
-                animationSpec = tween(
-                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                label = "homeBodyStateCrossfade"
-            ) { state ->
+            PullToRefreshBox(
+                isRefreshing = isManualRefreshing,
+                onRefresh = { loadData(true) },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Crossfade(
+                    targetState = bodyState,
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "homeBodyStateCrossfade"
+                ) { state ->
                 when (state) {
                     HomeBodyState.LOADING -> {
                         LazyColumn(
@@ -433,12 +639,24 @@ fun PersonalHomeScreen(
                     }
 
                     HomeBodyState.CONTENT -> {
-                        val rankedStories = remember(coverageList, newsItems) {
+                        val rawStories = remember(coverageList, newsItems) {
                             if (coverageList.isNotEmpty()) coverageList else newsItems.map { Coverage(listOf(it)) }
+                        }
+                        val rankedStories = remember(rawStories, appState.mutedKeywords) {
+                            if (appState.mutedKeywords.isEmpty()) {
+                                rawStories
+                            } else {
+                                rawStories.filter { cov ->
+                                    cov.items.none { appRepo.isMuted(it.title, it.snippet) }
+                                }
+                            }
                         }
                         val leadStory = remember(rankedStories) { rankedStories.firstOrNull() }
                         val briefingStories = remember(rankedStories) { rankedStories.drop(1).take(5) }
                         val feedStories = remember(rankedStories) { rankedStories.drop(6) }
+                        val topMultiCoverage = remember(rankedStories) {
+                            rankedStories.filter { it.count >= 3 }.take(2)
+                        }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -522,7 +740,12 @@ fun PersonalHomeScreen(
                                             coverage = leadStory,
                                             appRepo = appRepo,
                                             newsRepo = newsRepo,
-                                            onOpenReader = onOpenReader
+                                            onOpenReader = onOpenReader,
+                                            badgeLabel = if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
+                                                "সর্বশেষ সংবাদ"
+                                            } else {
+                                                "প্রধান সংবাদ"
+                                            }
                                         )
                                     }
                                 }
@@ -532,7 +755,7 @@ fun PersonalHomeScreen(
                             if (briefingStories.isNotEmpty()) {
                                 item(key = "briefing_header") {
                                     OncePerSessionReveal(
-                                        itemKey = "briefing_header_${loadedCategoryId}",
+                                        itemKey = "briefing_header_${loadedCategoryKey}",
                                         seenKeys = seenItemKeys,
                                         delayMillis = 55,
                                         initialOffsetYDp = 6.dp
@@ -540,14 +763,22 @@ fun PersonalHomeScreen(
                                         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(
-                                                    Icons.Filled.Bolt,
+                                                    if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
+                                                        Icons.Filled.Schedule
+                                                    } else {
+                                                        Icons.Filled.Bolt
+                                                    },
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(5.dp))
                                                 Text(
-                                                    text = "আজকের গুরুত্বপূর্ণ খবর",
+                                                    text = if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
+                                                        "সর্বশেষ আপডেট"
+                                                    } else {
+                                                        "আজকের গুরুত্বপূর্ণ খবর"
+                                                    },
                                                     style = MaterialTheme.typography.titleMedium.copy(
                                                         fontSize = 15.sp,
                                                         lineHeight = 20.sp
@@ -557,7 +788,11 @@ fun PersonalHomeScreen(
                                                 )
                                             }
                                             Text(
-                                                text = "দিনের শীর্ষ ঘটনা সংক্ষেপে",
+                                                text = if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
+                                                    "প্রকাশের সময় অনুযায়ী সাম্প্রতিক খবর"
+                                                } else {
+                                                    "দিনের শীর্ষ ঘটনা সংক্ষেপে"
+                                                },
                                                 style = MaterialTheme.typography.bodySmall.copy(
                                                     fontSize = 11.sp,
                                                     lineHeight = 14.sp
@@ -570,7 +805,7 @@ fun PersonalHomeScreen(
 
                                 item(key = "briefing_row") {
                                     OncePerSessionReveal(
-                                        itemKey = "briefing_row_${loadedCategoryId}",
+                                        itemKey = "briefing_row_${loadedCategoryKey}",
                                         seenKeys = seenItemKeys,
                                         delayMillis = 75,
                                         initialOffsetYDp = 7.dp
@@ -597,11 +832,16 @@ fun PersonalHomeScreen(
                                                         coverage.items.drop(1) + item.related
                                                     }
 
+                                                    val isBriefingRead = remember(appState.readArticles, item.link, item.title) {
+                                                        appRepo.isArticleRead(item.link, item.title)
+                                                    }
+
                                                     Card(
                                                         modifier = Modifier
                                                             .width(240.dp)
                                                             .clip(RoundedCornerShape(14.dp))
                                                             .subtleClickable(pressedScale = 0.982f) {
+                                                                appRepo.markArticleRead(item.link, item.title, paper.bn, paper.url)
                                                                 onOpenReader(paper, item.link, item.title)
                                                             },
                                                         shape = RoundedCornerShape(14.dp),
@@ -661,6 +901,17 @@ fun PersonalHomeScreen(
                                                                         maxLines = 1
                                                                     )
                                                                 }
+                                                                if (isBriefingRead) {
+                                                                    Text(
+                                                                        text = " • পঠিত",
+                                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                                            fontSize = 10.sp,
+                                                                            lineHeight = 13.sp
+                                                                        ),
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                                                        maxLines = 1
+                                                                    )
+                                                                }
                                                             }
 
                                                             Spacer(modifier = Modifier.height(4.dp))
@@ -674,7 +925,11 @@ fun PersonalHomeScreen(
                                                                 ),
                                                                 fontWeight = FontWeight.Bold,
                                                                 fontFamily = FontFamily.Serif,
-                                                                color = MaterialTheme.colorScheme.onSurface,
+                                                                color = if (isBriefingRead) {
+                                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                                                                } else {
+                                                                    MaterialTheme.colorScheme.onSurface
+                                                                },
                                                                 minLines = 3,
                                                                 maxLines = 3,
                                                                 overflow = TextOverflow.Ellipsis,
@@ -691,17 +946,131 @@ fun PersonalHomeScreen(
                                 }
                             }
 
+                            // 3.5 Top Multi-Newspaper Coverage Preview Card (২.ক)
+                            if (topMultiCoverage.isNotEmpty()) {
+                                item(key = "top_coverage_preview_card") {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Hub,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(17.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "বহু-পত্রিকা শীর্ষ কভারেজ",
+                                                        style = MaterialTheme.typography.titleSmall.copy(
+                                                            fontSize = 14.sp,
+                                                            lineHeight = 18.sp
+                                                        ),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Serif
+                                                    )
+                                                }
+                                                TextButton(
+                                                    onClick = onOpenCoverage,
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "সব কভারেজ দেখুন →",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+
+                                            topMultiCoverage.forEachIndexed { idx, cov ->
+                                                val topItem = cov.items.firstOrNull() ?: return@forEachIndexed
+                                                val topPaper = appRepo.allPapers.firstOrNull {
+                                                    it.bn == topItem.source || it.en == topItem.source
+                                                } ?: Paper(topItem.source, "", topItem.link, "online")
+
+                                                if (idx > 0) {
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.padding(vertical = 6.dp),
+                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                                    )
+                                                }
+
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .subtleClickable(pressedScale = 0.985f) {
+                                                            appRepo.markArticleRead(topItem.link, topItem.title, topPaper.bn, topPaper.url)
+                                                            onOpenReader(topPaper, topItem.link, topItem.title)
+                                                        }
+                                                        .padding(vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = topItem.title,
+                                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                                fontSize = 13.5.sp,
+                                                                lineHeight = 18.5.sp
+                                                            ),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Serif,
+                                                            maxLines = 2,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = "${BengaliUtils.bnDigits(cov.count)}টি পত্রিকায় কভার হয়েছে • ${topItem.source}",
+                                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                                fontSize = 10.5.sp,
+                                                                lineHeight = 14.sp
+                                                            ),
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Icon(
+                                                        imageVector = Icons.Default.ChevronRight,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // 4. Smart Grouped Feed (Stories #7+)
                             if (feedStories.isNotEmpty()) {
                                 item(key = "smart_feed_header") {
                                     OncePerSessionReveal(
-                                        itemKey = "smart_feed_header_${loadedCategoryId}",
+                                        itemKey = "smart_feed_header_${loadedCategoryKey}",
                                         seenKeys = seenItemKeys,
                                         delayMillis = 90,
                                         initialOffsetYDp = 5.dp
                                     ) {
                                         Text(
-                                            text = "স্মার্ট নিউজ ফিড",
+                                            text = if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
+                                                "সর্বশেষ নিউজ ফিড"
+                                            } else {
+                                                "স্মার্ট নিউজ ফিড"
+                                            },
                                             style = MaterialTheme.typography.titleMedium.copy(
                                                 fontSize = 15.sp,
                                                 lineHeight = 20.sp
@@ -739,9 +1108,9 @@ fun PersonalHomeScreen(
                                         }
                                     }
 
-                                    if (AdMobConfig.shouldShowAdAfterFeedIndex(idx, feedStories.size)) {
+                                    if (!appState.hideAds && AdMobConfig.shouldShowAdAfterFeedIndex(idx, feedStories.size)) {
                                         val slotIndex = AdMobConfig.adSlotIndexForFeedIndex(idx)
-                                        val slotKey = "${loadedCategoryId ?: "home"}_slot_$slotIndex"
+                                        val slotKey = "${loadedCategoryKey ?: "home"}_slot_$slotIndex"
                                         item(
                                             key = "native_ad_$slotKey",
                                             contentType = "native_ad"
@@ -757,6 +1126,7 @@ fun PersonalHomeScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -828,7 +1198,8 @@ fun LeadStoryCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
-    onOpenReader: (Paper, String, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit,
+    badgeLabel: String = "প্রধান সংবাদ"
 ) {
     val mainItem = coverage.items.firstOrNull() ?: return
     val reducedMotion = rememberReducedMotion()
@@ -852,12 +1223,18 @@ fun LeadStoryCard(
         label = "leadExpandArrow"
     )
 
+    val appState by appRepo.state.collectAsState()
+    val isLeadRead = remember(appState.readArticles, mainItem.link, mainItem.title) {
+        appRepo.isArticleRead(mainItem.link, mainItem.title)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(14.dp))
             .subtleClickable(pressedScale = 0.986f) {
+                appRepo.markArticleRead(mainItem.link, mainItem.title, paper.bn, paper.url)
                 onOpenReader(paper, mainItem.link, mainItem.title)
             },
         shape = RoundedCornerShape(14.dp),
@@ -913,13 +1290,24 @@ fun LeadStoryCard(
                         maxLines = 1
                     )
                 }
+                if (isLeadRead) {
+                    Text(
+                        text = " • পঠিত",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        maxLines = 1
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = FlagRed.copy(alpha = 0.14f)
                 ) {
                     Text(
-                        text = "প্রধান সংবাদ",
+                        text = badgeLabel,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 10.sp,
@@ -941,7 +1329,11 @@ fun LeadStoryCard(
                 ),
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Serif,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (isLeadRead) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1101,12 +1493,18 @@ fun SmartStoryCard(
         label = "smartExpandArrow"
     )
 
+    val appState by appRepo.state.collectAsState()
+    val isSmartRead = remember(appState.readArticles, mainItem.link, mainItem.title) {
+        appRepo.isArticleRead(mainItem.link, mainItem.title)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(14.dp))
             .subtleClickable(pressedScale = 0.985f) {
+                appRepo.markArticleRead(mainItem.link, mainItem.title, paper.bn, paper.url)
                 onOpenReader(paper, mainItem.link, mainItem.title)
             },
         shape = RoundedCornerShape(14.dp),
@@ -1149,6 +1547,17 @@ fun SmartStoryCard(
                         maxLines = 1
                     )
                 }
+                if (isSmartRead) {
+                    Text(
+                        text = " • পঠিত",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        maxLines = 1
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(5.dp))
@@ -1169,7 +1578,11 @@ fun SmartStoryCard(
                         ),
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isSmartRead) {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )

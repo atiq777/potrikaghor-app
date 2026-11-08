@@ -63,6 +63,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        try {
+            java.io.File(applicationContext.cacheDir, "WebView/Default/HTTP Cache/Code Cache/js").mkdirs()
+            java.io.File(applicationContext.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm").mkdirs()
+        } catch (_: Exception) {}
         appRepo = AppStateRepository(applicationContext)
         AdMobConfig.initializeMobileAdsIfNeeded(applicationContext)
         BreakingNewsNotifier.ensureChannel(applicationContext)
@@ -126,6 +130,10 @@ fun PotrikaghorApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
 
+    LaunchedEffect(appState.dataSaverMode) {
+        newsRepo.dataSaverMode = appState.dataSaverMode
+    }
+
     if (!isAppReady) {
         BrandedLoadingIndicator(
             message = "লোড হচ্ছে...",
@@ -173,8 +181,8 @@ fun PotrikaghorApp(
 
     val navItems = listOf(
         NavItemSpec(Icons.Outlined.Bolt, Icons.Filled.Bolt, "আমার নিউজ"),
-        NavItemSpec(Icons.Outlined.Newspaper, Icons.Filled.Newspaper, "আমার পত্রিকা"),
         NavItemSpec(Icons.Outlined.Hub, Icons.Filled.Hub, "কভারেজ"),
+        NavItemSpec(Icons.Outlined.Newspaper, Icons.Filled.Newspaper, "আমার পত্রিকা"),
         NavItemSpec(Icons.Outlined.BookmarkBorder, Icons.Filled.Bookmark, "বুকমার্ক", badge = appState.bookmarks.size),
         NavItemSpec(Icons.Outlined.Settings, Icons.Filled.Settings, "সেটিংস")
     )
@@ -278,18 +286,19 @@ fun PotrikaghorApp(
                                     newsRepo = newsRepo,
                                     onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) },
                                     onOpenSearch = { currentScreen = Screen.Search },
-                                    onOpenSettings = { selectedTab = 4 }
+                                    onOpenSettings = { selectedTab = 4 },
+                                    onOpenCoverage = { selectedTab = 1 }
                                 )
-                                1 -> MyPapersScreen(
+                                1 -> CoverageScreen(
+                                    appRepo = appRepo,
+                                    newsRepo = newsRepo,
+                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
+                                )
+                                2 -> MyPapersScreen(
                                     appRepo = appRepo,
                                     onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) },
                                     onAddPaper = { showAddPaperDialog = true },
                                     onFixUrl = { paperToFixUrl = it }
-                                )
-                                2 -> CoverageScreen(
-                                    appRepo = appRepo,
-                                    newsRepo = newsRepo,
-                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
                                 )
                                 3 -> BookmarksScreen(
                                     appRepo = appRepo,

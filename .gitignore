@@ -1,10 +1,18 @@
-# Keystore files - never commit private signing keys
+# Keystore & secret files - never commit private signing keys or env secrets
 *.p12
 *.jks
+*.keystore
+*.pfx
 release-keystore.p12
 release-keystore.jks
 my-upload-key.jks
 debug.keystore
+.env
+.env.*
+
+# Generated APK & AAB packages
+*.apk
+*.aab
 
 # Gradle & Android build outputs
 .gradle/

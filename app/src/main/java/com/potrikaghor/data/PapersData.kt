@@ -7,6 +7,7 @@ object PapersData {
     val categories = listOf(
         Category("all", "সব"),
         Category("bn", "বাংলা"),
+        Category("epaper", "ই-পেপার"),
         Category("en", "ইংরেজি"),
         Category("online", "অনলাইন"),
         Category("intl", "আন্তর্জাতিক"),
@@ -267,7 +268,17 @@ object PapersData {
         Paper("বাংলা উইকিসংকলন", "Bangla Wikisource", "https://bn.wikisource.org", "blog"),
         Paper("উইকিপিডিয়া (ইংরেজি)", "Wikipedia", "https://en.wikipedia.org", "blog"),
         Paper("কোরা", "Quora", "https://www.quora.com", "blog"),
-        Paper("রেডিট", "Reddit", "https://www.reddit.com", "blog")
+        Paper("রেডিট", "Reddit", "https://www.reddit.com", "blog"),
+        Paper("প্রথম আলো ই-পেপার", "eProthom Alo", "https://epaper.prothomalo.com", "epaper"),
+        Paper("ইত্তেফাক ই-পেপার", "Ittefaq ePaper", "https://epaper.ittefaq.com.bd", "epaper"),
+        Paper("কালের কণ্ঠ ই-পেপার", "eKaler Kantho", "https://www.ekalerkantho.com", "epaper"),
+        Paper("যুগান্তর ই-পেপার", "Jugantor ePaper", "https://epaper.jugantor.com", "epaper"),
+        Paper("বাংলাদেশ প্রতিদিন ই-পেপার", "eBangladesh Pratidin", "https://www.ebdpratidin.com", "epaper"),
+        Paper("সমকাল ই-পেপার", "eSamakal", "https://epaper.samakal.com", "epaper"),
+        Paper("বণিক বার্তা ই-পেপার", "Bonik Barta ePaper", "https://epaper.bonikbarta.com", "epaper"),
+        Paper("কালবেলা ই-পেপার", "Kalbela ePaper", "https://epaper.kalbela.com", "epaper"),
+        Paper("নয়া দিগন্ত ই-পেপার", "eNaya Diganta", "https://www.enayadiganta.com", "epaper"),
+        Paper("মানবজমিন ই-পেপার", "Manab Zamin ePaper", "https://mzamin.com/epaper.php", "epaper")
     )
 
     private val byUrl: Map<String, Paper> = builtInPapers.associateBy { it.url }

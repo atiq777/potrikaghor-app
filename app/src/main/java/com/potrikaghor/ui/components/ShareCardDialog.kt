@@ -55,6 +55,19 @@ import com.potrikaghor.ui.util.BengaliUtils
 import java.io.File
 import java.io.FileOutputStream
 
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+enum class ShareCardTheme(val label: String) {
+    CLASSIC_PAPER("ক্লাসিক পেপার"),
+    DARK_EDITORIAL("ডার্ক এডিটোরিয়াল"),
+    RED_BREAKING("রেড ব্রেকিং")
+}
+
 @Composable
 fun ShareCardDialog(
     paper: Paper,
@@ -63,24 +76,46 @@ fun ShareCardDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var selectedTheme by remember { mutableStateOf(ShareCardTheme.CLASSIC_PAPER) }
+
+    val cardBg = when (selectedTheme) {
+        ShareCardTheme.CLASSIC_PAPER -> PaperColor
+        ShareCardTheme.DARK_EDITORIAL -> Color(0xFF141416)
+        ShareCardTheme.RED_BREAKING -> Color(0xFFFFF8F6)
+    }
+    val headlineColor = when (selectedTheme) {
+        ShareCardTheme.CLASSIC_PAPER -> InkColor
+        ShareCardTheme.DARK_EDITORIAL -> Color(0xFFF5F2EB)
+        ShareCardTheme.RED_BREAKING -> Color(0xFF1C1412)
+    }
+    val subColor = when (selectedTheme) {
+        ShareCardTheme.CLASSIC_PAPER -> Color(0xFF6B6358)
+        ShareCardTheme.DARK_EDITORIAL -> Color(0xFFA5A096)
+        ShareCardTheme.RED_BREAKING -> Color(0xFF7A5652)
+    }
+    val dividerColor = when (selectedTheme) {
+        ShareCardTheme.CLASSIC_PAPER -> Color(0xFFD6CEBF)
+        ShareCardTheme.DARK_EDITORIAL -> Color(0xFF2E2E34)
+        ShareCardTheme.RED_BREAKING -> FlagRed.copy(alpha = 0.28f)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
+                .padding(6.dp),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "শেয়ার কার্ড প্রিভিউ",
+                        text = "ফটো কার্ড শেয়ার",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -89,82 +124,146 @@ fun ShareCardDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // 3-theme selector row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ShareCardTheme.entries.forEach { theme ->
+                        val isSelected = selectedTheme == theme
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedTheme = theme },
+                            label = {
+                                Text(
+                                    text = theme.label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                    }
+                }
 
-                // The News Card (Simulates warm newsprint card)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Live Preview News Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                        .border(
+                            width = 1.dp,
+                            color = if (selectedTheme == ShareCardTheme.RED_BREAKING) FlagRed else MaterialTheme.colorScheme.outlineVariant,
+                            shape = RoundedCornerShape(16.dp)
+                        ),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = PaperColor)
+                    colors = CardDefaults.cardColors(containerColor = cardBg)
                 ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            PaperAvatar(paper = paper, size = 36.dp)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = paper.bn,
-                                    color = InkColor,
+                    Column {
+                        if (selectedTheme == ShareCardTheme.RED_BREAKING) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(FlagRed)
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "ব্রেকিং ও বিশেষ সংবাদ",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.5.sp
+                                    )
+                                    Text(
+                                        text = "পত্রিকাঘর.",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp,
+                                        fontFamily = FontFamily.Serif
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(modifier = Modifier.padding(18.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PaperAvatar(paper = paper, size = 36.dp)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = paper.bn,
+                                        color = headlineColor,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        fontFamily = FontFamily.Serif
+                                    )
+                                    Text(
+                                        text = paper.host,
+                                        color = subColor,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                if (selectedTheme != ShareCardTheme.RED_BREAKING) {
+                                    Text(
+                                        text = "পত্রিকাঘর.",
+                                        color = FlagRed,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 16.sp,
+                                        fontFamily = FontFamily.Serif
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                color = dividerColor
+                            )
+
+                            Text(
+                                text = title,
+                                color = headlineColor,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontFamily = FontFamily.Serif,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    fontFamily = FontFamily.Serif
+                                    lineHeight = 24.sp
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = BengaliUtils.bnToday(),
+                                    color = subColor,
+                                    fontSize = 11.sp
                                 )
                                 Text(
-                                    text = paper.host,
-                                    color = Color(0xFF6B6358),
+                                    text = "potrikaghor.app",
+                                    color = subColor,
                                     fontSize = 11.sp
                                 )
                             }
-                            Text(
-                                text = "পত্রিকাঘর.",
-                                color = FlagRed,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 16.sp,
-                                fontFamily = FontFamily.Serif
-                            )
-                        }
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = Color(0xFFD6CEBF)
-                        )
-
-                        Text(
-                            text = title,
-                            color = InkColor,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontFamily = FontFamily.Serif,
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = 24.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = BengaliUtils.bnToday(),
-                                color = Color(0xFF6B6358),
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = "potrikaghor.app",
-                                color = Color(0xFF6B6358),
-                                fontSize = 11.sp
-                            )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -187,7 +286,7 @@ fun ShareCardDialog(
 
                     Button(
                         onClick = {
-                            shareCardAsImage(context, paper.bn, title, url)
+                            shareCardAsImage(context, paper.bn, title, url, selectedTheme)
                             onDismiss()
                         },
                         modifier = Modifier.weight(1f)
@@ -202,63 +301,112 @@ fun ShareCardDialog(
     }
 }
 
-fun shareCardAsImage(context: Context, paperName: String, title: String, url: String) {
+fun shareCardAsImage(
+    context: Context,
+    paperName: String,
+    title: String,
+    url: String,
+    theme: ShareCardTheme = ShareCardTheme.CLASSIC_PAPER
+) {
     try {
         val width = 1080
         val height = 760
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        // Warm paper background
-        canvas.drawColor(AndroidColor.parseColor("#F3EEE4"))
+        val bgColor = when (theme) {
+            ShareCardTheme.CLASSIC_PAPER -> AndroidColor.parseColor("#F3EEE4")
+            ShareCardTheme.DARK_EDITORIAL -> AndroidColor.parseColor("#141416")
+            ShareCardTheme.RED_BREAKING -> AndroidColor.parseColor("#FFF8F6")
+        }
+        val primaryTextColor = when (theme) {
+            ShareCardTheme.CLASSIC_PAPER -> AndroidColor.parseColor("#16130F")
+            ShareCardTheme.DARK_EDITORIAL -> AndroidColor.parseColor("#F5F2EB")
+            ShareCardTheme.RED_BREAKING -> AndroidColor.parseColor("#1C1412")
+        }
+        val secondaryTextColor = when (theme) {
+            ShareCardTheme.CLASSIC_PAPER -> AndroidColor.parseColor("#6B6358")
+            ShareCardTheme.DARK_EDITORIAL -> AndroidColor.parseColor("#A5A096")
+            ShareCardTheme.RED_BREAKING -> AndroidColor.parseColor("#7A5652")
+        }
+        val dividerColor = when (theme) {
+            ShareCardTheme.CLASSIC_PAPER -> AndroidColor.parseColor("#D6CEBF")
+            ShareCardTheme.DARK_EDITORIAL -> AndroidColor.parseColor("#2E2E34")
+            ShareCardTheme.RED_BREAKING -> AndroidColor.parseColor("#F2C6C2")
+        }
+        val redAccent = AndroidColor.parseColor("#D4382C")
 
+        canvas.drawColor(bgColor)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // Top Masthead
-        paint.color = AndroidColor.parseColor("#D4382C")
-        paint.textSize = 42f
-        paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-        canvas.drawText("পত্রিকাঘর.", 80f, 100f, paint)
+        var contentStartY = 100f
+        if (theme == ShareCardTheme.RED_BREAKING) {
+            paint.color = redAccent
+            canvas.drawRect(0f, 0f, width.toFloat(), 96f, paint)
+            paint.color = AndroidColor.WHITE
+            paint.textSize = 32f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            canvas.drawText("ব্রেকিং ও বিশেষ সংবাদ", 80f, 62f, paint)
+            paint.textSize = 38f
+            paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            canvas.drawText("পত্রিকাঘর.", 830f, 62f, paint)
 
-        paint.color = AndroidColor.parseColor("#16130F")
-        paint.textSize = 34f
-        paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-        canvas.drawText("• $paperName", 320f, 96f, paint)
+            paint.color = primaryTextColor
+            paint.textSize = 36f
+            paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            canvas.drawText(paperName, 80f, 155f, paint)
 
-        // Divider
-        paint.color = AndroidColor.parseColor("#D6CEBF")
-        paint.strokeWidth = 3f
-        canvas.drawLine(80f, 130f, 1000f, 130f, paint)
+            paint.color = dividerColor
+            paint.strokeWidth = 3f
+            canvas.drawLine(80f, 182f, 1000f, 182f, paint)
+            contentStartY = 260f
+        } else {
+            paint.color = redAccent
+            paint.textSize = 42f
+            paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            canvas.drawText("পত্রিকাঘর.", 80f, 100f, paint)
+
+            paint.color = primaryTextColor
+            paint.textSize = 34f
+            paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            canvas.drawText("• $paperName", 320f, 96f, paint)
+
+            paint.color = dividerColor
+            paint.strokeWidth = 3f
+            canvas.drawLine(80f, 130f, 1000f, 130f, paint)
+            contentStartY = 230f
+        }
 
         // Headline
-        paint.color = AndroidColor.parseColor("#16130F")
+        paint.color = primaryTextColor
         paint.textSize = 50f
         paint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
 
         val words = title.split(" ")
         var line = ""
-        var y = 230f
+        var y = contentStartY
         for (w in words) {
             val testLine = if (line.isEmpty()) w else "$line $w"
             if (paint.measureText(testLine) > 900f) {
                 canvas.drawText(line, 80f, y, paint)
                 line = w
                 y += 72f
-                if (y > 540f) break
+                if (y > 560f) break
             } else {
                 line = testLine
             }
         }
-        if (line.isNotEmpty() && y <= 560f) {
+        if (line.isNotEmpty() && y <= 580f) {
             canvas.drawText(line, 80f, y, paint)
         }
 
         // Footer
-        paint.color = AndroidColor.parseColor("#6B6358")
+        paint.color = secondaryTextColor
         paint.textSize = 28f
         paint.typeface = Typeface.DEFAULT
         canvas.drawText(BengaliUtils.bnToday(), 80f, 680f, paint)
-        canvas.drawText(url, 80f, 720f, paint)
+        canvas.drawText("potrikaghor.app", 780f, 680f, paint)
+        canvas.drawText(url.take(65), 80f, 720f, paint)
 
         val imagesFolder = File(context.cacheDir, "images")
         imagesFolder.mkdirs()
@@ -276,7 +424,6 @@ fun shareCardAsImage(context: Context, paperName: String, title: String, url: St
         }
         context.startActivity(Intent.createChooser(intent, "শেয়ার করুন"))
     } catch (_: Exception) {
-        // Fallback to text share
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, "$title\n$url")
@@ -284,3 +431,4 @@ fun shareCardAsImage(context: Context, paperName: String, title: String, url: St
         context.startActivity(Intent.createChooser(intent, "শেয়ার করুন"))
     }
 }
+

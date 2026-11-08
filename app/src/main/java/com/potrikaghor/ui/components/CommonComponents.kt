@@ -324,15 +324,20 @@ fun ArticleCoverImage(
         item.link.ifBlank { "${item.source}:${item.title}" }
     }
 
-    var resolvedImageUrl by remember(itemKey) {
+    var resolvedImageUrl by remember(itemKey, newsRepo.dataSaverMode) {
         mutableStateOf(
-            newsRepo.getCachedArticleImage(item, fallbackItems)?.takeIf {
+            if (newsRepo.dataSaverMode) null
+            else newsRepo.getCachedArticleImage(item, fallbackItems)?.takeIf {
                 newsRepo.isValidArticleImageUrl(it, item.link)
             }
         )
     }
-    var isResolving by remember(itemKey) {
-        mutableStateOf(resolvedImageUrl == null && !newsRepo.isLookupFailed(item, fallbackItems))
+    var isResolving by remember(itemKey, newsRepo.dataSaverMode) {
+        mutableStateOf(
+            !newsRepo.dataSaverMode &&
+                resolvedImageUrl == null &&
+                !newsRepo.isLookupFailed(item, fallbackItems)
+        )
     }
     var imageLoadFailed by remember(itemKey, resolvedImageUrl) {
         mutableStateOf(false)
@@ -344,8 +349,11 @@ fun ArticleCoverImage(
         mutableStateOf(false)
     }
 
-    LaunchedEffect(itemKey) {
-        if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item, fallbackItems)) {
+    LaunchedEffect(itemKey, newsRepo.dataSaverMode) {
+        if (newsRepo.dataSaverMode) {
+            resolvedImageUrl = null
+            isResolving = false
+        } else if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item, fallbackItems)) {
             isResolving = true
             val fetched = newsRepo.resolveArticleImage(item, fallbackItems)
             resolvedImageUrl = fetched?.takeIf { newsRepo.isValidArticleImageUrl(it, item.link) }
@@ -497,15 +505,20 @@ fun ArticleThumbnail(
         item.link.ifBlank { "${item.source}:${item.title}" }
     }
 
-    var resolvedImageUrl by remember(itemKey) {
+    var resolvedImageUrl by remember(itemKey, newsRepo.dataSaverMode) {
         mutableStateOf(
-            newsRepo.getCachedArticleImage(item)?.takeIf {
+            if (newsRepo.dataSaverMode) null
+            else newsRepo.getCachedArticleImage(item)?.takeIf {
                 newsRepo.isValidArticleImageUrl(it, item.link)
             }
         )
     }
-    var isResolving by remember(itemKey) {
-        mutableStateOf(resolvedImageUrl == null && !newsRepo.isLookupFailed(item))
+    var isResolving by remember(itemKey, newsRepo.dataSaverMode) {
+        mutableStateOf(
+            !newsRepo.dataSaverMode &&
+                resolvedImageUrl == null &&
+                !newsRepo.isLookupFailed(item)
+        )
     }
     var imageLoadFailed by remember(itemKey, resolvedImageUrl) {
         mutableStateOf(false)
@@ -517,8 +530,11 @@ fun ArticleThumbnail(
         mutableStateOf(false)
     }
 
-    LaunchedEffect(itemKey) {
-        if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item)) {
+    LaunchedEffect(itemKey, newsRepo.dataSaverMode) {
+        if (newsRepo.dataSaverMode) {
+            resolvedImageUrl = null
+            isResolving = false
+        } else if (resolvedImageUrl == null && !newsRepo.isLookupFailed(item)) {
             isResolving = true
             val fetched = newsRepo.resolveArticleImage(item)
             resolvedImageUrl = fetched?.takeIf { newsRepo.isValidArticleImageUrl(it, item.link) }

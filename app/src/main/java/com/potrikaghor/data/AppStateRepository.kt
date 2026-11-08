@@ -5,7 +5,10 @@ import android.content.SharedPreferences
 import com.potrikaghor.model.Bookmark
 import com.potrikaghor.model.DefaultHomeCategories
 import com.potrikaghor.model.HomeCategoryPref
+import com.potrikaghor.model.HomeFeedMode
+import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
+import com.potrikaghor.model.ReadHistoryItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,7 +46,13 @@ data class AppSettings(
     val articleLineHeight: Float = 1.7f,
     val readingDensity: String = "comfortable", // comfortable | compact
     val offlineMode: String = "wifi_only", // auto | wifi_only | manual
-    val notificationTopics: List<String> = listOf("breaking", "bd")
+    val notificationTopics: List<String> = listOf("breaking", "bd"),
+    val readArticles: List<String> = emptyList(),
+    val readHistory: List<ReadHistoryItem> = emptyList(),
+    val mutedKeywords: List<String> = emptyList(),
+    val dataSaverMode: Boolean = false,
+    val preferCleanReader: Boolean = true,
+    val homeFeedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES
 )
 
 class AppStateRepository(private val context: Context) {
@@ -106,7 +115,19 @@ class AppStateRepository(private val context: Context) {
 
         val homeCats = try {
             val raw = prefs.getString("home_categories_json", null)
-            if (!raw.isNullOrEmpty()) json.decodeFromString<List<HomeCategoryPref>>(raw) else DefaultHomeCategories
+            val saved = if (!raw.isNullOrEmpty()) json.decodeFromString<List<HomeCategoryPref>>(raw) else DefaultHomeCategories
+            val existingIds = saved.map { it.id }.toSet()
+            val missing = DefaultHomeCategories.filter { it.id !in existingIds }
+            if (missing.isEmpty()) {
+                saved
+            } else {
+                val merged = saved.toMutableList()
+                missing.forEach { m ->
+                    val insertIdx = m.order.coerceIn(0, merged.size)
+                    merged.add(insertIdx, m)
+                }
+                merged.mapIndexed { idx, c -> c.copy(order = idx) }
+            }
         } catch (_: Exception) {
             DefaultHomeCategories
         }
@@ -132,6 +153,35 @@ class AppStateRepository(private val context: Context) {
         val readingDensity = prefs.getString("reading_density", "comfortable") ?: "comfortable"
         val offlineMode = prefs.getString("offline_mode", "wifi_only") ?: "wifi_only"
         val onlyShowFavorites = prefs.getBoolean("only_show_favorites", false)
+        val preferCleanReader = prefs.getBoolean("prefer_clean_reader", true)
+        val dataSaverMode = prefs.getBoolean("data_saver_mode", false)
+        val homeFeedMode = try {
+            val rawMode = prefs.getString("home_feed_mode", HomeFeedMode.TOP_STORIES.name)
+            if (!rawMode.isNullOrBlank()) HomeFeedMode.valueOf(rawMode) else HomeFeedMode.TOP_STORIES
+        } catch (_: Exception) {
+            HomeFeedMode.TOP_STORIES
+        }
+
+        val readArticles = try {
+            val raw = prefs.getString("read_articles_json", null)
+            if (!raw.isNullOrEmpty()) json.decodeFromString<List<String>>(raw) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val readHistory = try {
+            val raw = prefs.getString("read_history_json", null)
+            if (!raw.isNullOrEmpty()) json.decodeFromString<List<ReadHistoryItem>>(raw) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val mutedKeywords = try {
+            val raw = prefs.getString("muted_keywords_json", null)
+            if (!raw.isNullOrEmpty()) json.decodeFromString<List<String>>(raw) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
 
         _state.value = AppSettings(
             customPapers = customPapers,
@@ -155,7 +205,13 @@ class AppStateRepository(private val context: Context) {
             articleLineHeight = articleLineHeight,
             readingDensity = readingDensity,
             offlineMode = offlineMode,
-            notificationTopics = notifTopics
+            notificationTopics = notifTopics,
+            readArticles = readArticles,
+            readHistory = readHistory,
+            mutedKeywords = mutedKeywords,
+            dataSaverMode = dataSaverMode,
+            preferCleanReader = preferCleanReader,
+            homeFeedMode = homeFeedMode
         )
         _isReady.value = true
     }
@@ -600,16 +656,169 @@ class AppStateRepository(private val context: Context) {
         }
     }
 
+    fun setPreferCleanReader(preferClean: Boolean) {
+        _state.value = _state.value.copy(preferCleanReader = preferClean)
+        prefs.edit().putBoolean("prefer_clean_reader", preferClean).apply()
+    }
+
+    fun setDataSaverMode(enabled: Boolean) {
+        _state.value = _state.value.copy(dataSaverMode = enabled)
+        prefs.edit().putBoolean("data_saver_mode", enabled).apply()
+    }
+
+    fun setHomeFeedMode(mode: HomeFeedMode) {
+        if (_state.value.homeFeedMode == mode) return
+        _state.value = _state.value.copy(homeFeedMode = mode)
+        prefs.edit().putString("home_feed_mode", mode.name).apply()
+    }
+
+    fun addMutedKeyword(keyword: String) {
+        val clean = keyword.trim()
+        if (clean.length < 2) return
+        val cur = _state.value.mutedKeywords.toMutableList()
+        if (cur.none { it.equals(clean, ignoreCase = true) }) {
+            cur.add(0, clean)
+            _state.value = _state.value.copy(mutedKeywords = cur)
+            prefs.edit().putString("muted_keywords_json", json.encodeToString(cur)).apply()
+        }
+    }
+
+    fun removeMutedKeyword(keyword: String) {
+        val cur = _state.value.mutedKeywords.toMutableList()
+        if (cur.removeAll { it.equals(keyword, ignoreCase = true) }) {
+            _state.value = _state.value.copy(mutedKeywords = cur)
+            prefs.edit().putString("muted_keywords_json", json.encodeToString(cur)).apply()
+        }
+    }
+
+    fun isMuted(title: String, snippet: String = ""): Boolean {
+        val kws = _state.value.mutedKeywords
+        if (kws.isEmpty()) return false
+        val haystack = "$title $snippet".lowercase()
+        return kws.any { kw -> kw.isNotBlank() && haystack.contains(kw.lowercase()) }
+    }
+
+    private fun articleReadKey(url: String, title: String): String {
+        val cleanUrl = url.trim()
+        val cleanTitle = title.trim()
+        return if (cleanUrl.isNotEmpty() && !cleanUrl.contains("news.google.com")) {
+            cleanUrl
+        } else if (cleanTitle.isNotEmpty()) {
+            "title:$cleanTitle"
+        } else {
+            cleanUrl
+        }
+    }
+
+    fun markArticleRead(
+        url: String,
+        title: String = "",
+        sourceName: String = "",
+        paperUrl: String = ""
+    ) {
+        val keysToAdd = buildList {
+            val primary = articleReadKey(url, title)
+            if (primary.isNotEmpty()) add(primary)
+            val trimmedUrl = url.trim()
+            if (trimmedUrl.isNotEmpty() && trimmedUrl != primary) add(trimmedUrl)
+            val trimmedTitle = title.trim()
+            if (trimmedTitle.isNotEmpty()) {
+                val titleKey = "title:$trimmedTitle"
+                if (titleKey != primary) add(titleKey)
+            }
+        }
+        if (keysToAdd.isEmpty()) return
+        val cur = _state.value.readArticles.toMutableList()
+        cur.removeAll(keysToAdd.toSet())
+        cur.addAll(0, keysToAdd)
+        val limited = cur.take(300)
+
+        val cleanTitle = title.trim()
+        val cleanUrl = url.trim()
+        val updatedHistory = if (cleanTitle.isNotEmpty() && cleanUrl.isNotEmpty()) {
+            val hist = _state.value.readHistory.toMutableList()
+            hist.removeAll { it.url == cleanUrl || it.title == cleanTitle }
+            hist.add(
+                0,
+                ReadHistoryItem(
+                    url = cleanUrl,
+                    title = cleanTitle,
+                    sourceName = sourceName.ifBlank { "সংবাদ" },
+                    paperUrl = paperUrl.ifBlank { cleanUrl },
+                    readAt = System.currentTimeMillis()
+                )
+            )
+            hist.take(100)
+        } else {
+            _state.value.readHistory
+        }
+
+        _state.value = _state.value.copy(
+            readArticles = limited,
+            readHistory = updatedHistory
+        )
+        prefs.edit()
+            .putString("read_articles_json", json.encodeToString(limited))
+            .putString("read_history_json", json.encodeToString(updatedHistory))
+            .apply()
+    }
+
+    fun clearReadHistory() {
+        _state.value = _state.value.copy(
+            readArticles = emptyList(),
+            readHistory = emptyList()
+        )
+        prefs.edit()
+            .remove("read_articles_json")
+            .remove("read_history_json")
+            .apply()
+    }
+
+    fun isArticleRead(url: String, title: String = ""): Boolean {
+        val readSet = _state.value.readArticles
+        if (readSet.isEmpty()) return false
+        val trimmedUrl = url.trim()
+        val trimmedTitle = title.trim()
+        if (trimmedUrl.isNotEmpty() && readSet.contains(trimmedUrl)) return true
+        if (trimmedTitle.isNotEmpty() && readSet.contains("title:$trimmedTitle")) return true
+        return false
+    }
+
+    fun getCachedFeed(categoryId: String): List<NewsItem> {
+        val safeId = categoryId.ifBlank { "top" }
+        return try {
+            val raw = prefs.getString("cached_feed_$safeId", null)
+            if (!raw.isNullOrEmpty()) json.decodeFromString<List<NewsItem>>(raw) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveCachedFeed(categoryId: String, items: List<NewsItem>) {
+        if (items.isEmpty()) return
+        val safeId = categoryId.ifBlank { "top" }
+        try {
+            val trimmed = items.take(40)
+            prefs.edit().putString("cached_feed_$safeId", json.encodeToString(trimmed)).apply()
+        } catch (_: Exception) {}
+    }
+
     fun clearUserData() {
         _state.value = _state.value.copy(
             favs = emptyList(),
             recents = emptyList(),
-            bookmarks = emptyList()
+            bookmarks = emptyList(),
+            readArticles = emptyList(),
+            readHistory = emptyList(),
+            mutedKeywords = emptyList()
         )
         prefs.edit()
             .remove("favs_json")
             .remove("recents_json")
             .remove("bookmarks_json")
+            .remove("read_articles_json")
+            .remove("read_history_json")
+            .remove("muted_keywords_json")
             .apply()
     }
 }

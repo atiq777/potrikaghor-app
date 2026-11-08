@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,8 +109,18 @@ fun CoverageScreen(
         loadCoverage()
     }
 
-    val manyCoverage = remember(coverageList) { coverageList.filter { it.count >= 3 } }
-    val fewCoverage = remember(coverageList) { coverageList.filter { it.count == 2 } }
+    val appState by appRepo.state.collectAsState()
+    val filteredCoverageList = remember(coverageList, appState.mutedKeywords) {
+        if (appState.mutedKeywords.isEmpty()) {
+            coverageList
+        } else {
+            coverageList.filter { cov ->
+                cov.items.none { appRepo.isMuted(it.title, it.snippet) }
+            }
+        }
+    }
+    val manyCoverage = remember(filteredCoverageList) { filteredCoverageList.filter { it.count >= 3 } }
+    val fewCoverage = remember(filteredCoverageList) { filteredCoverageList.filter { it.count == 2 } }
 
     val refreshRotation = if (isLoading && !reducedMotion) {
         val infiniteTransition = rememberInfiniteTransition(label = "covRefreshSpin")
@@ -353,15 +364,20 @@ fun CoverageDetailCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val appState by appRepo.state.collectAsState()
             coverage.items.forEachIndexed { idx, itm ->
                 val paper = appRepo.allPapers.firstOrNull { it.bn == itm.source || it.en == itm.source }
                     ?: Paper(itm.source, "", itm.link, "online")
+                val isRead = remember(appState.readArticles, itm.link, itm.title) {
+                    appRepo.isArticleRead(itm.link, itm.title)
+                }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .subtleClickable(pressedScale = 0.985f) {
+                            appRepo.markArticleRead(itm.link, itm.title, paper.bn, paper.url)
                             onOpenReader(paper, itm.link, itm.title)
                         }
                         .padding(vertical = 5.dp),
@@ -370,21 +386,38 @@ fun CoverageDetailCard(
                     PaperAvatar(paper = paper, size = 22.dp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = itm.source,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp
-                            ),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = itm.source,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                ),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (isRead) {
+                                Text(
+                                    text = " • পঠিত",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                )
+                            }
+                        }
                         Text(
                             text = itm.title,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 13.5.sp,
                                 lineHeight = 19.sp
                             ),
+                            color = if (isRead) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                             fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Normal,
                             fontFamily = FontFamily.Serif
                         )

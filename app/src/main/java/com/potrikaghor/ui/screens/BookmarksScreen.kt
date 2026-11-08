@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -36,6 +37,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -86,8 +90,10 @@ fun BookmarksScreen(
 
     var selectedFolder by remember { mutableStateOf("সব") }
     var changeFolderBookmark by remember { mutableStateOf<Bookmark?>(null) }
+    var showReadingHistoryTab by remember { mutableStateOf(false) }
 
     val bookmarks = appState.bookmarks
+    val readHistory = appState.readHistory
     val filteredBookmarks = remember(bookmarks, selectedFolder) {
         if (selectedFolder == "সব") bookmarks else bookmarks.filter { it.folder == selectedFolder }
     }
@@ -100,7 +106,7 @@ fun BookmarksScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "বুকমার্ক ও অফলাইন পঠন",
+                                text = "বুকমার্ক ও পঠন ইতিহাস",
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontSize = 19.sp,
                                     lineHeight = 24.sp,
@@ -114,7 +120,11 @@ fun BookmarksScreen(
                                 color = MaterialTheme.colorScheme.secondaryContainer
                             ) {
                                 Text(
-                                    text = "${BengaliUtils.bnDigits(bookmarks.size)}টি সেভ করা",
+                                    text = if (showReadingHistoryTab) {
+                                        "${BengaliUtils.bnDigits(readHistory.size)}টি পঠিত"
+                                    } else {
+                                        "${BengaliUtils.bnDigits(bookmarks.size)}টি সেভ করা"
+                                    },
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         fontSize = 11.sp,
@@ -126,13 +136,24 @@ fun BookmarksScreen(
                             }
                         }
                         Text(
-                            text = "ফোল্ডারে সাজানো আপনার পছন্দের সংবাদ",
+                            text = if (showReadingHistoryTab) {
+                                "আপনার সম্প্রতি পড়া সংবাদের তালিকা"
+                            } else {
+                                "ফোল্ডারে সাজানো আপনার পছন্দের সংবাদ"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                },
+                actions = {
+                    if (showReadingHistoryTab && readHistory.isNotEmpty()) {
+                        TextButton(onClick = { appRepo.clearReadHistory() }) {
+                            Text("ইতিহাস মুছুন", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        }
                     }
                 }
             )
@@ -143,94 +164,200 @@ fun BookmarksScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Folder Tabs
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            // Segmented Switch: Bookmarks vs Reading History
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
             ) {
-                items(DefaultBookmarkFolders, key = { it }) { folder ->
-                    val isSelected = selectedFolder == folder
-                    val count = if (folder == "সব") bookmarks.size else bookmarks.count { it.folder == folder }
-                    val chipInteraction = remember { MutableInteractionSource() }
-                    val chipBg by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        animationSpec = tween(
-                            durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "bmFolderChipBg"
+                SegmentedButton(
+                    selected = !showReadingHistoryTab,
+                    onClick = { showReadingHistoryTab = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) {
+                    Text(
+                        text = "বুকমার্ক (${BengaliUtils.bnDigits(bookmarks.size)})",
+                        fontSize = 12.5.sp
                     )
-                    val chipText by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        animationSpec = tween(
-                            durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "bmFolderChipText"
-                    )
-
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFolder = folder },
-                        interactionSource = chipInteraction,
-                        modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
-                        label = {
-                            Text(
-                                text = "$folder (${BengaliUtils.bnDigits(count)})",
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = chipBg,
-                            selectedLabelColor = chipText,
-                            containerColor = chipBg,
-                            labelColor = chipText
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        border = null
+                }
+                SegmentedButton(
+                    selected = showReadingHistoryTab,
+                    onClick = { showReadingHistoryTab = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) {
+                    Text(
+                        text = "সাম্প্রতিক পঠন (${BengaliUtils.bnDigits(readHistory.size)})",
+                        fontSize = 12.5.sp
                     )
                 }
             }
 
-            val isAppReady by appRepo.isReady.collectAsState()
-            val bookmarksState = when {
-                !isAppReady -> "loading"
-                filteredBookmarks.isEmpty() -> "empty"
-                else -> "list"
-            }
+            if (showReadingHistoryTab) {
+                if (readHistory.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.Filled.History,
+                        title = "কোনো পঠিত খবর নেই",
+                        body = "আপনি যে খবরগুলো পড়বেন সেগুলোর তালিকা এখানে সংরক্ষিত থাকবে, যাতে পরে সহজেই খুঁজে পান।"
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
+                    ) {
+                        items(
+                            items = readHistory,
+                            key = { "${it.url}_${it.readAt}" }
+                        ) { hist ->
+                            val paper = appRepo.paperFor(hist.paperUrl)
+                                ?: appRepo.allPapers.firstOrNull { it.bn == hist.sourceName || it.en == hist.sourceName }
+                                ?: Paper(hist.sourceName, "", hist.paperUrl, "online")
 
-            Crossfade(
-                targetState = bookmarksState,
-                animationSpec = tween(
-                    durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                label = "bookmarksCrossfade"
-            ) { state ->
-                when (state) {
-                    "loading" -> {
-                        com.potrikaghor.ui.components.BrandedLoadingIndicator(
-                            message = "লোড হচ্ছে...",
-                            logoSize = 72.dp,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    "empty" -> {
-                        EmptyState(
-                            icon = Icons.Filled.Bookmark,
-                            title = "কোনো বুকমার্ক নেই",
-                            body = if (selectedFolder == "সব") {
-                                "কোনো খবর পড়ার সময় উপরের বুকমার্ক আইকন চাপলে সেটি এখানে ফোল্ডারে সেভ হবে এবং অফলাইনেও পড়া যাবে।"
-                            } else {
-                                "'$selectedFolder' ফোল্ডারে বর্তমানে কোনো খবর নেই।"
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .subtleClickable(pressedScale = 0.985f) {
+                                        onOpenReader(paper, hist.url, hist.title)
+                                    },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(11.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        PaperAvatar(paper = paper, size = 26.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = hist.sourceName,
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    fontSize = 11.5.sp,
+                                                    lineHeight = 15.sp
+                                                ),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "পড়া হয়েছে ${BengaliUtils.bnAgo(hist.readAt)}",
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontSize = 11.sp,
+                                                    lineHeight = 14.sp
+                                                ),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Text(
+                                        text = hist.title,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = 14.5.sp,
+                                            lineHeight = 20.sp
+                                        ),
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Serif,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
+                        }
+                    }
+                }
+            } else {
+                // Folder Tabs
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    items(DefaultBookmarkFolders, key = { it }) { folder ->
+                        val isSelected = selectedFolder == folder
+                        val count = if (folder == "সব") bookmarks.size else bookmarks.count { it.folder == folder }
+                        val chipInteraction = remember { MutableInteractionSource() }
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            animationSpec = tween(
+                                durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "bmFolderChipBg"
+                        )
+                        val chipText by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = tween(
+                                durationMillis = if (reducedMotion) 0 else MotionTokens.FAST_MS,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "bmFolderChipText"
+                        )
+
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFolder = folder },
+                            interactionSource = chipInteraction,
+                            modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
+                            label = {
+                                Text(
+                                    text = "$folder (${BengaliUtils.bnDigits(count)})",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = chipBg,
+                                selectedLabelColor = chipText,
+                                containerColor = chipBg,
+                                labelColor = chipText
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            border = null
                         )
                     }
-                    else -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
-                        ) {
+                }
+
+                val isAppReady by appRepo.isReady.collectAsState()
+                val bookmarksState = when {
+                    !isAppReady -> "loading"
+                    filteredBookmarks.isEmpty() -> "empty"
+                    else -> "list"
+                }
+
+                Crossfade(
+                    targetState = bookmarksState,
+                    animationSpec = tween(
+                        durationMillis = if (reducedMotion) 0 else MotionTokens.NORMAL_MS,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "bookmarksCrossfade"
+                ) { state ->
+                    when (state) {
+                        "loading" -> {
+                            com.potrikaghor.ui.components.BrandedLoadingIndicator(
+                                message = "লোড হচ্ছে...",
+                                logoSize = 72.dp,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        "empty" -> {
+                            EmptyState(
+                                icon = Icons.Filled.Bookmark,
+                                title = "কোনো বুকমার্ক নেই",
+                                body = if (selectedFolder == "সব") {
+                                    "কোনো খবর পড়ার সময় উপরের বুকমার্ক আইকন চাপলে সেটি এখানে ফোল্ডারে সেভ হবে এবং অফলাইনেও পড়া যাবে।"
+                                } else {
+                                    "'$selectedFolder' ফোল্ডারে বর্তমানে কোনো খবর নেই।"
+                                }
+                            )
+                        }
+                        else -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
+                            ) {
                             items(
                                 items = filteredBookmarks,
                                 key = { it.url }
@@ -378,6 +505,7 @@ fun BookmarksScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

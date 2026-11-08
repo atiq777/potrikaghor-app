@@ -27,9 +27,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.net.Uri
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -37,6 +42,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.StarRate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -100,6 +106,7 @@ fun SettingsScreen(
     var showRestoreDialog by remember { mutableStateOf(false) }
     var restoreCodeInput by remember { mutableStateOf("") }
     var showClearDataDialog by remember { mutableStateOf(false) }
+    var muteKeywordInput by remember { mutableStateOf("") }
 
     var hasNotifPermission by remember {
         mutableStateOf(BreakingNewsNotifier.hasNotificationPermission(context))
@@ -481,9 +488,9 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. অফলাইন মোড (Offline Mode)
+            // 3.5 কি-ওয়ার্ড মিউট / ফিল্টার (Topic Mute Filter — ২.খ)
             item {
-                SectionHeader("অফলাইন ডাউনলোড মোড")
+                SectionHeader("কি-ওয়ার্ড মিউট ফিল্টার")
             }
 
             item {
@@ -495,6 +502,146 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "যে শব্দের খবর ফিডে দেখতে চান না তা যুক্ত করুন",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = muteKeywordInput,
+                                onValueChange = { muteKeywordInput = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("শব্দ লিখুন (যেমন: তারকা, গুজব)", fontSize = 13.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val kw = muteKeywordInput.trim()
+                                    if (kw.length >= 2) {
+                                        appRepo.addMutedKeyword(kw)
+                                        muteKeywordInput = ""
+                                    } else {
+                                        Toast.makeText(context, "অন্তত ২ অক্ষরের শব্দ লিখুন", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("যোগ")
+                            }
+                        }
+
+                        if (appState.mutedKeywords.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(appState.mutedKeywords, key = { it }) { kw ->
+                                    FilterChip(
+                                        selected = true,
+                                        onClick = { appRepo.removeMutedKeyword(kw) },
+                                        label = { Text(kw, fontSize = 12.sp) },
+                                        trailingIcon = {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = "সরান",
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. অফলাইন ও ডেটা সাশ্রয় মোড (Offline & Data Saver Mode — ৩.খ & ৪.খ)
+            item {
+                SectionHeader("অফলাইন ও ডেটা সাশ্রয়")
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !appState.dataSaverMode
+                                    appRepo.setDataSaverMode(next)
+                                    newsRepo.dataSaverMode = next
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ডেটা সেভার মোড (Data Saver)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "ফিডে বড় ছবি লোড বন্ধ রেখে মোবাইল ডেটা ও ব্যাটারি সাশ্রয় করে",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = appState.dataSaverMode,
+                                onCheckedChange = {
+                                    appRepo.setDataSaverMode(it)
+                                    newsRepo.dataSaverMode = it
+                                }
+                            )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { appRepo.setHideAds(!appState.hideAds) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ফিডে বিজ্ঞাপন লুকান",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "হোম ফিডের নেটিভ বিজ্ঞাপন স্লট বন্ধ রাখে",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = appState.hideAds,
+                                onCheckedChange = { appRepo.setHideAds(it) }
+                            )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                         listOf(
                             Triple("wifi_only", "শুধু ওয়াই-ফাই থাকলে ডাউনলোড", "ডেটা সাশ্রয় করে স্বয়ংক্রিয়ভাবে অফলাইন ক্যাশ করে"),
                             Triple("auto", "যেকোনো নেটওয়ার্কে ডাউনলোড", "মোবাইল ডেটা বা ওয়াই-ফাই উভয়েই কাজ করবে"),
@@ -657,7 +804,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 7. অ্যাপ সম্পর্কে (About)
+            // 7. অ্যাপ সম্পর্কে (About & Play Store Share/Rate — ৪.গ)
             item {
                 SectionHeader("সম্পর্কে")
             }
@@ -679,6 +826,54 @@ fun SettingsScreen(
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val playUrl = "https://play.google.com/store/apps/details?id=${context.packageName}"
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "পত্রিকাঘর (PotrikaGhor) — বাংলাদেশের সব প্রধান পত্রিকা, ই-পেপার ও ব্রেকিং নিউজ এক অ্যাপে:\n$playUrl"
+                                        )
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "অ্যাপটি শেয়ার করুন"))
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("অ্যাপ শেয়ার", fontSize = 12.5.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val pkg = context.packageName
+                                    try {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
+                                        )
+                                    } catch (_: Exception) {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Filled.StarRate, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("রেটিং দিন", fontSize = 12.5.sp)
+                            }
+                        }
                     }
                 }
             }
