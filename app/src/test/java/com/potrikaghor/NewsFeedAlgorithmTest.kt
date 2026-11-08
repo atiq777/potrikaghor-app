@@ -5,8 +5,33 @@ import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
+import com.potrikaghor.ui.screens.HOME_LOAD_ERROR_MESSAGE
+import com.potrikaghor.ui.screens.HomeBodyState
+import com.potrikaghor.ui.screens.HomeLoadStateSnapshot
+import com.potrikaghor.ui.screens.applyHomeLoadResult
+import com.potrikaghor.ui.screens.resolveHomeBodyState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Timeout
 import org.junit.Test
+import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Phase 1 Verification Suite for PotrikaGhor Core News Engine:
@@ -650,6 +675,510 @@ class NewsFeedAlgorithmTest {
         checkFalse(canonicalUnknownA.contains(".com"), "Case 5: Unknown publisher ID must not fabricate a .com domain")
     }
 
+    @Test
+    fun test15_oneFeedTimingOutDoesNotBlockSuccessfulFeeds() = runBlocking {
+        val freshRepo = NewsRepository()
+        val now = System.currentTimeMillis()
+
+        // Verify OkHttp clients have finite callTimeouts configured
+        checkEquals(10_000, freshRepo.fastFeedClient.callTimeoutMillis, "fastFeedClient must have a 10s callTimeout")
+        checkEquals(10_000, freshRepo.client.callTimeoutMillis, "client must have a 10s callTimeout")
+
+        val startMs = System.currentTimeMillis()
+        val results = freshRepo.fetchDirectPublisherFeeds(
+            isIntl = false,
+            forceRefresh = true,
+            perFeedTimeoutMs = 150L,
+            batchDeadlineMs = 800L,
+            fetcher = { spec ->
+                when (spec.sourceBn) {
+                    "প্রথম আলো" -> {
+                        // Simulate a stalled/hung feed that sleeps for 5 seconds
+                        Thread.sleep(5_000L)
+                        emptyList()
+                    }
+                    "বাংলা ট্রিবিউন" -> {
+                        // Simulate an immediate HTTP failure on another feed in DIRECT_PUBLISHER_FEEDS
+                        throw IOException("Simulated HTTP 503 failure")
+                    }
+                    else -> {
+                        listOf(
+                            NewsItem(
+                                title = "${spec.sourceBn} তাজা সংবাদ শিরোনাম",
+                                source = spec.sourceBn,
+                                sourceUrl = spec.baseUrl,
+                                link = "${spec.baseUrl}/article-1",
+                                time = now - 60_000L
+                            )
+                        )
+                    }
+                }
+            }
+        )
+        val elapsedMs = System.currentTimeMillis() - startMs
+
+        val expectedDomesticCount = NewsRepository.DIRECT_PUBLISHER_FEEDS.count { !it.isIntl } - 2
+        checkEquals(
+            expectedDomesticCount,
+            results.size,
+            "All 16 healthy domestic feeds must return their articles even when 1 feed times out and 1 throws IOException"
+        )
+        checkTrue(
+            elapsedMs < 2_500L,
+            "Batch with a 5s hung feed must complete within bounded timeout (<2500ms), actual=${elapsedMs}ms"
+        )
+        checkEquals(
+            6,
+            freshRepo.availableDirectFeedPermits(),
+            "All 6 semaphore permits must be released after timed-out feed is aborted"
+        )
+    }
+
+    @Test
+    fun test16_googleNewsResultsRemainAvailableWhenDirectFeedsTimeOut() = runBlocking {
+        val freshRepo = NewsRepository()
+        val now = System.currentTimeMillis()
+
+        val googleArticle = NewsItem(
+            title = "গুগল নিউজ থেকে প্রাপ্ত জরুরি জাতীয় সংবাদ শিরোনাম",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://news.google.com/rss/articles/g1",
+            time = now - 120_000L
+        )
+
+        val items = freshRepo.fetchNewsInternal(
+            query = "",
+            intl = false,
+            section = "",
+            forceRefresh = true,
+            perFeedTimeoutMs = 120L,
+            batchDeadlineMs = 350L,
+            googleFeedTimeoutMs = 1_000L,
+            directFeedFetcher = {
+                // Every direct feed times out
+                Thread.sleep(3_000L)
+                emptyList()
+            },
+            googleRssFetcher = { _, _, _ ->
+                listOf(googleArticle)
+            }
+        )
+
+        checkEquals(1, items.size, "Google News items must still be returned when all direct feeds time out")
+        checkEquals(googleArticle.title, items.first().title, "Returned item must match Google News article")
+        checkEquals(6, freshRepo.availableDirectFeedPermits(), "All direct feed semaphore permits must be released")
+    }
+
+    @Test
+    fun test17_allFeedsFailingLeadsToErrorStateNotInfiniteLoading() = runBlocking {
+        val freshRepo = NewsRepository()
+        var caughtException: Exception? = null
+
+        try {
+            freshRepo.fetchNewsInternal(
+                query = "",
+                intl = false,
+                section = "",
+                forceRefresh = true,
+                perFeedTimeoutMs = 100L,
+                batchDeadlineMs = 250L,
+                googleFeedTimeoutMs = 200L,
+                directFeedFetcher = {
+                    Thread.sleep(2_000L)
+                    emptyList()
+                },
+                googleRssFetcher = { _, _, _ ->
+                    throw IOException("Network unreachable")
+                }
+            )
+        } catch (e: Exception) {
+            caughtException = e
+        }
+
+        checkNotNull(caughtException, "When both direct feeds and Google News fail, fetchNews must throw an exception")
+
+        val initialSnapshot = HomeLoadStateSnapshot(
+            newsItems = emptyList(),
+            coverageList = emptyList(),
+            isLoading = true,
+            isManualRefreshing = false,
+            errorMsg = null,
+            loadedCategoryKey = "top",
+            requestVersion = 1
+        )
+        val afterFailure = applyHomeLoadResult(
+            currentSnapshot = initialSnapshot,
+            completedRequestVersion = 1,
+            targetCategoryKey = "top",
+            fetchedItems = null,
+            builtCoverage = null,
+            failure = caughtException
+        )
+
+        checkFalse(afterFailure.isLoading, "isLoading must become false after failure")
+        checkEquals(HOME_LOAD_ERROR_MESSAGE, afterFailure.errorMsg, "errorMsg must be populated when no cached news exists")
+        val bodyState = resolveHomeBodyState(
+            isLoading = afterFailure.isLoading,
+            newsItems = afterFailure.newsItems,
+            loadedCategoryKey = afterFailure.loadedCategoryKey,
+            effectiveCatKey = "top",
+            errorMsg = afterFailure.errorMsg
+        )
+        checkEquals(
+            HomeBodyState.ERROR,
+            bodyState,
+            "Home Screen must transition to ERROR state (with Retry), never remaining in LOADING"
+        )
+    }
+
+    @Test
+    fun test18_cancellationReleasesSemaphorePermitsAndCancelsHttpCalls() = runBlocking {
+        val freshRepo = NewsRepository()
+        val callCanceledFlag = AtomicBoolean(false)
+        val responseClosedFlag = AtomicBoolean(false)
+        val callStartedLatch = CountDownLatch(1)
+        val blockLatch = CountDownLatch(1)
+
+        val fakeBlockingCall = object : Call {
+            private val req = Request.Builder().url("https://www.prothomalo.com/feed/").build()
+            override fun request(): Request = req
+            override fun execute(): Response {
+                callStartedLatch.countDown()
+                try {
+                    blockLatch.await(10, TimeUnit.SECONDS)
+                } catch (_: InterruptedException) {
+                    // Interrupted on cancellation
+                }
+                if (callCanceledFlag.get()) {
+                    throw IOException("Canceled")
+                }
+                val body = "<rss></rss>".toByteArray().toResponseBody("application/xml".toMediaType())
+                return Response.Builder()
+                    .request(req)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(object : okhttp3.ResponseBody() {
+                        override fun contentType() = body.contentType()
+                        override fun contentLength() = body.contentLength()
+                        override fun source() = body.source()
+                        override fun close() {
+                            responseClosedFlag.set(true)
+                            super.close()
+                        }
+                    })
+                    .build()
+            }
+            override fun enqueue(responseCallback: Callback) {}
+            override fun cancel() {
+                callCanceledFlag.set(true)
+                blockLatch.countDown()
+            }
+            override fun isExecuted(): Boolean = true
+            override fun isCanceled(): Boolean = callCanceledFlag.get()
+            override fun timeout(): Timeout = Timeout.NONE
+            override fun clone(): Call = this
+        }
+
+        // Part A: Verify cancelling a coroutine executing executeCancellableCall immediately calls Call.cancel()
+        val callJob = launch(Dispatchers.IO) {
+            val myJob = coroutineContext[kotlinx.coroutines.Job]
+            freshRepo.executeCancellableCall(fakeBlockingCall, myJob) { res ->
+                res.code
+            }
+        }
+        checkTrue(callStartedLatch.await(2, TimeUnit.SECONDS), "Blocking OkHttp Call must start executing")
+        callJob.cancelAndJoin()
+        checkTrue(fakeBlockingCall.isCanceled(), "Cancelling coroutine must invoke Call.cancel() on active OkHttp Call")
+
+        // Part B: Verify Response body is always closed when executeCancellableCall succeeds
+        val okCall = object : Call by fakeBlockingCall {
+            override fun execute(): Response {
+                val req = Request.Builder().url("https://www.prothomalo.com/feed/").build()
+                val rawBody = "<rss></rss>".toResponseBody("application/xml".toMediaType())
+                return Response.Builder()
+                    .request(req)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(object : okhttp3.ResponseBody() {
+                        override fun contentType() = rawBody.contentType()
+                        override fun contentLength() = rawBody.contentLength()
+                        override fun source() = rawBody.source()
+                        override fun close() {
+                            responseClosedFlag.set(true)
+                            rawBody.close()
+                        }
+                    })
+                    .build()
+            }
+            override fun isCanceled(): Boolean = false
+        }
+        freshRepo.executeCancellableCall(okCall, null) { res -> res.code }
+        checkTrue(responseClosedFlag.get(), "Response body must always be closed after executeCancellableCall")
+
+        // Part C: Verify cancelling fetchDirectPublisherFeeds while all 6 semaphore permits are occupied
+        // immediately releases all 6 permits
+        val sixPermitsAcquired = CountDownLatch(6)
+        val batchJob = launch(Dispatchers.IO) {
+            freshRepo.fetchDirectPublisherFeeds(
+                isIntl = false,
+                forceRefresh = true,
+                perFeedTimeoutMs = 10_000L,
+                batchDeadlineMs = 15_000L,
+                fetcher = {
+                    sixPermitsAcquired.countDown()
+                    Thread.sleep(10_000L)
+                    emptyList()
+                }
+            )
+        }
+        checkTrue(sixPermitsAcquired.await(2, TimeUnit.SECONDS), "All 6 semaphore permits should be acquired by active feeds")
+        checkEquals(0, freshRepo.availableDirectFeedPermits(), "0 permits should be available while 6 feeds are active")
+
+        batchJob.cancelAndJoin()
+        checkEquals(
+            6,
+            freshRepo.availableDirectFeedPermits(),
+            "All 6 semaphore permits must be released immediately when batch coroutine is cancelled"
+        )
+    }
+
+    @Test
+    fun test19_concurrentStartupRequestsDoNotTriggerDuplicateBatches() = runBlocking {
+        val freshRepo = NewsRepository()
+        val fetchInvocations = AtomicInteger(0)
+        val now = System.currentTimeMillis()
+
+        val slowCountingFetcher: (DirectRssFeedSpec) -> List<NewsItem> = { spec ->
+            fetchInvocations.incrementAndGet()
+            Thread.sleep(60L)
+            listOf(
+                NewsItem(
+                    title = "${spec.sourceBn} একক ব্যাচ পরীক্ষা সংবাদ",
+                    source = spec.sourceBn,
+                    sourceUrl = spec.baseUrl,
+                    link = "${spec.baseUrl}/single-batch",
+                    time = now - 30_000L
+                )
+            )
+        }
+
+        // Launch 3 concurrent startup fetchNewsInternal calls before cache is populated
+        val callers = (1..3).map {
+            async(Dispatchers.IO) {
+                freshRepo.fetchNewsInternal(
+                    query = "",
+                    intl = false,
+                    section = "",
+                    forceRefresh = false,
+                    directFeedFetcher = slowCountingFetcher,
+                    googleRssFetcher = { _, _, _ -> emptyList() }
+                )
+            }
+        }
+        val results = callers.awaitAll()
+
+        val domesticFeedCount = NewsRepository.DIRECT_PUBLISHER_FEEDS.count { !it.isIntl }
+        checkEquals(
+            domesticFeedCount,
+            fetchInvocations.get(),
+            "3 concurrent startup requests must share 1 in-flight batch ($domesticFeedCount feed calls), not ${domesticFeedCount * 3}"
+        )
+        results.forEach { list ->
+            checkEquals(domesticFeedCount, list.size, "Each concurrent caller must receive the full list of fetched articles")
+        }
+    }
+
+    @Test
+    fun test20_breakingNewsNotifierWaitsForInitialHomeLoadAndReusesCache() = runBlocking {
+        val freshRepo = NewsRepository()
+        val directFetchCount = AtomicInteger(0)
+        val notifierStartedFetch = AtomicBoolean(false)
+        val now = System.currentTimeMillis()
+
+        val countingDirectFetcher: (DirectRssFeedSpec) -> List<NewsItem> = { spec ->
+            directFetchCount.incrementAndGet()
+            listOf(
+                NewsItem(
+                    title = "চট্টগ্রাম বন্দরে কনটেইনার জট নিরসনে নতুন নির্দেশনা জারি করেছে কর্তৃপক্ষ",
+                    source = spec.sourceBn,
+                    sourceUrl = spec.baseUrl,
+                    link = "${spec.baseUrl}/breaking-1",
+                    time = now - 60_000L
+                )
+            )
+        }
+
+        checkFalse(freshRepo.initialHomeLoadCompleted.value, "initialHomeLoadCompleted must start as false")
+
+        // Start simulated BreakingNewsNotifier startup coroutine waiting on awaitInitialHomeLoadBeforeBackgroundWork()
+        val notifierJob = async(Dispatchers.IO) {
+            freshRepo.awaitInitialHomeLoadBeforeBackgroundWork(maxWaitMs = 5_000L)
+            notifierStartedFetch.set(true)
+            freshRepo.fetchNewsInternal(
+                query = "",
+                intl = false,
+                section = "",
+                forceRefresh = false,
+                directFeedFetcher = countingDirectFetcher,
+                googleRssFetcher = { _, _, _ -> emptyList() }
+            )
+        }
+
+        delay(100L)
+        checkFalse(
+            notifierStartedFetch.get(),
+            "BreakingNewsNotifier must NOT start fetching while initial Home Screen load is still in progress"
+        )
+
+        // Now perform initial Home Screen load and mark completion
+        val homeItems = freshRepo.fetchNewsInternal(
+            query = "",
+            intl = false,
+            section = "",
+            forceRefresh = false,
+            directFeedFetcher = countingDirectFetcher,
+            googleRssFetcher = { _, _, _ -> emptyList() }
+        )
+        val countAfterHomeLoad = directFetchCount.get()
+        checkTrue(homeItems.isNotEmpty(), "Initial Home Screen load must return items")
+
+        freshRepo.markInitialHomeLoadCompleted()
+        val notifierItems = notifierJob.await()
+
+        checkTrue(notifierStartedFetch.get(), "BreakingNewsNotifier must proceed once initial Home Screen load completes")
+        checkEquals(
+            countAfterHomeLoad,
+            directFetchCount.get(),
+            "BreakingNewsNotifier must reuse cached direct feeds with 0 duplicate direct feed network calls"
+        )
+        checkEquals(homeItems.size, notifierItems.size, "Notifier must receive the cached domestic items")
+    }
+
+    @Test
+    fun test21_cachedNewsRemainsVisibleWhenRefreshFails() {
+        val now = fixedNowMs
+        val cachedArticle = NewsItem(
+            title = "ক্যাশে সংরক্ষিত পূর্ববর্তী সংবাদ যা অফলাইনেও দৃশ্যমান থাকবে",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/cached-1",
+            time = now - 300_000L
+        )
+        val cachedCoverage = listOf(Coverage(listOf(cachedArticle)))
+
+        val snapshotWithCachedNews = HomeLoadStateSnapshot(
+            newsItems = listOf(cachedArticle),
+            coverageList = cachedCoverage,
+            isLoading = true,
+            isManualRefreshing = true,
+            errorMsg = null,
+            loadedCategoryKey = "top",
+            requestVersion = 2
+        )
+
+        // Case A: Network refresh fails with IOException while cached news is displayed
+        val afterFailedRefresh = applyHomeLoadResult(
+            currentSnapshot = snapshotWithCachedNews,
+            completedRequestVersion = 2,
+            targetCategoryKey = "top",
+            fetchedItems = null,
+            builtCoverage = null,
+            failure = IOException("Simulated offline refresh failure")
+        )
+
+        checkFalse(afterFailedRefresh.isLoading, "isLoading must reset to false after failed refresh")
+        checkFalse(afterFailedRefresh.isManualRefreshing, "isManualRefreshing must reset to false")
+        checkNull(afterFailedRefresh.errorMsg, "errorMsg must remain null when cached news is preserved")
+        checkEquals(1, afterFailedRefresh.newsItems.size, "Cached newsItems must remain intact when refresh fails")
+        checkEquals(
+            HomeBodyState.CONTENT,
+            resolveHomeBodyState(
+                isLoading = afterFailedRefresh.isLoading,
+                newsItems = afterFailedRefresh.newsItems,
+                loadedCategoryKey = afterFailedRefresh.loadedCategoryKey,
+                effectiveCatKey = "top",
+                errorMsg = afterFailedRefresh.errorMsg
+            ),
+            "HomeBodyState must remain CONTENT when cached news is present"
+        )
+
+        // Case B: Older superseded request (version 1) must NEVER overwrite newer state (version 2)
+        val staleAttempt = applyHomeLoadResult(
+            currentSnapshot = afterFailedRefresh,
+            completedRequestVersion = 1,
+            targetCategoryKey = "top",
+            fetchedItems = emptyList(),
+            builtCoverage = emptyList(),
+            failure = IOException("Stale request failure")
+        )
+        checkEquals(afterFailedRefresh, staleAttempt, "Superseded older request version must be ignored")
+
+        // Case C: CancellationException must be rethrown, never swallowed as an ordinary error
+        var cancellationRethrown = false
+        try {
+            applyHomeLoadResult(
+                currentSnapshot = snapshotWithCachedNews,
+                completedRequestVersion = 2,
+                targetCategoryKey = "top",
+                fetchedItems = null,
+                builtCoverage = null,
+                failure = CancellationException("User switched category")
+            )
+        } catch (_: CancellationException) {
+            cancellationRethrown = true
+        }
+        checkTrue(cancellationRethrown, "CancellationException must always be rethrown and never swallowed")
+    }
+
+    @Test
+    fun test22_precomputedTitleSignatureAvoidsRepeatedTokenization() {
+        val freshRepo = NewsRepository()
+        freshRepo.clearTitleSignatureCacheForTest()
+        val now = fixedNowMs
+
+        val directItems = (1..20).map { idx ->
+            NewsItem(
+                title = "চট্টগ্রাম বন্দরে কনটেইনার জট নিরসনে নতুন নির্দেশনা জারি করেছে কর্তৃপক্ষ পর্ব $idx",
+                source = "প্রথম আলো",
+                sourceUrl = "https://www.prothomalo.com",
+                link = "https://www.prothomalo.com/d/$idx",
+                time = now - idx * 60_000L,
+                imageUrl = "https://images.prothomalo.com/img-$idx.jpg"
+            )
+        }
+        val googleItems = (1..20).map { idx ->
+            NewsItem(
+                title = "চট্টগ্রাম বন্দরের কনটেইনার জট নিরসনে কর্তৃপক্ষের নতুন নির্দেশনা জারি পর্ব $idx",
+                source = "যুগান্তর",
+                sourceUrl = "https://www.jugantor.com",
+                link = "https://www.jugantor.com/g/$idx",
+                time = now - idx * 60_000L,
+                imageUrl = null
+            )
+        }
+
+        // 20 Google items x 20 Direct items = 400 duplicate comparisons in enrichGoogleItemsWithDirectImages,
+        // followed by clustering in buildTopStories. Without caching, tokenization would run >800 times.
+        val enriched = freshRepo.enrichGoogleItemsWithDirectImages(googleItems, directItems)
+        val clusters = freshRepo.buildTopStories(directItems + enriched, emptySet(), now)
+
+        val uniqueTitlesCount = 40
+        val actualTokenizations = freshRepo.titleTokenizationCounter.get()
+        checkEquals(
+            uniqueTitlesCount,
+            actualTokenizations,
+            "Each unique article title must be tokenized exactly once ($uniqueTitlesCount times total), actual=$actualTokenizations"
+        )
+        checkTrue(
+            enriched.all { !it.imageUrl.isNullOrBlank() },
+            "All matching Google News items must still be enriched with direct RSS images"
+        )
+        checkTrue(clusters.isNotEmpty(), "Top Stories clustering must succeed with precomputed signatures")
+    }
+
     fun runAllTests(): List<String> {
         val results = mutableListOf<String>()
         val tests = listOf<Pair<String, () -> Unit>>(
@@ -666,7 +1195,15 @@ class NewsFeedAlgorithmTest {
             "test11_zeroDropSourceDiversity" to ::test11_zeroDropSourceDiversity,
             "test12_topStoriesTimeDecayAndFavoriteTieBreaker" to ::test12_topStoriesTimeDecayAndFavoriteTieBreaker,
             "test13_manualRefreshForceBypass" to ::test13_manualRefreshForceBypass,
-            "test14_publisherDeduplicationCollisionSafety" to ::test14_publisherDeduplicationCollisionSafety
+            "test14_publisherDeduplicationCollisionSafety" to ::test14_publisherDeduplicationCollisionSafety,
+            "test15_oneFeedTimingOutDoesNotBlockSuccessfulFeeds" to ::test15_oneFeedTimingOutDoesNotBlockSuccessfulFeeds,
+            "test16_googleNewsResultsRemainAvailableWhenDirectFeedsTimeOut" to ::test16_googleNewsResultsRemainAvailableWhenDirectFeedsTimeOut,
+            "test17_allFeedsFailingLeadsToErrorStateNotInfiniteLoading" to ::test17_allFeedsFailingLeadsToErrorStateNotInfiniteLoading,
+            "test18_cancellationReleasesSemaphorePermitsAndCancelsHttpCalls" to ::test18_cancellationReleasesSemaphorePermitsAndCancelsHttpCalls,
+            "test19_concurrentStartupRequestsDoNotTriggerDuplicateBatches" to ::test19_concurrentStartupRequestsDoNotTriggerDuplicateBatches,
+            "test20_breakingNewsNotifierWaitsForInitialHomeLoadAndReusesCache" to ::test20_breakingNewsNotifierWaitsForInitialHomeLoadAndReusesCache,
+            "test21_cachedNewsRemainsVisibleWhenRefreshFails" to ::test21_cachedNewsRemainsVisibleWhenRefreshFails,
+            "test22_precomputedTitleSignatureAvoidsRepeatedTokenization" to ::test22_precomputedTitleSignatureAvoidsRepeatedTokenization
         )
         for ((name, block) in tests) {
             block()

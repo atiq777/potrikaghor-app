@@ -104,12 +104,79 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
-private enum class HomeBodyState {
+internal const val HOME_SCREEN_LOAD_TIMEOUT_MS = 16_000L
+internal const val HOME_LOAD_ERROR_MESSAGE = "সংবাদ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
+
+internal enum class HomeBodyState {
     LOADING,
     ERROR,
     EMPTY,
     CONTENT
+}
+
+internal data class HomeLoadStateSnapshot(
+    val newsItems: List<NewsItem>,
+    val coverageList: List<Coverage>,
+    val isLoading: Boolean,
+    val isManualRefreshing: Boolean,
+    val errorMsg: String?,
+    val loadedCategoryKey: String,
+    val requestVersion: Int
+)
+
+internal fun resolveHomeBodyState(
+    isLoading: Boolean,
+    newsItems: List<NewsItem>,
+    loadedCategoryKey: String?,
+    effectiveCatKey: String,
+    errorMsg: String?
+): HomeBodyState = when {
+    (isLoading && newsItems.isEmpty()) || loadedCategoryKey != effectiveCatKey -> HomeBodyState.LOADING
+    errorMsg != null && newsItems.isEmpty() -> HomeBodyState.ERROR
+    newsItems.isEmpty() -> HomeBodyState.EMPTY
+    else -> HomeBodyState.CONTENT
+}
+
+internal fun applyHomeLoadResult(
+    currentSnapshot: HomeLoadStateSnapshot,
+    completedRequestVersion: Int,
+    targetCategoryKey: String,
+    fetchedItems: List<NewsItem>?,
+    builtCoverage: List<Coverage>?,
+    failure: Throwable?
+): HomeLoadStateSnapshot {
+    // Prevent an older cancelled or superseded request from overwriting newer state
+    if (completedRequestVersion != currentSnapshot.requestVersion ||
+        currentSnapshot.loadedCategoryKey != targetCategoryKey
+    ) {
+        return currentSnapshot
+    }
+
+    if (failure is CancellationException) {
+        throw failure
+    }
+
+    return if (failure == null && !fetchedItems.isNullOrEmpty()) {
+        currentSnapshot.copy(
+            newsItems = fetchedItems,
+            coverageList = builtCoverage ?: fetchedItems.map { Coverage(listOf(it)) },
+            isLoading = false,
+            isManualRefreshing = false,
+            errorMsg = null,
+            loadedCategoryKey = targetCategoryKey
+        )
+    } else {
+        // Preserve cached news if already present; only show error when no items are available
+        val hasCachedNews = currentSnapshot.newsItems.isNotEmpty()
+        currentSnapshot.copy(
+            isLoading = false,
+            isManualRefreshing = false,
+            errorMsg = if (hasCachedNews) null else HOME_LOAD_ERROR_MESSAGE,
+            loadedCategoryKey = targetCategoryKey
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -204,9 +271,9 @@ fun PersonalHomeScreen(
 
         loadJob?.cancel()
         val currentRequestVersion = ++requestVersion
+        loadedCategoryKey = cacheKey
 
-        if (isCategorySwitch) {
-            loadedCategoryKey = cacheKey
+        if (isCategorySwitch || newsItems.isEmpty()) {
             isManualRefreshing = false
             val cachedItems = newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
                 appRepo.getCachedFeed(cacheKey)
@@ -235,34 +302,78 @@ fun PersonalHomeScreen(
                 } else {
                     targetCat?.query ?: ""
                 }
-                val items = newsRepo.fetchNews(
-                    query = q,
-                    intl = (targetCatId == "intl"),
-                    forceRefresh = force
+                val fetchedResult = withTimeoutOrNull(HOME_SCREEN_LOAD_TIMEOUT_MS) {
+                    val items = newsRepo.fetchNews(
+                        query = q,
+                        intl = (targetCatId == "intl"),
+                        forceRefresh = force
+                    )
+                    val activeMode = appRepo.state.value.homeFeedMode
+                    val activeFavs = appRepo.state.value.favs.toSet()
+                    val builtCoverage = buildCoverageAsyncForMode(items, activeMode, activeFavs)
+                    items to builtCoverage
+                }
+
+                val updated = applyHomeLoadResult(
+                    currentSnapshot = HomeLoadStateSnapshot(
+                        newsItems = newsItems,
+                        coverageList = coverageList,
+                        isLoading = isLoading,
+                        isManualRefreshing = isManualRefreshing,
+                        errorMsg = errorMsg,
+                        loadedCategoryKey = loadedCategoryKey ?: cacheKey,
+                        requestVersion = requestVersion
+                    ),
+                    completedRequestVersion = currentRequestVersion,
+                    targetCategoryKey = cacheKey,
+                    fetchedItems = fetchedResult?.first,
+                    builtCoverage = fetchedResult?.second,
+                    failure = if (fetchedResult == null) Exception("Home load timed out") else null
                 )
-                val activeMode = appRepo.state.value.homeFeedMode
-                val activeFavs = appRepo.state.value.favs.toSet()
-                val builtCoverage = buildCoverageAsyncForMode(items, activeMode, activeFavs)
+
                 if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
-                    newsItems = items
-                    coverageList = builtCoverage
-                    errorMsg = null
-                    newsRepo.putMemoryCachedCategoryFeed(cacheKey, items)
-                    appRepo.saveCachedFeed(cacheKey, items)
+                    newsItems = updated.newsItems
+                    coverageList = updated.coverageList
+                    errorMsg = updated.errorMsg
+                    if (!fetchedResult?.first.isNullOrEmpty()) {
+                        val validItems = fetchedResult!!.first
+                        newsRepo.putMemoryCachedCategoryFeed(cacheKey, validItems)
+                        appRepo.saveCachedFeed(cacheKey, validItems)
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                val updated = applyHomeLoadResult(
+                    currentSnapshot = HomeLoadStateSnapshot(
+                        newsItems = newsItems,
+                        coverageList = coverageList,
+                        isLoading = isLoading,
+                        isManualRefreshing = isManualRefreshing,
+                        errorMsg = errorMsg,
+                        loadedCategoryKey = loadedCategoryKey ?: cacheKey,
+                        requestVersion = requestVersion
+                    ),
+                    completedRequestVersion = currentRequestVersion,
+                    targetCategoryKey = cacheKey,
+                    fetchedItems = null,
+                    builtCoverage = null,
+                    failure = e
+                )
                 if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
-                    if (newsItems.isEmpty()) {
-                        errorMsg = "সংবাদ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
-                    }
+                    newsItems = updated.newsItems
+                    coverageList = updated.coverageList
+                    errorMsg = updated.errorMsg
                 }
             } finally {
-                if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
+                if (currentRequestVersion == requestVersion) {
+                    if (loadedCategoryKey == null) {
+                        loadedCategoryKey = cacheKey
+                    }
                     isLoading = false
                     isManualRefreshing = false
                 }
+                newsRepo.markInitialHomeLoadCompleted()
             }
         }
     }
@@ -580,12 +691,13 @@ fun PersonalHomeScreen(
                 }
             }
 
-            val bodyState = when {
-                (isLoading && newsItems.isEmpty()) || loadedCategoryKey != effectiveCatKey -> HomeBodyState.LOADING
-                errorMsg != null && newsItems.isEmpty() -> HomeBodyState.ERROR
-                newsItems.isEmpty() -> HomeBodyState.EMPTY
-                else -> HomeBodyState.CONTENT
-            }
+            val bodyState = resolveHomeBodyState(
+                isLoading = isLoading,
+                newsItems = newsItems,
+                loadedCategoryKey = loadedCategoryKey,
+                effectiveCatKey = effectiveCatKey,
+                errorMsg = errorMsg
+            )
 
             PullToRefreshBox(
                 isRefreshing = isManualRefreshing,

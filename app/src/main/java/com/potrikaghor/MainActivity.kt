@@ -157,8 +157,10 @@ fun PotrikaghorApp(
     // Periodic background check for breaking news (3+ sources)
     LaunchedEffect(appState.notificationTopics) {
         if (appState.notificationTopics.isNotEmpty()) {
-            // Initial check shortly after launch, then periodic every 15 minutes
-            delay(4_000L)
+            // Wait until the initial Home Screen load completes (with bounded fallback)
+            // so BreakingNewsNotifier does not launch duplicate fetches during startup.
+            newsRepo.awaitInitialHomeLoadBeforeBackgroundWork()
+            delay(1_500L)
             while (true) {
                 BreakingNewsNotifier.checkAndNotifyBreakingNews(
                     context = context,

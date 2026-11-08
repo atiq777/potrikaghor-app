@@ -5,17 +5,34 @@ import android.util.Log
 import com.potrikaghor.BuildConfig
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.NewsItem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.net.URI
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
@@ -23,6 +40,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import kotlin.math.abs
 import kotlin.math.pow
@@ -84,6 +102,9 @@ class NewsRepository {
         const val FEED_STALE_THRESHOLD_MS = 72 * 3600 * 1000L
         const val PINNED_STALE_ITEM_MAX_AGE_MS = 7 * 24 * 3600 * 1000L
         const val DUPLICATE_TIME_WINDOW_MS = 12 * 3600 * 1000L
+        const val PER_FEED_TIMEOUT_MS = 10_000L
+        const val DIRECT_FEED_BATCH_DEADLINE_MS = 13_000L
+        const val GOOGLE_FEED_TIMEOUT_MS = 10_000L
 
         /**
          * Curated direct publisher RSS/Atom feeds.
@@ -349,16 +370,18 @@ class NewsRepository {
         )
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(14, TimeUnit.SECONDS)
+    internal val client = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
-    private val fastFeedClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+    internal val fastFeedClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(7, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -366,6 +389,7 @@ class NewsRepository {
     val imageHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(7, TimeUnit.SECONDS)
         .readTimeout(9, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addInterceptor { chain ->
@@ -385,6 +409,21 @@ class NewsRepository {
     private val inFlightLookups = ConcurrentHashMap<String, Deferred<String?>>()
     private val imageSemaphore = Semaphore(6)
     private val directFeedSemaphore = Semaphore(6)
+    private val currentFeedJobHolder = ThreadLocal<Job?>()
+
+    private class SharedInFlightRequest<T>(
+        val deferred: Deferred<T>,
+        var activeWaiters: Int = 0
+    )
+
+    private val inFlightLock = Any()
+    private val sharedFetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var inFlightDomesticDirectBatch: SharedInFlightRequest<List<NewsItem>>? = null
+    private var inFlightIntlDirectBatch: SharedInFlightRequest<List<NewsItem>>? = null
+    private val inFlightNewsRequests = ConcurrentHashMap<String, SharedInFlightRequest<List<NewsItem>>>()
+
+    private val _initialHomeLoadCompleted = MutableStateFlow(false)
+    val initialHomeLoadCompleted: StateFlow<Boolean> = _initialHomeLoadCompleted.asStateFlow()
 
     // In-memory cache for direct publisher RSS feeds (TTL: 3 minutes)
     @Volatile
@@ -402,6 +441,54 @@ class NewsRepository {
 
     @Volatile
     var dataSaverMode: Boolean = false
+
+    fun markInitialHomeLoadCompleted() {
+        _initialHomeLoadCompleted.value = true
+    }
+
+    suspend fun awaitInitialHomeLoadBeforeBackgroundWork(maxWaitMs: Long = 20_000L) {
+        if (_initialHomeLoadCompleted.value) return
+        withTimeoutOrNull(maxWaitMs) {
+            _initialHomeLoadCompleted.first { it }
+        }
+    }
+
+    internal fun availableDirectFeedPermits(): Int = directFeedSemaphore.availablePermits
+
+    /**
+     * Executes a blocking OkHttp [Call] while binding its lifecycle to [job] (defaulting to the
+     * active feed coroutine job) so coroutine timeout or cancellation immediately invokes
+     * [Call.cancel] while [Call.execute] is still blocked, and always closes the [Response].
+     */
+    internal fun <T> executeCancellableCall(
+        call: Call,
+        job: Job? = currentFeedJobHolder.get(),
+        block: (Response) -> T
+    ): T {
+        val cancelWatcher = if (job != null) Job(parent = job) else null
+        val completionHandle = cancelWatcher?.invokeOnCompletion { cause ->
+            if (cause != null) {
+                call.cancel()
+            }
+        }
+        try {
+            if (job?.isCancelled == true) {
+                call.cancel()
+                throw CancellationException("HTTP call cancelled before execution")
+            }
+            return call.execute().use { response ->
+                block(response)
+            }
+        } catch (e: java.io.IOException) {
+            if (job?.isCancelled == true || call.isCanceled()) {
+                throw CancellationException("HTTP call cancelled", e)
+            }
+            throw e
+        } finally {
+            completionHandle?.dispose()
+            cancelWatcher?.cancel()
+        }
+    }
 
     fun getMemoryCachedCategoryFeed(categoryId: String): List<NewsItem> {
         return categoryFeedMemoryCache[categoryId.ifBlank { "top" }] ?: emptyList()
@@ -557,51 +644,190 @@ class NewsRepository {
         intl: Boolean = false,
         section: String = "",
         forceRefresh: Boolean = false
+    ): List<NewsItem> = fetchNewsInternal(
+        query = query,
+        intl = intl,
+        section = section,
+        forceRefresh = forceRefresh
+    )
+
+    internal suspend fun fetchNewsInternal(
+        query: String = "",
+        intl: Boolean = false,
+        section: String = "",
+        forceRefresh: Boolean = false,
+        directFeedFetcher: (DirectRssFeedSpec) -> List<NewsItem> = ::fetchSingleDirectFeed,
+        googleRssFetcher: (String, Boolean, String) -> List<NewsItem> = ::fetchGoogleNewsRss,
+        perFeedTimeoutMs: Long = PER_FEED_TIMEOUT_MS,
+        batchDeadlineMs: Long = DIRECT_FEED_BATCH_DEADLINE_MS,
+        googleFeedTimeoutMs: Long = GOOGLE_FEED_TIMEOUT_MS
     ): List<NewsItem> = withContext(Dispatchers.IO) {
         val q = query.trim()
-        val isIntlQuery = intl || q == "আন্তর্জাতিক"
+        val sec = section.trim()
+        val requestKey = "q=$q|intl=$intl|sec=$sec"
 
-        coroutineScope {
-            // 1. Fetch direct publisher RSS feeds (which embed real <media:content>, <media:thumbnail>, <enclosure>, <img>)
-            val directDeferred = async {
-                fetchDirectPublisherFeeds(isIntl = isIntlQuery, forceRefresh = forceRefresh)
+        if (forceRefresh) {
+            return@withContext performFetchNews(
+                q = q,
+                intl = intl,
+                section = sec,
+                forceRefresh = true,
+                directFeedFetcher = directFeedFetcher,
+                googleRssFetcher = googleRssFetcher,
+                perFeedTimeoutMs = perFeedTimeoutMs,
+                batchDeadlineMs = batchDeadlineMs,
+                googleFeedTimeoutMs = googleFeedTimeoutMs
+            )
+        }
+
+        val shared: SharedInFlightRequest<List<NewsItem>> = synchronized(inFlightLock) {
+            val existing = inFlightNewsRequests[requestKey]
+            if (existing != null && existing.deferred.isActive) {
+                existing.activeWaiters++
+                existing
+            } else {
+                lateinit var created: SharedInFlightRequest<List<NewsItem>>
+                val deferred = sharedFetchScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        performFetchNews(
+                            q = q,
+                            intl = intl,
+                            section = sec,
+                            forceRefresh = false,
+                            directFeedFetcher = directFeedFetcher,
+                            googleRssFetcher = googleRssFetcher,
+                            perFeedTimeoutMs = perFeedTimeoutMs,
+                            batchDeadlineMs = batchDeadlineMs,
+                            googleFeedTimeoutMs = googleFeedTimeoutMs
+                        )
+                    } finally {
+                        synchronized(inFlightLock) {
+                            if (inFlightNewsRequests[requestKey] === created) {
+                                inFlightNewsRequests.remove(requestKey)
+                            }
+                        }
+                    }
+                }
+                created = SharedInFlightRequest(deferred = deferred, activeWaiters = 1)
+                inFlightNewsRequests[requestKey] = created
+                created
             }
+        }
 
-            // 2. Fetch Google News RSS feed for broad multi-newspaper aggregation
-            val googleDeferred = async {
-                try {
-                    fetchGoogleNewsRss(query = q, intl = intl, section = section)
-                } catch (e: Exception) {
-                    logDiag("Google News RSS fetch error for query='$q': ${e.message}")
-                    emptyList()
+        shared.deferred.start()
+        var cancelled = false
+        try {
+            shared.deferred.await()
+        } catch (e: CancellationException) {
+            cancelled = true
+            val shouldCancelUnderlying = synchronized(inFlightLock) {
+                shared.activeWaiters--
+                if (shared.activeWaiters <= 0) {
+                    if (inFlightNewsRequests[requestKey] === shared) {
+                        inFlightNewsRequests.remove(requestKey)
+                    }
+                    true
+                } else {
+                    false
                 }
             }
-
-            val directItems = directDeferred.await()
-            val googleItems = googleDeferred.await()
-
-            // Filter direct items by category/search query if one was specified
-            val filteredDirect = filterDirectItemsByQuery(directItems, q, section, isIntlQuery)
-
-            // Cross-match Google News RSS items with direct publisher RSS items by headline similarity
-            // so Google News items covering the same event inherit verified RSS image URLs!
-            val enrichedGoogleItems = enrichGoogleItemsWithDirectImages(googleItems, directItems)
-
-            val combined = mergeDirectAndGoogleItems(filteredDirect, enrichedGoogleItems)
-            if (combined.isEmpty() && googleItems.isEmpty() && directItems.isEmpty()) {
-                throw Exception("No news items fetched")
+            if (shouldCancelUnderlying) {
+                withContext(NonCancellable) {
+                    shared.deferred.cancelAndJoin()
+                }
             }
-
-            val finalItems = if (combined.isNotEmpty()) combined else directItems
-            logFeedSummaryDiagnostics(q, finalItems)
-            finalItems
+            throw e
+        } finally {
+            if (!cancelled) {
+                synchronized(inFlightLock) {
+                    shared.activeWaiters = (shared.activeWaiters - 1).coerceAtLeast(0)
+                }
+            }
         }
+    }
+
+    private suspend fun performFetchNews(
+        q: String,
+        intl: Boolean,
+        section: String,
+        forceRefresh: Boolean,
+        directFeedFetcher: (DirectRssFeedSpec) -> List<NewsItem>,
+        googleRssFetcher: (String, Boolean, String) -> List<NewsItem>,
+        perFeedTimeoutMs: Long,
+        batchDeadlineMs: Long,
+        googleFeedTimeoutMs: Long
+    ): List<NewsItem> = coroutineScope {
+        val isIntlQuery = intl || q == "আন্তর্জাতিক"
+
+        // 1. Fetch direct publisher RSS feeds (bounded per-feed and batch deadline, partial results preserved)
+        val directDeferred = async {
+            try {
+                fetchDirectPublisherFeeds(
+                    isIntl = isIntlQuery,
+                    forceRefresh = forceRefresh,
+                    fetcher = directFeedFetcher,
+                    perFeedTimeoutMs = perFeedTimeoutMs,
+                    batchDeadlineMs = batchDeadlineMs
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logDiag("Direct publisher feeds error for query='$q': ${e.message}")
+                emptyList()
+            }
+        }
+
+        // 2. Fetch Google News RSS feed with bounded timeout and cancellable Call execution
+        val googleDeferred = async {
+            try {
+                withTimeoutOrNull(googleFeedTimeoutMs) {
+                    val googleJob = coroutineContext[Job]
+                    runInterruptible(Dispatchers.IO) {
+                        currentFeedJobHolder.set(googleJob)
+                        try {
+                            googleRssFetcher(q, intl, section)
+                        } finally {
+                            currentFeedJobHolder.remove()
+                        }
+                    }
+                } ?: run {
+                    logDiag("Google News RSS timeout for query='$q'")
+                    emptyList()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logDiag("Google News RSS fetch error for query='$q': ${e.message}")
+                emptyList()
+            }
+        }
+
+        val directItems = directDeferred.await()
+        val googleItems = googleDeferred.await()
+
+        // Filter direct items by category/search query if one was specified
+        val filteredDirect = filterDirectItemsByQuery(directItems, q, section, isIntlQuery)
+
+        // Cross-match Google News RSS items with direct publisher RSS items by headline similarity
+        // so Google News items covering the same event inherit verified RSS image URLs!
+        val enrichedGoogleItems = enrichGoogleItemsWithDirectImages(googleItems, directItems)
+
+        val combined = mergeDirectAndGoogleItems(filteredDirect, enrichedGoogleItems)
+        if (combined.isEmpty() && googleItems.isEmpty() && directItems.isEmpty()) {
+            throw Exception("No news items fetched")
+        }
+
+        val finalItems = if (combined.isNotEmpty()) combined else directItems
+        logFeedSummaryDiagnostics(q, finalItems)
+        finalItems
     }
 
     internal suspend fun fetchDirectPublisherFeeds(
         isIntl: Boolean,
         forceRefresh: Boolean = false,
-        fetcher: (DirectRssFeedSpec) -> List<NewsItem> = ::fetchSingleDirectFeed
+        fetcher: (DirectRssFeedSpec) -> List<NewsItem> = ::fetchSingleDirectFeed,
+        perFeedTimeoutMs: Long = PER_FEED_TIMEOUT_MS,
+        batchDeadlineMs: Long = DIRECT_FEED_BATCH_DEADLINE_MS
     ): List<NewsItem> = coroutineScope {
         val now = System.currentTimeMillis()
         if (!forceRefresh) {
@@ -616,22 +842,177 @@ class NewsRepository {
             }
         }
 
+        if (forceRefresh) {
+            return@coroutineScope executeDirectPublisherFeedsBatch(
+                isIntl = isIntl,
+                fetcher = fetcher,
+                perFeedTimeoutMs = perFeedTimeoutMs,
+                batchDeadlineMs = batchDeadlineMs
+            )
+        }
+
+        val shared: SharedInFlightRequest<List<NewsItem>> = synchronized(inFlightLock) {
+            val checkNow = System.currentTimeMillis()
+            if (isIntl) {
+                if (cachedDirectIntlItems.isNotEmpty() && (checkNow - cachedDirectIntlTimestamp) < directFeedCacheTtlMs) {
+                    return@coroutineScope cachedDirectIntlItems
+                }
+                val existing = inFlightIntlDirectBatch
+                if (existing != null && existing.deferred.isActive) {
+                    existing.activeWaiters++
+                    existing
+                } else {
+                    lateinit var created: SharedInFlightRequest<List<NewsItem>>
+                    val deferred = sharedFetchScope.async(start = CoroutineStart.LAZY) {
+                        try {
+                            executeDirectPublisherFeedsBatch(
+                                isIntl = true,
+                                fetcher = fetcher,
+                                perFeedTimeoutMs = perFeedTimeoutMs,
+                                batchDeadlineMs = batchDeadlineMs
+                            )
+                        } finally {
+                            synchronized(inFlightLock) {
+                                if (inFlightIntlDirectBatch === created) {
+                                    inFlightIntlDirectBatch = null
+                                }
+                            }
+                        }
+                    }
+                    created = SharedInFlightRequest(deferred = deferred, activeWaiters = 1)
+                    inFlightIntlDirectBatch = created
+                    created
+                }
+            } else {
+                if (cachedDirectDomesticItems.isNotEmpty() && (checkNow - cachedDirectDomesticTimestamp) < directFeedCacheTtlMs) {
+                    return@coroutineScope cachedDirectDomesticItems
+                }
+                val existing = inFlightDomesticDirectBatch
+                if (existing != null && existing.deferred.isActive) {
+                    existing.activeWaiters++
+                    existing
+                } else {
+                    lateinit var created: SharedInFlightRequest<List<NewsItem>>
+                    val deferred = sharedFetchScope.async(start = CoroutineStart.LAZY) {
+                        try {
+                            executeDirectPublisherFeedsBatch(
+                                isIntl = false,
+                                fetcher = fetcher,
+                                perFeedTimeoutMs = perFeedTimeoutMs,
+                                batchDeadlineMs = batchDeadlineMs
+                            )
+                        } finally {
+                            synchronized(inFlightLock) {
+                                if (inFlightDomesticDirectBatch === created) {
+                                    inFlightDomesticDirectBatch = null
+                                }
+                            }
+                        }
+                    }
+                    created = SharedInFlightRequest(deferred = deferred, activeWaiters = 1)
+                    inFlightDomesticDirectBatch = created
+                    created
+                }
+            }
+        }
+
+        shared.deferred.start()
+        var cancelled = false
+        try {
+            shared.deferred.await()
+        } catch (e: CancellationException) {
+            cancelled = true
+            val shouldCancelUnderlying = synchronized(inFlightLock) {
+                shared.activeWaiters--
+                if (shared.activeWaiters <= 0) {
+                    if (isIntl) {
+                        if (inFlightIntlDirectBatch === shared) inFlightIntlDirectBatch = null
+                    } else {
+                        if (inFlightDomesticDirectBatch === shared) inFlightDomesticDirectBatch = null
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            if (shouldCancelUnderlying) {
+                withContext(NonCancellable) {
+                    shared.deferred.cancelAndJoin()
+                }
+            }
+            throw e
+        } finally {
+            if (!cancelled) {
+                synchronized(inFlightLock) {
+                    shared.activeWaiters = (shared.activeWaiters - 1).coerceAtLeast(0)
+                }
+            }
+        }
+    }
+
+    private suspend fun executeDirectPublisherFeedsBatch(
+        isIntl: Boolean,
+        fetcher: (DirectRssFeedSpec) -> List<NewsItem>,
+        perFeedTimeoutMs: Long,
+        batchDeadlineMs: Long
+    ): List<NewsItem> = coroutineScope {
+        val now = System.currentTimeMillis()
         val feedsToFetch = if (isIntl) {
             DIRECT_PUBLISHER_FEEDS.filter { it.isIntl || it.sourceBn == "বিবিসি বাংলা" || it.sourceBn == "ডিডব্লিউ বাংলা" }
         } else {
             DIRECT_PUBLISHER_FEEDS.filter { !it.isIntl }
         }
 
-        val deferreds = feedsToFetch.map { spec ->
-            async(Dispatchers.IO) {
-                directFeedSemaphore.withPermit {
-                    val rawItems = fetcher(spec)
-                    filterPinnedStaleDirectItems(rawItems, now)
+        val completedResults = ConcurrentHashMap<Int, List<NewsItem>>()
+        val batchJob = SupervisorJob(coroutineContext[Job])
+        val batchScope = CoroutineScope(coroutineContext + batchJob + Dispatchers.IO)
+
+        try {
+            val feedJobs = feedsToFetch.mapIndexed { index, spec ->
+                batchScope.launch {
+                    val items = try {
+                        directFeedSemaphore.withPermit {
+                            withTimeoutOrNull(perFeedTimeoutMs) {
+                                val feedJob = coroutineContext[Job]
+                                val rawItems = runInterruptible(Dispatchers.IO) {
+                                    currentFeedJobHolder.set(feedJob)
+                                    try {
+                                        fetcher(spec)
+                                    } finally {
+                                        currentFeedJobHolder.remove()
+                                    }
+                                }
+                                filterPinnedStaleDirectItems(rawItems, now)
+                            } ?: run {
+                                logDiag("DIRECT_FEED_TIMEOUT | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\"")
+                                emptyList()
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        logDiag("DIRECT_FEED_ERROR | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\" | error=\"${e.message}\"")
+                        emptyList()
+                    }
+                    if (items.isNotEmpty()) {
+                        completedResults[index] = items
+                    }
                 }
+            }
+
+            withTimeoutOrNull(batchDeadlineMs) {
+                feedJobs.joinAll()
+            }
+        } finally {
+            withContext(NonCancellable) {
+                batchJob.cancelAndJoin()
             }
         }
 
-        val fetched = deferreds.awaitAll().flatten()
+        val fetched = completedResults.entries
+            .sortedBy { it.key }
+            .flatMap { it.value }
+
         if (fetched.isNotEmpty()) {
             val finishedAt = System.currentTimeMillis()
             if (isIntl) {
@@ -653,10 +1034,10 @@ class NewsRepository {
             .build()
 
         return try {
-            fastFeedClient.newCall(req).execute().use { res ->
+            executeCancellableCall(fastFeedClient.newCall(req)) { res ->
                 if (!res.isSuccessful) {
                     logDiag("DIRECT_FEED_FAIL | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\" | HTTP ${res.code}")
-                    return emptyList()
+                    return@executeCancellableCall emptyList()
                 }
                 val xml = readBoundedBody(res, 350_000)
                 val parsed = parseXml(
@@ -672,6 +1053,8 @@ class NewsRepository {
                 )
                 parsed
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logDiag("DIRECT_FEED_ERROR | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\" | error=\"${e.message}\"")
             emptyList()
@@ -706,10 +1089,10 @@ class NewsRepository {
             .header("User-Agent", BROWSER_USER_AGENT)
             .build()
 
-        client.newCall(request).execute().use { response ->
+        return executeCancellableCall(client.newCall(request)) { response ->
             if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            val body = response.body?.string() ?: ""
-            return parseXml(body)
+            val body = readBoundedBody(response, 500_000)
+            parseXml(body)
         }
     }
 
@@ -767,27 +1150,35 @@ class NewsRepository {
                 listOf("আবহাওয়া", "বৃষ্টি", "ঘূর্ণিঝড়", "তাপমাত্রা", "গরম", "শীত", "বন্যা", "ঝড়", "লঘুচাপ")
             key.contains("আন্তর্জাতিক") || key == "world" ->
                 listOf("বিশ্ব", "আন্তর্জাতিক", "ভারত", "যুক্তরাষ্ট্র", "ট্রাম্প", "রাশিয়া", "ইউক্রেন", "ইসরায়েল", "গাজা", "ইরান", "চীন", "পাকিস্তান", "যুক্তরাজ্য", "ইউরোপ")
-            else -> query.split(Regex("\\s+")).filter { it.length >= 2 }
+            else -> query.split(whitespaceRegex).filter { it.length >= 2 }
         }
     }
 
     /**
      * Enriches Google News RSS items with verified RSS image URLs when the same news story
      * is present in any direct publisher RSS feed.
+     * Precomputes normalized title signatures for direct items once per batch to avoid
+     * repeated O(N * M) regex tokenization.
      */
-    private fun enrichGoogleItemsWithDirectImages(
+    internal fun enrichGoogleItemsWithDirectImages(
         googleItems: List<NewsItem>,
         directItems: List<NewsItem>
     ): List<NewsItem> {
         val directWithImages = directItems.filter { !it.imageUrl.isNullOrBlank() }
         if (directWithImages.isEmpty() || googleItems.isEmpty()) return googleItems
 
+        // Precompute signatures for all direct items with images once before iterating
+        val directSignatures = directWithImages.map { dItem ->
+            dItem to getOrCreateTitleSignature(dItem.title)
+        }
+
         return googleItems.map { gItem ->
             var matchedImage: String? = gItem.imageUrl
 
             if (matchedImage.isNullOrBlank()) {
-                for (dItem in directWithImages) {
-                    if (areArticlesDuplicate(gItem, dItem)) {
+                val gSig = getOrCreateTitleSignature(gItem.title)
+                for ((dItem, dSig) in directSignatures) {
+                    if (areArticlesDuplicateWithSignatures(gItem.time, gSig, dItem.time, dSig)) {
                         matchedImage = dItem.imageUrl
                         break
                     }
@@ -798,9 +1189,10 @@ class NewsRepository {
                 if (!rel.imageUrl.isNullOrBlank()) {
                     rel
                 } else {
-                    val relMatch = directWithImages.firstOrNull { dItem ->
-                        areArticlesDuplicate(rel, dItem)
-                    }?.imageUrl
+                    val relSig = getOrCreateTitleSignature(rel.title)
+                    val relMatch = directSignatures.firstOrNull { (dItem, dSig) ->
+                        areArticlesDuplicateWithSignatures(rel.time, relSig, dItem.time, dSig)
+                    }?.first?.imageUrl
                     if (relMatch != null) {
                         articleImageCache[cacheKeyFor(rel)] = relMatch
                         rel.copy(imageUrl = relMatch)
@@ -2023,6 +2415,51 @@ class NewsRepository {
         "গোপালগঞ্জ" to "gopalganj", "শরীয়তপুর" to "shariatpur", "রাজবাড়ী" to "rajbari"
     )
 
+    private val whitespaceRegex = Regex("\\s+")
+    private val nonWordSplitRegex = Regex("[^\\p{L}\\p{M}\\p{N}]+")
+
+    internal data class PrecomputedTitleSignature(
+        val normTitle: String,
+        val districts: Set<String>,
+        val tokens: Set<String>
+    )
+
+    private val titleSignatureCache = ConcurrentHashMap<String, PrecomputedTitleSignature>()
+    internal val titleTokenizationCounter = AtomicInteger(0)
+
+    internal fun clearTitleSignatureCacheForTest() {
+        titleSignatureCache.clear()
+        titleTokenizationCounter.set(0)
+    }
+
+    internal fun getOrCreateTitleSignature(rawTitle: String): PrecomputedTitleSignature {
+        val normTitle = rawTitle.trim().replace(whitespaceRegex, " ")
+        if (normTitle.isEmpty()) {
+            return PrecomputedTitleSignature("", emptySet(), emptySet())
+        }
+        titleSignatureCache[normTitle]?.let { return it }
+        if (titleSignatureCache.size > 4096) {
+            titleSignatureCache.clear()
+        }
+        return titleSignatureCache.computeIfAbsent(normTitle) { key ->
+            titleTokenizationCounter.incrementAndGet()
+            val rawWords = key.lowercase(Locale.ROOT)
+                .split(nonWordSplitRegex)
+                .filter { it.length >= 2 }
+            val districts = mutableSetOf<String>()
+            val tokens = mutableSetOf<String>()
+            for (w in rawWords) {
+                districtLocations[w]?.let { districts.add(it) }
+                if (w in banglaAndEnStopwords) continue
+                val norm = normalizeBanglaToken(w)
+                if (norm.length >= 2 && norm !in banglaAndEnStopwords) {
+                    tokens.add(norm)
+                }
+            }
+            PrecomputedTitleSignature(normTitle = key, districts = districts, tokens = tokens)
+        }
+    }
+
     internal fun normalizeBanglaToken(word: String): String {
         if (word.length < 6 || word in protectedBanglaWords) return word
         val pluralSuffixes = listOf("গুলোকে", "গুলোতে", "গুলোর", "দেরকে", "গুলো", "টিকে", "টির")
@@ -2043,35 +2480,49 @@ class NewsRepository {
     }
 
     fun meaningfulTokens(s: String): Set<String> {
-        val rawWords = s.lowercase(Locale.ROOT)
-            .split(Regex("[^\\p{L}\\p{M}\\p{N}]+"))
-            .filter { it.length >= 2 }
-        val result = mutableSetOf<String>()
-        for (w in rawWords) {
-            if (w in banglaAndEnStopwords) continue
-            val norm = normalizeBanglaToken(w)
-            if (norm.length >= 2 && norm !in banglaAndEnStopwords) {
-                result.add(norm)
-            }
-        }
-        return result
+        return getOrCreateTitleSignature(s).tokens
     }
 
     private fun extractDistrictEntities(title: String): Set<String> {
-        val rawWords = title.lowercase(Locale.ROOT)
-            .split(Regex("[^\\p{L}\\p{M}\\p{N}]+"))
-            .filter { it.length >= 2 }
-        val districts = mutableSetOf<String>()
-        for (w in rawWords) {
-            districtLocations[w]?.let { districts.add(it) }
-        }
-        return districts
+        return getOrCreateTitleSignature(title).districts
     }
 
     private fun jaccard(a: Set<String>, b: Set<String>): Double {
         if (a.isEmpty() || b.isEmpty()) return 0.0
         val inter = a.count { b.contains(it) }
         return inter.toDouble() / (a.size + b.size - inter).toDouble()
+    }
+
+    internal fun areArticlesDuplicateWithSignatures(
+        t1: Long?,
+        sigA: PrecomputedTitleSignature,
+        t2: Long?,
+        sigB: PrecomputedTitleSignature
+    ): Boolean {
+        if (t1 != null && t2 != null && abs(t1 - t2) > DUPLICATE_TIME_WINDOW_MS) {
+            return false
+        }
+
+        if (sigA.normTitle.isNotEmpty() && sigA.normTitle.equals(sigB.normTitle, ignoreCase = true)) {
+            return true
+        }
+
+        if (sigA.districts.isNotEmpty() && sigB.districts.isNotEmpty() && sigA.districts.intersect(sigB.districts).isEmpty()) {
+            return false
+        }
+
+        val tokensA = sigA.tokens
+        val tokensB = sigB.tokens
+        if (tokensA.size < 4 || tokensB.size < 4) {
+            return false
+        }
+
+        val inter = tokensA.count { tokensB.contains(it) }
+        if (inter < 3) return false
+
+        val jac = inter.toDouble() / (tokensA.size + tokensB.size - inter).toDouble()
+        if (inter == 3 && jac < 0.50) return false
+        return jac >= 0.42
     }
 
     /**
@@ -2088,31 +2539,9 @@ class NewsRepository {
         if (t1 != null && t2 != null && abs(t1 - t2) > DUPLICATE_TIME_WINDOW_MS) {
             return false
         }
-
-        val normTitleA = a.title.trim().replace(Regex("\\s+"), " ")
-        val normTitleB = b.title.trim().replace(Regex("\\s+"), " ")
-        if (normTitleA.isNotEmpty() && normTitleA.equals(normTitleB, ignoreCase = true)) {
-            return true
-        }
-
-        val districtsA = extractDistrictEntities(normTitleA)
-        val districtsB = extractDistrictEntities(normTitleB)
-        if (districtsA.isNotEmpty() && districtsB.isNotEmpty() && districtsA.intersect(districtsB).isEmpty()) {
-            return false
-        }
-
-        val tokensA = meaningfulTokens(normTitleA)
-        val tokensB = meaningfulTokens(normTitleB)
-        if (tokensA.size < 4 || tokensB.size < 4) {
-            return false
-        }
-
-        val inter = tokensA.count { tokensB.contains(it) }
-        if (inter < 3) return false
-
-        val jac = inter.toDouble() / (tokensA.size + tokensB.size - inter).toDouble()
-        if (inter == 3 && jac < 0.50) return false
-        return jac >= 0.42
+        val sigA = getOrCreateTitleSignature(a.title)
+        val sigB = getOrCreateTitleSignature(b.title)
+        return areArticlesDuplicateWithSignatures(t1, sigA, t2, sigB)
     }
 
     private fun clusterItemsIntoCoverage(all: List<NewsItem>): List<Coverage> {
