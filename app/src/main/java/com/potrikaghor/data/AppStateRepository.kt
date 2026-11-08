@@ -9,20 +9,30 @@ import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.model.ReadHistoryItem
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.encodeToJsonElement
+import java.util.concurrent.ConcurrentHashMap
 
 data class AppSettings(
     val customPapers: List<Paper> = emptyList(),
@@ -55,10 +65,27 @@ data class AppSettings(
     val homeFeedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES
 )
 
-class AppStateRepository(private val context: Context) {
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("potrikaghor_prefs", Context.MODE_PRIVATE)
+class AppStateRepository(
+    private val prefs: SharedPreferences,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
+    constructor(context: Context) : this(
+        context.getSharedPreferences("potrikaghor_prefs", Context.MODE_PRIVATE),
+        Dispatchers.IO
+    )
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val stateLock = Any()
+    private val persistenceScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val persistenceMutex = Mutex()
+    private val activePersistenceJobs = ConcurrentHashMap.newKeySet<Job>()
+
+    @Volatile
+    private var readArticlesLookupSet: Set<String> = emptySet()
+
+    @Volatile
+    internal var lastPersistenceThreadName: String = ""
+        private set
 
     private val _state = MutableStateFlow(AppSettings())
     val state: StateFlow<AppSettings> = _state.asStateFlow()
@@ -183,37 +210,62 @@ class AppStateRepository(private val context: Context) {
             emptyList()
         }
 
-        _state.value = AppSettings(
-            customPapers = customPapers,
-            urlFixes = urlFixes,
-            favs = favs,
-            recents = recents,
-            bookmarks = bookmarks,
-            hiddenPapers = hiddenPapers,
-            onlyShowFavorites = onlyShowFavorites,
-            homeCategories = homeCats,
-            themeMode = themeMode,
-            themeStyle = themeStyle,
-            accent = accent,
-            hideAds = hideAds,
-            gridView = gridView,
-            readerNight = readerNight,
-            readerDesktop = readerDesktop,
-            readerZoom = readerZoom,
-            textScale = textScale,
-            articleFontSize = articleFontSize,
-            articleLineHeight = articleLineHeight,
-            readingDensity = readingDensity,
-            offlineMode = offlineMode,
-            notificationTopics = notifTopics,
-            readArticles = readArticles,
-            readHistory = readHistory,
-            mutedKeywords = mutedKeywords,
-            dataSaverMode = dataSaverMode,
-            preferCleanReader = preferCleanReader,
-            homeFeedMode = homeFeedMode
-        )
+        synchronized(stateLock) {
+            readArticlesLookupSet = readArticles.toHashSet()
+            _state.value = AppSettings(
+                customPapers = customPapers,
+                urlFixes = urlFixes,
+                favs = favs,
+                recents = recents,
+                bookmarks = bookmarks,
+                hiddenPapers = hiddenPapers,
+                onlyShowFavorites = onlyShowFavorites,
+                homeCategories = homeCats,
+                themeMode = themeMode,
+                themeStyle = themeStyle,
+                accent = accent,
+                hideAds = hideAds,
+                gridView = gridView,
+                readerNight = readerNight,
+                readerDesktop = readerDesktop,
+                readerZoom = readerZoom,
+                textScale = textScale,
+                articleFontSize = articleFontSize,
+                articleLineHeight = articleLineHeight,
+                readingDensity = readingDensity,
+                offlineMode = offlineMode,
+                notificationTopics = notifTopics,
+                readArticles = readArticles,
+                readHistory = readHistory,
+                mutedKeywords = mutedKeywords,
+                dataSaverMode = dataSaverMode,
+                preferCleanReader = preferCleanReader,
+                homeFeedMode = homeFeedMode
+            )
+        }
         _isReady.value = true
+    }
+
+    private fun launchAsyncPersistence(block: (AppSettings) -> Unit) {
+        val job = persistenceScope.launch {
+            persistenceMutex.withLock {
+                lastPersistenceThreadName = Thread.currentThread().name
+                val snapshot = synchronized(stateLock) { _state.value }
+                block(snapshot)
+            }
+        }
+        activePersistenceJobs.add(job)
+        job.invokeOnCompletion {
+            activePersistenceJobs.remove(job)
+        }
+    }
+
+    suspend fun awaitPendingPersistence() {
+        while (true) {
+            val jobs = activePersistenceJobs.toList()
+            if (jobs.isEmpty()) break
+            jobs.joinAll()
+        }
     }
 
     val allPapers: List<Paper>
@@ -249,141 +301,223 @@ class AppStateRepository(private val context: Context) {
     fun isFav(url: String): Boolean = _state.value.favs.contains(url)
 
     fun toggleFav(url: String) {
-        val curFavs = _state.value.favs.toMutableList()
-        if (curFavs.contains(url)) {
-            curFavs.remove(url)
-        } else {
-            curFavs.add(0, url)
+        val curFavs = synchronized(stateLock) {
+            val list = _state.value.favs.toMutableList()
+            if (list.contains(url)) {
+                list.remove(url)
+            } else {
+                list.add(0, url)
+            }
+            _state.value = _state.value.copy(favs = list)
+            list
         }
-        _state.value = _state.value.copy(favs = curFavs)
         prefs.edit().putString("favs_json", json.encodeToString(curFavs)).apply()
     }
 
     fun removeFav(url: String) {
-        val curFavs = _state.value.favs.toMutableList()
-        if (curFavs.remove(url)) {
-            _state.value = _state.value.copy(favs = curFavs)
-            prefs.edit().putString("favs_json", json.encodeToString(curFavs)).apply()
+        val updated = synchronized(stateLock) {
+            val curFavs = _state.value.favs.toMutableList()
+            if (curFavs.remove(url)) {
+                _state.value = _state.value.copy(favs = curFavs)
+                curFavs
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("favs_json", json.encodeToString(updated)).apply()
         }
     }
 
     fun restoreFav(url: String, index: Int) {
-        val curFavs = _state.value.favs.toMutableList()
-        if (!curFavs.contains(url)) {
-            val safeIdx = index.coerceIn(0, curFavs.size)
-            curFavs.add(safeIdx, url)
-            _state.value = _state.value.copy(favs = curFavs)
-            prefs.edit().putString("favs_json", json.encodeToString(curFavs)).apply()
+        val updated = synchronized(stateLock) {
+            val curFavs = _state.value.favs.toMutableList()
+            if (!curFavs.contains(url)) {
+                val safeIdx = index.coerceIn(0, curFavs.size)
+                curFavs.add(safeIdx, url)
+                _state.value = _state.value.copy(favs = curFavs)
+                curFavs
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("favs_json", json.encodeToString(updated)).apply()
         }
     }
 
     fun reorderFavs(fromIndex: Int, toIndex: Int) {
-        val curFavs = _state.value.favs.toMutableList()
-        if (fromIndex in curFavs.indices && toIndex in curFavs.indices) {
-            val item = curFavs.removeAt(fromIndex)
-            curFavs.add(toIndex, item)
-            _state.value = _state.value.copy(favs = curFavs)
-            prefs.edit().putString("favs_json", json.encodeToString(curFavs)).apply()
+        val updated = synchronized(stateLock) {
+            val curFavs = _state.value.favs.toMutableList()
+            if (fromIndex in curFavs.indices && toIndex in curFavs.indices) {
+                val item = curFavs.removeAt(fromIndex)
+                curFavs.add(toIndex, item)
+                _state.value = _state.value.copy(favs = curFavs)
+                curFavs
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("favs_json", json.encodeToString(updated)).apply()
         }
     }
 
     fun toggleHidePaper(url: String) {
-        val cur = _state.value.hiddenPapers.toMutableList()
-        if (cur.contains(url)) {
-            cur.remove(url)
-        } else {
-            cur.add(url)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.hiddenPapers.toMutableList()
+            if (list.contains(url)) {
+                list.remove(url)
+            } else {
+                list.add(url)
+            }
+            _state.value = _state.value.copy(hiddenPapers = list)
+            list
         }
-        _state.value = _state.value.copy(hiddenPapers = cur)
         prefs.edit().putString("hidden_papers_json", json.encodeToString(cur)).apply()
     }
 
     fun setOnlyShowFavorites(enabled: Boolean) {
-        _state.value = _state.value.copy(onlyShowFavorites = enabled)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(onlyShowFavorites = enabled)
+        }
         prefs.edit().putBoolean("only_show_favorites", enabled).apply()
     }
 
+    /**
+     * Thread-safe in-memory update of recent papers with asynchronous JSON serialization
+     * and SharedPreferences persistence on [ioDispatcher] (off the Main Thread).
+     */
     fun addRecent(url: String) {
-        val curRecents = _state.value.recents.toMutableList()
-        curRecents.remove(url)
-        curRecents.add(0, url)
-        val limited = curRecents.take(12)
-        _state.value = _state.value.copy(recents = limited)
-        prefs.edit().putString("recents_json", json.encodeToString(limited)).apply()
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return
+        val changed = synchronized(stateLock) {
+            val curRecents = _state.value.recents
+            if (curRecents.firstOrNull() == trimmed) {
+                false
+            } else {
+                val mutable = curRecents.toMutableList()
+                mutable.remove(trimmed)
+                mutable.add(0, trimmed)
+                val limited = mutable.take(12)
+                _state.value = _state.value.copy(recents = limited)
+                true
+            }
+        }
+        if (changed) {
+            launchAsyncPersistence { snapshot ->
+                val encoded = json.encodeToString(snapshot.recents)
+                prefs.edit().putString("recents_json", encoded).apply()
+            }
+        }
     }
 
     fun isBookmarked(url: String): Boolean = _state.value.bookmarks.any { it.url == url }
 
     fun addBookmark(bookmark: Bookmark) {
-        val cur = _state.value.bookmarks.toMutableList()
-        cur.removeAll { it.url == bookmark.url }
-        cur.add(0, bookmark)
-        _state.value = _state.value.copy(bookmarks = cur)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.bookmarks.toMutableList()
+            list.removeAll { it.url == bookmark.url }
+            list.add(0, bookmark)
+            _state.value = _state.value.copy(bookmarks = list)
+            list
+        }
         prefs.edit().putString("bookmarks_json", json.encodeToString(cur)).apply()
     }
 
     fun removeBookmark(url: String) {
-        val cur = _state.value.bookmarks.toMutableList()
-        cur.removeAll { it.url == url }
-        _state.value = _state.value.copy(bookmarks = cur)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.bookmarks.toMutableList()
+            list.removeAll { it.url == url }
+            _state.value = _state.value.copy(bookmarks = list)
+            list
+        }
         prefs.edit().putString("bookmarks_json", json.encodeToString(cur)).apply()
     }
 
     fun restoreBookmark(bookmark: Bookmark, index: Int) {
-        val cur = _state.value.bookmarks.toMutableList()
-        if (cur.none { it.url == bookmark.url }) {
-            val safeIdx = index.coerceIn(0, cur.size)
-            cur.add(safeIdx, bookmark)
-            _state.value = _state.value.copy(bookmarks = cur)
-            prefs.edit().putString("bookmarks_json", json.encodeToString(cur)).apply()
+        val updated = synchronized(stateLock) {
+            val cur = _state.value.bookmarks.toMutableList()
+            if (cur.none { it.url == bookmark.url }) {
+                val safeIdx = index.coerceIn(0, cur.size)
+                cur.add(safeIdx, bookmark)
+                _state.value = _state.value.copy(bookmarks = cur)
+                cur
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("bookmarks_json", json.encodeToString(updated)).apply()
         }
     }
 
     fun updateBookmarkFolder(url: String, newFolder: String) {
-        val cur = _state.value.bookmarks.map { b ->
-            if (b.url == url) b.copy(folder = newFolder) else b
+        val cur = synchronized(stateLock) {
+            val list = _state.value.bookmarks.map { b ->
+                if (b.url == url) b.copy(folder = newFolder) else b
+            }
+            _state.value = _state.value.copy(bookmarks = list)
+            list
         }
-        _state.value = _state.value.copy(bookmarks = cur)
         prefs.edit().putString("bookmarks_json", json.encodeToString(cur)).apply()
     }
 
     fun saveBookmarkOfflineContent(url: String, content: String) {
-        val cur = _state.value.bookmarks.map { b ->
-            if (b.url == url) b.copy(offlineContent = content) else b
+        val cur = synchronized(stateLock) {
+            val list = _state.value.bookmarks.map { b ->
+                if (b.url == url) b.copy(offlineContent = content) else b
+            }
+            _state.value = _state.value.copy(bookmarks = list)
+            list
         }
-        _state.value = _state.value.copy(bookmarks = cur)
-        prefs.edit().putString("bookmarks_json", json.encodeToString(cur)).apply()
+        launchAsyncPersistence { snapshot ->
+            prefs.edit().putString("bookmarks_json", json.encodeToString(snapshot.bookmarks)).apply()
+        }
     }
 
     fun addCustomPaper(paper: Paper) {
-        val cur = _state.value.customPapers.toMutableList()
-        cur.add(0, paper.copy(custom = true))
-        _state.value = _state.value.copy(customPapers = cur)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.customPapers.toMutableList()
+            list.add(0, paper.copy(custom = true))
+            _state.value = _state.value.copy(customPapers = list)
+            list
+        }
         prefs.edit().putString("custom_json", json.encodeToString(cur)).apply()
     }
 
     fun updateCustomPaper(oldUrl: String, updated: Paper) {
-        val cur = _state.value.customPapers.toMutableList()
-        val idx = cur.indexOfFirst { it.url == oldUrl }
-        if (idx >= 0) {
-            cur[idx] = updated.copy(custom = true)
-            _state.value = _state.value.copy(customPapers = cur)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.customPapers.toMutableList()
+            val idx = list.indexOfFirst { it.url == oldUrl }
+            if (idx >= 0) {
+                list[idx] = updated.copy(custom = true)
+                _state.value = _state.value.copy(customPapers = list)
+                list
+            } else {
+                null
+            }
+        }
+        if (cur != null) {
             prefs.edit().putString("custom_json", json.encodeToString(cur)).apply()
         }
     }
 
     fun removeCustomPaper(url: String) {
-        val cur = _state.value.customPapers.toMutableList()
-        cur.removeAll { it.url == url }
-        val curFavs = _state.value.favs.toMutableList()
-        curFavs.remove(url)
-        val curRecents = _state.value.recents.toMutableList()
-        curRecents.remove(url)
-        _state.value = _state.value.copy(
-            customPapers = cur,
-            favs = curFavs,
-            recents = curRecents
-        )
+        val (cur, curFavs, curRecents) = synchronized(stateLock) {
+            val c = _state.value.customPapers.toMutableList()
+            c.removeAll { it.url == url }
+            val f = _state.value.favs.toMutableList()
+            f.remove(url)
+            val r = _state.value.recents.toMutableList()
+            r.remove(url)
+            _state.value = _state.value.copy(
+                customPapers = c,
+                favs = f,
+                recents = r
+            )
+            Triple(c, f, r)
+        }
         prefs.edit()
             .putString("custom_json", json.encodeToString(cur))
             .putString("favs_json", json.encodeToString(curFavs))
@@ -392,50 +526,68 @@ class AppStateRepository(private val context: Context) {
     }
 
     fun setUrlFix(originalUrl: String, fixedUrl: String?) {
-        val cur = _state.value.urlFixes.toMutableMap()
-        if (fixedUrl.isNullOrEmpty() || fixedUrl == originalUrl) {
-            cur.remove(originalUrl)
-        } else {
-            cur[originalUrl] = fixedUrl
+        val cur = synchronized(stateLock) {
+            val map = _state.value.urlFixes.toMutableMap()
+            if (fixedUrl.isNullOrEmpty() || fixedUrl == originalUrl) {
+                map.remove(originalUrl)
+            } else {
+                map[originalUrl] = fixedUrl
+            }
+            _state.value = _state.value.copy(urlFixes = map)
+            map
         }
-        _state.value = _state.value.copy(urlFixes = cur)
         prefs.edit().putString("url_fixes_json", json.encodeToString(cur)).apply()
     }
 
     fun updateHomeCategories(categories: List<HomeCategoryPref>) {
-        _state.value = _state.value.copy(homeCategories = categories)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(homeCategories = categories)
+        }
         prefs.edit().putString("home_categories_json", json.encodeToString(categories)).apply()
     }
 
     fun toggleHomeCategory(id: String, enabled: Boolean) {
-        val updated = _state.value.homeCategories.map {
-            if (it.id == id) it.copy(enabled = enabled) else it
+        val updated = synchronized(stateLock) {
+            _state.value.homeCategories.map {
+                if (it.id == id) it.copy(enabled = enabled) else it
+            }
         }
         updateHomeCategories(updated)
     }
 
     fun reorderHomeCategories(fromIndex: Int, toIndex: Int) {
-        val list = _state.value.homeCategories.toMutableList()
-        if (fromIndex in list.indices && toIndex in list.indices) {
-            val item = list.removeAt(fromIndex)
-            list.add(toIndex, item)
-            val reIndexed = list.mapIndexed { idx, it -> it.copy(order = idx) }
+        val reIndexed = synchronized(stateLock) {
+            val list = _state.value.homeCategories.toMutableList()
+            if (fromIndex in list.indices && toIndex in list.indices) {
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                list.mapIndexed { idx, it -> it.copy(order = idx) }
+            } else {
+                null
+            }
+        }
+        if (reIndexed != null) {
             updateHomeCategories(reIndexed)
         }
     }
 
     fun setThemeMode(mode: String) {
-        _state.value = _state.value.copy(themeMode = mode)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(themeMode = mode)
+        }
         prefs.edit().putString("theme_mode", mode).apply()
     }
 
     fun setThemeStyle(style: String) {
-        val mode = when (style) {
-            "amoled" -> "dark"
-            "sepia" -> "light"
-            else -> _state.value.themeMode
+        val mode = synchronized(stateLock) {
+            val m = when (style) {
+                "amoled" -> "dark"
+                "sepia" -> "light"
+                else -> _state.value.themeMode
+            }
+            _state.value = _state.value.copy(themeStyle = style, themeMode = m)
+            m
         }
-        _state.value = _state.value.copy(themeStyle = style, themeMode = mode)
         prefs.edit()
             .putString("theme_style", style)
             .putString("theme_mode", mode)
@@ -444,68 +596,93 @@ class AppStateRepository(private val context: Context) {
 
     fun setAccent(accent: Int) {
         val a = accent.coerceIn(0, 6)
-        _state.value = _state.value.copy(accent = a)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(accent = a)
+        }
         prefs.edit().putInt("accent", a).apply()
     }
 
     fun setHideAds(hide: Boolean) {
-        _state.value = _state.value.copy(hideAds = hide)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(hideAds = hide)
+        }
         prefs.edit().putBoolean("hide_ads", hide).apply()
     }
 
     fun setGridView(grid: Boolean) {
-        _state.value = _state.value.copy(gridView = grid)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(gridView = grid)
+        }
         prefs.edit().putBoolean("grid_view", grid).apply()
     }
 
     fun setReaderNight(night: Boolean) {
-        _state.value = _state.value.copy(readerNight = night)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(readerNight = night)
+        }
         prefs.edit().putBoolean("reader_night", night).apply()
     }
 
     fun setReaderDesktop(desktop: Boolean) {
-        _state.value = _state.value.copy(readerDesktop = desktop)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(readerDesktop = desktop)
+        }
         prefs.edit().putBoolean("reader_desktop", desktop).apply()
     }
 
     fun setReaderZoom(zoom: Int) {
         val z = zoom.coerceIn(70, 200)
-        _state.value = _state.value.copy(readerZoom = z)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(readerZoom = z)
+        }
         prefs.edit().putInt("reader_zoom", z).apply()
     }
 
     fun setTextScale(scale: Float) {
         val s = scale.coerceIn(0.85f, 1.4f)
-        _state.value = _state.value.copy(textScale = s)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(textScale = s)
+        }
         prefs.edit().putFloat("text_scale", s).apply()
     }
 
     fun setArticleFontSize(size: Int) {
         val s = size.coerceIn(14, 28)
-        _state.value = _state.value.copy(articleFontSize = s)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(articleFontSize = s)
+        }
         prefs.edit().putInt("article_font_size", s).apply()
     }
 
     fun setArticleLineHeight(height: Float) {
         val h = height.coerceIn(1.3f, 2.4f)
-        _state.value = _state.value.copy(articleLineHeight = h)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(articleLineHeight = h)
+        }
         prefs.edit().putFloat("article_line_height", h).apply()
     }
 
     fun setReadingDensity(density: String) {
-        _state.value = _state.value.copy(readingDensity = density)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(readingDensity = density)
+        }
         prefs.edit().putString("reading_density", density).apply()
     }
 
     fun setOfflineMode(mode: String) {
-        _state.value = _state.value.copy(offlineMode = mode)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(offlineMode = mode)
+        }
         prefs.edit().putString("offline_mode", mode).apply()
     }
 
     fun toggleNotificationTopic(topic: String) {
-        val cur = _state.value.notificationTopics.toMutableList()
-        if (cur.contains(topic)) cur.remove(topic) else cur.add(topic)
-        _state.value = _state.value.copy(notificationTopics = cur)
+        val cur = synchronized(stateLock) {
+            val list = _state.value.notificationTopics.toMutableList()
+            if (list.contains(topic)) list.remove(topic) else list.add(topic)
+            _state.value = _state.value.copy(notificationTopics = list)
+            list
+        }
         prefs.edit().putString("notif_topics_json", json.encodeToString(cur)).apply()
     }
 
@@ -533,7 +710,7 @@ class AppStateRepository(private val context: Context) {
     }
 
     fun exportBackupJson(): String {
-        val s = _state.value
+        val s = synchronized(stateLock) { _state.value }
         val root = buildJsonObject {
             put("app", "potrikaghor")
             put("v", 2)
@@ -606,27 +783,33 @@ class AppStateRepository(private val context: Context) {
             val articleFontSize = settings?.get("articleFontSize")?.jsonPrimitive?.intOrNull ?: 18
             val articleLineHeight = (settings?.get("articleLineHeight")?.jsonPrimitive?.doubleOrNull ?: 1.7).toFloat()
 
-            _state.value = AppSettings(
-                customPapers = custom,
-                urlFixes = fixes,
-                favs = favs,
-                recents = recents,
-                bookmarks = bookmarks,
-                hiddenPapers = hidden,
-                homeCategories = homeCats,
-                themeMode = themeMode,
-                themeStyle = themeStyle,
-                accent = accent,
-                hideAds = hideAds,
-                gridView = grid,
-                readerNight = readerNight,
-                readerDesktop = readerDesktop,
-                readerZoom = readerZoom,
-                textScale = textScale,
-                articleFontSize = articleFontSize,
-                articleLineHeight = articleLineHeight,
-                readingDensity = density
-            )
+            synchronized(stateLock) {
+                val cur = _state.value
+                readArticlesLookupSet = cur.readArticles.toHashSet()
+                _state.value = AppSettings(
+                    customPapers = custom,
+                    urlFixes = fixes,
+                    favs = favs,
+                    recents = recents,
+                    bookmarks = bookmarks,
+                    hiddenPapers = hidden,
+                    homeCategories = homeCats,
+                    themeMode = themeMode,
+                    themeStyle = themeStyle,
+                    accent = accent,
+                    hideAds = hideAds,
+                    gridView = grid,
+                    readerNight = readerNight,
+                    readerDesktop = readerDesktop,
+                    readerZoom = readerZoom,
+                    textScale = textScale,
+                    articleFontSize = articleFontSize,
+                    articleLineHeight = articleLineHeight,
+                    readingDensity = density,
+                    readArticles = cur.readArticles,
+                    readHistory = cur.readHistory
+                )
+            }
 
             prefs.edit()
                 .putString("custom_json", json.encodeToString(custom))
@@ -657,37 +840,63 @@ class AppStateRepository(private val context: Context) {
     }
 
     fun setPreferCleanReader(preferClean: Boolean) {
-        _state.value = _state.value.copy(preferCleanReader = preferClean)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(preferCleanReader = preferClean)
+        }
         prefs.edit().putBoolean("prefer_clean_reader", preferClean).apply()
     }
 
     fun setDataSaverMode(enabled: Boolean) {
-        _state.value = _state.value.copy(dataSaverMode = enabled)
+        synchronized(stateLock) {
+            _state.value = _state.value.copy(dataSaverMode = enabled)
+        }
         prefs.edit().putBoolean("data_saver_mode", enabled).apply()
     }
 
     fun setHomeFeedMode(mode: HomeFeedMode) {
-        if (_state.value.homeFeedMode == mode) return
-        _state.value = _state.value.copy(homeFeedMode = mode)
-        prefs.edit().putString("home_feed_mode", mode.name).apply()
+        val changed = synchronized(stateLock) {
+            if (_state.value.homeFeedMode == mode) {
+                false
+            } else {
+                _state.value = _state.value.copy(homeFeedMode = mode)
+                true
+            }
+        }
+        if (changed) {
+            prefs.edit().putString("home_feed_mode", mode.name).apply()
+        }
     }
 
     fun addMutedKeyword(keyword: String) {
         val clean = keyword.trim()
         if (clean.length < 2) return
-        val cur = _state.value.mutedKeywords.toMutableList()
-        if (cur.none { it.equals(clean, ignoreCase = true) }) {
-            cur.add(0, clean)
-            _state.value = _state.value.copy(mutedKeywords = cur)
-            prefs.edit().putString("muted_keywords_json", json.encodeToString(cur)).apply()
+        val updated = synchronized(stateLock) {
+            val cur = _state.value.mutedKeywords.toMutableList()
+            if (cur.none { it.equals(clean, ignoreCase = true) }) {
+                cur.add(0, clean)
+                _state.value = _state.value.copy(mutedKeywords = cur)
+                cur
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("muted_keywords_json", json.encodeToString(updated)).apply()
         }
     }
 
     fun removeMutedKeyword(keyword: String) {
-        val cur = _state.value.mutedKeywords.toMutableList()
-        if (cur.removeAll { it.equals(keyword, ignoreCase = true) }) {
-            _state.value = _state.value.copy(mutedKeywords = cur)
-            prefs.edit().putString("muted_keywords_json", json.encodeToString(cur)).apply()
+        val updated = synchronized(stateLock) {
+            val cur = _state.value.mutedKeywords.toMutableList()
+            if (cur.removeAll { it.equals(keyword, ignoreCase = true) }) {
+                _state.value = _state.value.copy(mutedKeywords = cur)
+                cur
+            } else {
+                null
+            }
+        }
+        if (updated != null) {
+            prefs.edit().putString("muted_keywords_json", json.encodeToString(updated)).apply()
         }
     }
 
@@ -710,6 +919,11 @@ class AppStateRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Thread-safe in-memory update of read articles + O(1) lookup set + read history,
+     * with asynchronous JSON serialization and SharedPreferences persistence on [ioDispatcher].
+     * Guarantees zero lost entries under concurrent invocations.
+     */
     fun markArticleRead(
         url: String,
         title: String = "",
@@ -728,54 +942,103 @@ class AppStateRepository(private val context: Context) {
             }
         }
         if (keysToAdd.isEmpty()) return
-        val cur = _state.value.readArticles.toMutableList()
-        cur.removeAll(keysToAdd.toSet())
-        cur.addAll(0, keysToAdd)
-        val limited = cur.take(300)
 
         val cleanTitle = title.trim()
         val cleanUrl = url.trim()
-        val updatedHistory = if (cleanTitle.isNotEmpty() && cleanUrl.isNotEmpty()) {
-            val hist = _state.value.readHistory.toMutableList()
-            hist.removeAll { it.url == cleanUrl || it.title == cleanTitle }
-            hist.add(
-                0,
-                ReadHistoryItem(
-                    url = cleanUrl,
-                    title = cleanTitle,
-                    sourceName = sourceName.ifBlank { "সংবাদ" },
-                    paperUrl = paperUrl.ifBlank { cleanUrl },
-                    readAt = System.currentTimeMillis()
+        val nowMs = System.currentTimeMillis()
+
+        val stateChanged = synchronized(stateLock) {
+            val curState = _state.value
+            val curRead = curState.readArticles
+            val curHistory = curState.readHistory
+
+            // Fast-path skip if this exact article is already at index 0 of both readArticles and readHistory
+            val alreadyAtFrontOfRead = curRead.size >= keysToAdd.size &&
+                curRead.subList(0, keysToAdd.size) == keysToAdd
+            val topHist = curHistory.firstOrNull()
+            val alreadyAtFrontOfHistory = if (cleanTitle.isNotEmpty() && cleanUrl.isNotEmpty()) {
+                topHist != null && topHist.url == cleanUrl && topHist.title == cleanTitle && (nowMs - topHist.readAt) < 2_000L
+            } else {
+                true
+            }
+
+            if (alreadyAtFrontOfRead && alreadyAtFrontOfHistory) {
+                false
+            } else {
+                val keySet = keysToAdd.toSet()
+                val newRead = ArrayList<String>(minOf(curRead.size + keysToAdd.size, 300))
+                newRead.addAll(keysToAdd)
+                for (existing in curRead) {
+                    if (newRead.size >= 300) break
+                    if (!keySet.contains(existing)) {
+                        newRead.add(existing)
+                    }
+                }
+
+                val updatedHistory = if (cleanTitle.isNotEmpty() && cleanUrl.isNotEmpty()) {
+                    val newHist = ArrayList<ReadHistoryItem>(minOf(curHistory.size + 1, 100))
+                    newHist.add(
+                        ReadHistoryItem(
+                            url = cleanUrl,
+                            title = cleanTitle,
+                            sourceName = sourceName.ifBlank { "সংবাদ" },
+                            paperUrl = paperUrl.ifBlank { cleanUrl },
+                            readAt = nowMs
+                        )
+                    )
+                    for (existing in curHistory) {
+                        if (newHist.size >= 100) break
+                        if (existing.url != cleanUrl && existing.title != cleanTitle) {
+                            newHist.add(existing)
+                        }
+                    }
+                    newHist
+                } else {
+                    curHistory
+                }
+
+                readArticlesLookupSet = newRead.toHashSet()
+                _state.value = curState.copy(
+                    readArticles = newRead,
+                    readHistory = updatedHistory
                 )
-            )
-            hist.take(100)
-        } else {
-            _state.value.readHistory
+                true
+            }
         }
 
-        _state.value = _state.value.copy(
-            readArticles = limited,
-            readHistory = updatedHistory
-        )
-        prefs.edit()
-            .putString("read_articles_json", json.encodeToString(limited))
-            .putString("read_history_json", json.encodeToString(updatedHistory))
-            .apply()
+        if (stateChanged) {
+            launchAsyncPersistence { snapshot ->
+                val encodedRead = json.encodeToString(snapshot.readArticles)
+                val encodedHistory = json.encodeToString(snapshot.readHistory)
+                prefs.edit()
+                    .putString("read_articles_json", encodedRead)
+                    .putString("read_history_json", encodedHistory)
+                    .apply()
+            }
+        }
     }
 
     fun clearReadHistory() {
-        _state.value = _state.value.copy(
-            readArticles = emptyList(),
-            readHistory = emptyList()
-        )
-        prefs.edit()
-            .remove("read_articles_json")
-            .remove("read_history_json")
-            .apply()
+        synchronized(stateLock) {
+            readArticlesLookupSet = emptySet()
+            _state.value = _state.value.copy(
+                readArticles = emptyList(),
+                readHistory = emptyList()
+            )
+        }
+        launchAsyncPersistence {
+            prefs.edit()
+                .remove("read_articles_json")
+                .remove("read_history_json")
+                .apply()
+        }
     }
 
+    /**
+     * O(1) read membership lookup backed by in-memory [readArticlesLookupSet].
+     */
     fun isArticleRead(url: String, title: String = ""): Boolean {
-        val readSet = _state.value.readArticles
+        val readSet = readArticlesLookupSet
         if (readSet.isEmpty()) return false
         val trimmedUrl = url.trim()
         val trimmedTitle = title.trim()
@@ -783,6 +1046,8 @@ class AppStateRepository(private val context: Context) {
         if (trimmedTitle.isNotEmpty() && readSet.contains("title:$trimmedTitle")) return true
         return false
     }
+
+    internal fun readLookupSetSizeForTest(): Int = readArticlesLookupSet.size
 
     fun getCachedFeed(categoryId: String): List<NewsItem> {
         val safeId = categoryId.ifBlank { "top" }
@@ -797,28 +1062,35 @@ class AppStateRepository(private val context: Context) {
     fun saveCachedFeed(categoryId: String, items: List<NewsItem>) {
         if (items.isEmpty()) return
         val safeId = categoryId.ifBlank { "top" }
-        try {
-            val trimmed = items.take(40)
-            prefs.edit().putString("cached_feed_$safeId", json.encodeToString(trimmed)).apply()
-        } catch (_: Exception) {}
+        launchAsyncPersistence {
+            try {
+                val trimmed = items.take(40)
+                prefs.edit().putString("cached_feed_$safeId", json.encodeToString(trimmed)).apply()
+            } catch (_: Exception) {}
+        }
     }
 
     fun clearUserData() {
-        _state.value = _state.value.copy(
-            favs = emptyList(),
-            recents = emptyList(),
-            bookmarks = emptyList(),
-            readArticles = emptyList(),
-            readHistory = emptyList(),
-            mutedKeywords = emptyList()
-        )
-        prefs.edit()
-            .remove("favs_json")
-            .remove("recents_json")
-            .remove("bookmarks_json")
-            .remove("read_articles_json")
-            .remove("read_history_json")
-            .remove("muted_keywords_json")
-            .apply()
+        synchronized(stateLock) {
+            readArticlesLookupSet = emptySet()
+            _state.value = _state.value.copy(
+                favs = emptyList(),
+                recents = emptyList(),
+                bookmarks = emptyList(),
+                readArticles = emptyList(),
+                readHistory = emptyList(),
+                mutedKeywords = emptyList()
+            )
+        }
+        launchAsyncPersistence {
+            prefs.edit()
+                .remove("favs_json")
+                .remove("recents_json")
+                .remove("bookmarks_json")
+                .remove("read_articles_json")
+                .remove("read_history_json")
+                .remove("muted_keywords_json")
+                .apply()
+        }
     }
 }

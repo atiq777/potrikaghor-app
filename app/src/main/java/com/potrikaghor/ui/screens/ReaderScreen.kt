@@ -1,6 +1,7 @@
 package com.potrikaghor.ui.screens
 
 import android.content.Intent
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.webkit.CookieManager
@@ -48,7 +49,6 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -69,6 +69,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,13 +85,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.ArticleExtractionCoordinator
 import com.potrikaghor.data.ArticleExtractor
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.model.Bookmark
@@ -106,11 +107,71 @@ import com.potrikaghor.ui.theme.SepiaBackground
 import com.potrikaghor.ui.theme.SepiaText
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URI
 import java.util.Locale
+import kotlin.math.abs
+
+/**
+ * Throttles WebView progress updates so [ReaderScreen] does not recompose on every 1% progress tick.
+ */
+internal fun shouldUpdateWebProgress(
+    previousProgress: Int,
+    newProgress: Int,
+    lastUpdateMs: Long,
+    nowMs: Long
+): Boolean {
+    val clamped = newProgress.coerceIn(0, 100)
+    if (clamped == previousProgress) return false
+    if (previousProgress == 0 && clamped > 0) return true
+    if (clamped >= 100 && previousProgress < 100) return true
+    if (clamped == 0) return true
+    return abs(clamped - previousProgress) >= 15 && (nowMs - lastUpdateMs) >= 180L
+}
+
+/**
+ * Tracks lazy/on-demand TTS lifecycle so opening [ReaderScreen] never initializes [TextToSpeech]
+ * until the user explicitly taps the Listen/Play button.
+ */
+internal class LazyTtsLifecycleState {
+    var initRequestCount: Int = 0
+        private set
+    var isInitialized: Boolean = false
+        private set
+    var isInitializing: Boolean = false
+        private set
+    var isDisposed: Boolean = false
+        private set
+
+    fun shouldCreateEngineOnReaderOpen(): Boolean = false
+
+    fun requestEngineInitialization(factory: () -> Unit): Boolean {
+        if (isDisposed) return false
+        if (isInitialized || isInitializing) return false
+        isInitializing = true
+        initRequestCount++
+        factory()
+        return true
+    }
+
+    fun onEngineInitResult(success: Boolean) {
+        isInitializing = false
+        isInitialized = success && !isDisposed
+    }
+
+    fun onDispose(cleanup: () -> Unit) {
+        if (!isDisposed) {
+            isDisposed = true
+            isInitializing = false
+            isInitialized = false
+            cleanup()
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,6 +186,8 @@ fun ReaderScreen(
     val scope = rememberCoroutineScope()
     val appState by appRepo.state.collectAsState()
     val extractor = remember { ArticleExtractor() }
+    val extractionCoordinator = remember { ArticleExtractionCoordinator() }
+    val ttsLifecycle = remember { LazyTtsLifecycleState() }
 
     val fallbackHeadline = remember(initialTitle, paper.bn) {
         initialTitle.trim().ifEmpty { paper.bn }
@@ -139,12 +202,19 @@ fun ReaderScreen(
     var isExtracting by remember { mutableStateOf(true) }
 
     var webProgress by remember { mutableIntStateOf(0) }
+    var lastProgressUpdateMs by remember { mutableLongStateOf(0L) }
     var currentWebUrl by remember { mutableStateOf(initialUrl) }
     var isRedirectingGoogleNews by remember { mutableStateOf(initialUrl.contains("news.google.com")) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    var liveDomExtractionJob by remember { mutableStateOf<Job?>(null) }
+    var delayedPageFinishedJob by remember { mutableStateOf<Job?>(null) }
+    var ttsPlaybackJob by remember { mutableStateOf<Job?>(null) }
+
     var showShareDialog by remember { mutableStateOf(false) }
     var showAiSummary by remember { mutableStateOf(false) }
+    var summaryBullets by remember { mutableStateOf<List<String>>(emptyList()) }
+    var summaryArticleUrl by remember { mutableStateOf("") }
     var showTtsControls by remember { mutableStateOf(false) }
 
     // Reader styling options
@@ -152,147 +222,334 @@ fun ReaderScreen(
     val readerLineHeight by remember { mutableFloatStateOf(appState.articleLineHeight) }
     val readerThemeStyle by remember { mutableStateOf(appState.themeStyle) } // amoled, normal, sepia
 
-    // TTS state
+    // Lazy / On-Demand TTS state (never initialized until user presses Listen)
     var tts: TextToSpeech? by remember { mutableStateOf(null) }
     var isTtsReady by remember { mutableStateOf(false) }
+    var isTtsInitializing by remember { mutableStateOf(false) }
     var isTtsPlaying by remember { mutableStateOf(false) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
+    var pendingTtsArticle by remember { mutableStateOf<CleanArticle?>(null) }
+    var pendingTtsAutoPlay by remember { mutableStateOf(false) }
 
     val isBookmarked = appState.bookmarks.any { it.url == currentWebUrl || it.url == initialUrl }
 
     // Helper to extract live article content from the currently rendered WebView DOM
-    fun extractLiveFromWebView(wv: WebView?, onComplete: ((CleanArticle?) -> Unit)? = null) {
+    // WebView calls remain strictly on the Main Thread; string decoding and HTML parsing run on Dispatchers.Default.
+    fun extractLiveFromWebView(
+        wv: WebView?,
+        forceRefresh: Boolean = false,
+        onComplete: ((CleanArticle?) -> Unit)? = null
+    ) {
         if (wv == null) {
             onComplete?.invoke(cleanArticle)
             return
         }
-        val liveUrl = wv.url ?: currentWebUrl
-        if (liveUrl.contains("news.google.com")) {
+        val liveUrl = (wv.url?.takeIf { it.isNotBlank() } ?: currentWebUrl).trim()
+        if (liveUrl.isEmpty() || liveUrl.contains("news.google.com")) {
             onComplete?.invoke(cleanArticle)
             return
         }
+
+        // Skip duplicate extraction if this exact URL already has substantive content
+        if (!forceRefresh &&
+            extractionCoordinator.hasSubstantiveResultFor(liveUrl) &&
+            cleanArticle?.url == liveUrl &&
+            extractor.hasSubstantiveContent(cleanArticle)
+        ) {
+            isExtracting = false
+            onComplete?.invoke(cleanArticle)
+            return
+        }
+
+        if (!extractionCoordinator.tryStartLiveDomExtraction(liveUrl, force = forceRefresh)) {
+            onComplete?.invoke(cleanArticle)
+            return
+        }
+
+        val capturedVersion = extractionCoordinator.currentVersion()
+
         wv.evaluateJavascript(ArticleExtractor.LIVE_DOM_EXTRACTION_JS) { rawJs ->
-            scope.launch(Dispatchers.Default) {
-                val domArticle = extractor.parseLiveDomJson(
-                    rawJsResult = rawJs,
-                    url = liveUrl,
-                    fallbackTitle = fallbackHeadline,
-                    source = paper.bn
-                )
-                withContext(Dispatchers.Main) {
-                    if (domArticle != null && extractor.hasSubstantiveContent(domArticle)) {
-                        cleanArticle = domArticle
-                        isExtracting = false
-                        onComplete?.invoke(domArticle)
-                    } else {
-                        // Fallback: evaluate full outerHTML if structured DOM extraction returned empty
-                        wv.evaluateJavascript("(function(){return document.documentElement.outerHTML;})()") { rawHtmlJs ->
-                            val decodedHtml = extractor.decodeJsEvaluatedString(rawHtmlJs)
-                            if (decodedHtml.length > 200) {
-                                scope.launch(Dispatchers.Default) {
-                                    val parsed = extractor.parseHtml(
-                                        html = decodedHtml,
-                                        url = liveUrl,
-                                        fallbackTitle = fallbackHeadline,
-                                        source = paper.bn
-                                    )
-                                    withContext(Dispatchers.Main) {
-                                        if (extractor.hasSubstantiveContent(parsed) || cleanArticle == null) {
-                                            cleanArticle = parsed
+            liveDomExtractionJob?.cancel()
+            liveDomExtractionJob = scope.launch(Dispatchers.Default) {
+                try {
+                    val domArticle = extractor.parseLiveDomJson(
+                        rawJsResult = rawJs,
+                        url = liveUrl,
+                        fallbackTitle = fallbackHeadline,
+                        source = paper.bn
+                    )
+                    ensureActive()
+                    withContext(Dispatchers.Main) {
+                        if (!extractionCoordinator.isCurrent(capturedVersion, liveUrl)) {
+                            extractionCoordinator.finishLiveDomExtraction(liveUrl)
+                            return@withContext
+                        }
+                        if (domArticle != null && extractor.hasSubstantiveContent(domArticle)) {
+                            extractionCoordinator.markSucceeded(liveUrl)
+                            cleanArticle = domArticle
+                            isExtracting = false
+                            onComplete?.invoke(domArticle)
+                        } else {
+                            // Bounded fallback: extract only cleaned article/main/body markup (<=180 KB),
+                            // NEVER full multi-megabyte document.documentElement.outerHTML, and decode on Default.
+                            wv.evaluateJavascript(ArticleExtractor.BOUNDED_ARTICLE_HTML_JS) { rawBoundedHtmlJs ->
+                                liveDomExtractionJob = scope.launch(Dispatchers.Default) {
+                                    try {
+                                        val decodedHtml = extractor.decodeJsEvaluatedString(rawBoundedHtmlJs)
+                                        val parsed = if (decodedHtml.length > 120) {
+                                            extractor.parseHtml(
+                                                html = decodedHtml,
+                                                url = liveUrl,
+                                                fallbackTitle = fallbackHeadline,
+                                                source = paper.bn
+                                            )
+                                        } else {
+                                            null
                                         }
-                                        isExtracting = false
-                                        onComplete?.invoke(cleanArticle)
+                                        ensureActive()
+                                        withContext(Dispatchers.Main) {
+                                            if (!extractionCoordinator.isCurrent(capturedVersion, liveUrl)) {
+                                                extractionCoordinator.finishLiveDomExtraction(liveUrl)
+                                                return@withContext
+                                            }
+                                            if (parsed != null && (extractor.hasSubstantiveContent(parsed) || cleanArticle == null)) {
+                                                if (extractor.hasSubstantiveContent(parsed)) {
+                                                    extractionCoordinator.markSucceeded(liveUrl)
+                                                }
+                                                cleanArticle = parsed
+                                            }
+                                            extractionCoordinator.finishLiveDomExtraction(liveUrl)
+                                            isExtracting = false
+                                            onComplete?.invoke(cleanArticle)
+                                        }
+                                    } catch (_: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            extractionCoordinator.finishLiveDomExtraction(liveUrl)
+                                            isExtracting = false
+                                            onComplete?.invoke(cleanArticle)
+                                        }
                                     }
                                 }
-                            } else {
-                                isExtracting = false
-                                onComplete?.invoke(cleanArticle)
                             }
                         }
+                    }
+                } catch (_: Exception) {
+                    withContext(Dispatchers.Main) {
+                        extractionCoordinator.finishLiveDomExtraction(liveUrl)
+                        isExtracting = false
+                        onComplete?.invoke(cleanArticle)
                     }
                 }
             }
         }
     }
 
-    // Helper to configure TTS language, voice, prosody, and speak article paragraphs/sentences naturally
+    // Helper to prepare TTS text & voice off the Main Thread and queue utterances smoothly
     fun startTtsPlayback(articleToRead: CleanArticle?) {
         val engine = tts
         if (engine == null || !isTtsReady) {
+            pendingTtsArticle = articleToRead
+            pendingTtsAutoPlay = true
+            if (!isTtsInitializing) {
+                Toast.makeText(
+                    context,
+                    "টেক্সট-টু-স্পিচ ইঞ্জিন প্রস্তুত হচ্ছে, অনুগ্রহ করে একটু অপেক্ষা করুন",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            return
+        }
+
+        ttsPlaybackJob?.cancel()
+        ttsPlaybackJob = scope.launch(Dispatchers.Default) {
+            val fullText = extractor.buildTtsSpeechText(articleToRead, fallbackHeadline)
+            if (fullText.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "পড়ে শোনানোর মতো পাঠ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            val hasBengali = Regex("[\u0980-\u09FF]").containsMatchIn(fullText)
+            val bnSupported = configureNaturalTtsVoice(engine, hasBengali)
+
+            val paragraphs = fullText
+                .split(Regex("\\n{2,}"))
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+
+            val paragraphChunks = paragraphs
+                .map { splitTextIntoTtsChunks(it) }
+                .filter { it.isNotEmpty() }
+
+            if (paragraphChunks.isEmpty()) return@launch
+            ensureActive()
+
+            withContext(Dispatchers.Main) {
+                if (hasBengali && !bnSupported) {
+                    Toast.makeText(
+                        context,
+                        "আপনার ফোনের TTS সেটিংসে বাংলা ভয়েস ডাউনলোড করা নেই",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+                val effectiveRate = if (hasBengali) (ttsSpeed * 0.97f).coerceIn(0.6f, 1.6f) else ttsSpeed
+                engine.setSpeechRate(effectiveRate)
+                engine.setPitch(0.98f)
+                engine.stop()
+                isTtsPlaying = true
+
+                val totalUtterances = paragraphChunks.sumOf { it.size }
+                var spokenCount = 0
+
+                paragraphChunks.forEachIndexed { pIndex, chunks ->
+                    chunks.forEachIndexed { cIndex, chunk ->
+                        spokenCount++
+                        val isFirst = (pIndex == 0 && cIndex == 0)
+                        val isLast = (spokenCount == totalUtterances)
+                        val queueMode = if (isFirst) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                        val utteranceId = if (isLast) "potrikaghor_tts_last" else "potrikaghor_tts_${pIndex}_$cIndex"
+                        engine.speak(chunk, queueMode, null, utteranceId)
+
+                        if (!isLast && cIndex < chunks.lastIndex) {
+                            engine.playSilentUtterance(
+                                160L,
+                                TextToSpeech.QUEUE_ADD,
+                                "potrikaghor_tts_sent_pause_${pIndex}_$cIndex"
+                            )
+                        }
+                    }
+
+                    if (pIndex < paragraphChunks.lastIndex) {
+                        val pauseDurationMs = if (pIndex == 0) 480L else 380L
+                        engine.playSilentUtterance(
+                            pauseDurationMs,
+                            TextToSpeech.QUEUE_ADD,
+                            "potrikaghor_tts_para_pause_$pIndex"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Lazy / On-Demand TTS initializer — only invoked when user presses Listen or Play
+    fun ensureTtsInitializedAndPlay(articleToRead: CleanArticle?) {
+        pendingTtsArticle = articleToRead
+        pendingTtsAutoPlay = true
+
+        if (tts != null && isTtsReady) {
+            startTtsPlayback(articleToRead)
+            return
+        }
+
+        if (isTtsInitializing) {
             Toast.makeText(
                 context,
-                "টেক্সট-টু-স্পিচ ইঞ্জিন প্রস্তুত হচ্ছে, অনুগ্রহ করে আবার চেষ্টা করুন",
+                "টেক্সট-টু-স্পিচ ইঞ্জিন প্রস্তুত হচ্ছে...",
                 Toast.LENGTH_SHORT
             ).show()
             return
         }
 
-        val fullText = extractor.buildTtsSpeechText(articleToRead, fallbackHeadline)
-        if (fullText.isBlank()) {
-            Toast.makeText(context, "পড়ে শোনানোর মতো পাঠ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
-            return
-        }
+        ttsLifecycle.requestEngineInitialization {
+            isTtsInitializing = true
+            var createdEngine: TextToSpeech? = null
+            val initListener = TextToSpeech.OnInitListener { status ->
+                val success = (status == TextToSpeech.SUCCESS)
+                ttsLifecycle.onEngineInitResult(success)
+                if (success && !ttsLifecycle.isDisposed) {
+                    val engine = createdEngine ?: tts
+                    engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            scope.launch(Dispatchers.Main) {
+                                isTtsPlaying = true
+                            }
+                        }
 
-        // Detect whether text contains Bengali characters
-        val hasBengali = Regex("[\u0980-\u09FF]").containsMatchIn(fullText)
-        val bnSupported = configureNaturalTtsVoice(engine, hasBengali)
-        if (hasBengali && !bnSupported) {
-            Toast.makeText(
-                context,
-                "আপনার ফোনের TTS সেটিংসে বাংলা ভয়েস ডাউনলোড করা নেই",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+                        override fun onDone(utteranceId: String?) {
+                            if (utteranceId == "potrikaghor_tts_last") {
+                                scope.launch(Dispatchers.Main) {
+                                    isTtsPlaying = false
+                                }
+                            }
+                        }
 
-        // Use a calm, natural newsreader cadence (0.97f base for 1.0x in Bengali) and natural pitch
-        val effectiveRate = if (hasBengali) (ttsSpeed * 0.97f).coerceIn(0.6f, 1.6f) else ttsSpeed
-        engine.setSpeechRate(effectiveRate)
-        engine.setPitch(0.98f)
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            scope.launch(Dispatchers.Main) {
+                                isTtsPlaying = false
+                            }
+                        }
 
-        val paragraphs = fullText
-            .split(Regex("\\n{2,}"))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            scope.launch(Dispatchers.Main) {
+                                isTtsPlaying = false
+                            }
+                        }
+                    })
 
-        val paragraphChunks = paragraphs
-            .map { splitTextIntoTtsChunks(it) }
-            .filter { it.isNotEmpty() }
-
-        if (paragraphChunks.isEmpty()) return
-
-        engine.stop()
-        isTtsPlaying = true
-
-        val totalUtterances = paragraphChunks.sumOf { it.size }
-        var spokenCount = 0
-
-        paragraphChunks.forEachIndexed { pIndex, chunks ->
-            chunks.forEachIndexed { cIndex, chunk ->
-                spokenCount++
-                val isFirst = (pIndex == 0 && cIndex == 0)
-                val isLast = (spokenCount == totalUtterances)
-                val queueMode = if (isFirst) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-                val utteranceId = if (isLast) "potrikaghor_tts_last" else "potrikaghor_tts_${pIndex}_$cIndex"
-                engine.speak(chunk, queueMode, null, utteranceId)
-
-                // Subtle pause between sentences within a paragraph
-                if (!isLast && cIndex < chunks.lastIndex) {
-                    engine.playSilentUtterance(
-                        160L,
-                        TextToSpeech.QUEUE_ADD,
-                        "potrikaghor_tts_sent_pause_${pIndex}_$cIndex"
-                    )
+                    scope.launch(Dispatchers.Default) {
+                        if (engine != null) {
+                            configureNaturalTtsVoice(engine, hasBengali = true)
+                            engine.setSpeechRate(0.97f)
+                            engine.setPitch(0.98f)
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (!ttsLifecycle.isDisposed) {
+                                isTtsInitializing = false
+                                isTtsReady = true
+                                if (pendingTtsAutoPlay && showTtsControls) {
+                                    pendingTtsAutoPlay = false
+                                    startTtsPlayback(pendingTtsArticle ?: cleanArticle)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    scope.launch(Dispatchers.Main) {
+                        isTtsInitializing = false
+                        isTtsReady = false
+                        pendingTtsAutoPlay = false
+                    }
                 }
             }
 
-            // Natural breathing pause after the headline and between paragraphs
-            if (pIndex < paragraphChunks.lastIndex) {
-                val pauseDurationMs = if (pIndex == 0) 480L else 380L
-                engine.playSilentUtterance(
-                    pauseDurationMs,
-                    TextToSpeech.QUEUE_ADD,
-                    "potrikaghor_tts_para_pause_$pIndex"
-                )
+            scope.launch(Dispatchers.IO) {
+                val googleTtsPackage = "com.google.android.tts"
+                val hasGoogleTts = try {
+                    context.packageManager.getPackageInfo(googleTtsPackage, 0) != null
+                } catch (_: Exception) {
+                    false
+                }
+                withContext(Dispatchers.Main) {
+                    if (!ttsLifecycle.isDisposed) {
+                        createdEngine = if (hasGoogleTts) {
+                            TextToSpeech(context.applicationContext, initListener, googleTtsPackage)
+                        } else {
+                            TextToSpeech(context.applicationContext, initListener)
+                        }
+                        tts = createdEngine
+                    }
+                }
+            }
+        }
+    }
+
+    // Dispose TTS cleanly on screen exit if it was ever lazily initialized
+    DisposableEffect(Unit) {
+        onDispose {
+            liveDomExtractionJob?.cancel()
+            delayedPageFinishedJob?.cancel()
+            ttsPlaybackJob?.cancel()
+            extractionCoordinator.reset()
+            ttsLifecycle.onDispose {
+                try {
+                    tts?.stop()
+                    tts?.shutdown()
+                } catch (_: Exception) {}
+                tts = null
             }
         }
     }
@@ -305,8 +562,9 @@ fun ReaderScreen(
         }
     }
 
-    // Track recently read paper & mark article read
+    // Track recently read paper & mark article read after initial transition frame settles
     LaunchedEffect(paper.url, initialUrl, initialTitle) {
+        delay(90L)
         if (!paper.url.contains("news.google.com")) {
             appRepo.addRecent(paper.url)
         }
@@ -320,75 +578,45 @@ fun ReaderScreen(
         }
     }
 
-    // Initialize TTS with UtteranceProgressListener (prefer Google Speech Services for natural Bengali voice)
-    DisposableEffect(context) {
-        var ttsInstance: TextToSpeech? = null
-        val initListener = TextToSpeech.OnInitListener { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                isTtsReady = true
-                ttsInstance?.let { engine ->
-                    configureNaturalTtsVoice(engine, hasBengali = true)
-                    engine.setSpeechRate(0.97f)
-                    engine.setPitch(0.98f)
-                }
-                ttsInstance?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        scope.launch(Dispatchers.Main) {
-                            isTtsPlaying = true
-                        }
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        if (utteranceId == "potrikaghor_tts_last") {
-                            scope.launch(Dispatchers.Main) {
-                                isTtsPlaying = false
-                            }
-                        }
-                    }
-
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        scope.launch(Dispatchers.Main) {
-                            isTtsPlaying = false
-                        }
-                    }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        scope.launch(Dispatchers.Main) {
-                            isTtsPlaying = false
-                        }
-                    }
-                })
-            }
-        }
-
-        val googleTtsPackage = "com.google.android.tts"
-        val hasGoogleTts = try {
-            context.packageManager.getPackageInfo(googleTtsPackage, 0) != null
-        } catch (_: Exception) {
-            false
-        }
-
-        ttsInstance = if (hasGoogleTts) {
-            TextToSpeech(context.applicationContext, initListener, googleTtsPackage)
-        } else {
-            TextToSpeech(context.applicationContext, initListener)
-        }
-        tts = ttsInstance
-        onDispose {
-            ttsInstance?.stop()
-            ttsInstance?.shutdown()
+    // Reset state if initialUrl prop changes to a completely different article
+    LaunchedEffect(initialUrl) {
+        if (currentWebUrl != initialUrl) {
+            liveDomExtractionJob?.cancel()
+            delayedPageFinishedJob?.cancel()
+            ttsPlaybackJob?.cancel()
+            tts?.stop()
+            isTtsPlaying = false
+            pendingTtsAutoPlay = false
+            cleanArticle = null
+            summaryBullets = emptyList()
+            summaryArticleUrl = ""
+            isExtracting = true
+            currentWebUrl = initialUrl
+            isRedirectingGoogleNews = initialUrl.contains("news.google.com")
         }
     }
 
     // Extract clean article via HTTP when URL changes (for direct non-Google News URLs or offline bookmarks)
     LaunchedEffect(currentWebUrl) {
+        val requestVersion = extractionCoordinator.onUrlChanged(currentWebUrl)
+        liveDomExtractionJob?.cancel()
+        delayedPageFinishedJob?.cancel()
+
+        // Invalidate summary if it belonged to a previous article URL
+        if (summaryArticleUrl.isNotEmpty() &&
+            summaryArticleUrl != currentWebUrl &&
+            !currentWebUrl.contains("news.google.com")
+        ) {
+            summaryBullets = emptyList()
+            summaryArticleUrl = ""
+        }
+
         val savedOffline = appState.bookmarks.firstOrNull {
             it.url == currentWebUrl || it.url == initialUrl
         }?.offlineContent
 
         if (!savedOffline.isNullOrEmpty()) {
-            cleanArticle = CleanArticle(
+            val offlineArticle = CleanArticle(
                 title = fallbackHeadline,
                 source = paper.bn,
                 url = currentWebUrl,
@@ -396,10 +624,26 @@ fun ReaderScreen(
                 paragraphs = savedOffline.split("\n\n").filter { it.isNotBlank() },
                 plainText = savedOffline
             )
+            extractionCoordinator.markSucceeded(currentWebUrl)
+            cleanArticle = offlineArticle
             isExtracting = false
         } else if (!currentWebUrl.contains("news.google.com")) {
-            isExtracting = !extractor.hasSubstantiveContent(cleanArticle)
+            if (extractionCoordinator.hasSubstantiveResultFor(currentWebUrl) &&
+                cleanArticle?.url == currentWebUrl &&
+                extractor.hasSubstantiveContent(cleanArticle)
+            ) {
+                isExtracting = false
+                return@LaunchedEffect
+            }
+
+            isExtracting = !extractor.hasSubstantiveContent(cleanArticle) || cleanArticle?.url != currentWebUrl
             val extracted = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
+            if (!extractionCoordinator.isCurrent(requestVersion, currentWebUrl)) {
+                return@LaunchedEffect
+            }
+            if (extractor.hasSubstantiveContent(extracted)) {
+                extractionCoordinator.markSucceeded(currentWebUrl)
+            }
             if (!extractor.hasSubstantiveContent(cleanArticle) || cleanArticle?.url != currentWebUrl) {
                 cleanArticle = extracted
             }
@@ -410,6 +654,23 @@ fun ReaderScreen(
         } else {
             cleanArticle = extractor.extractArticle(currentWebUrl, fallbackHeadline, paper.bn)
             isExtracting = true
+        }
+    }
+
+    // Generate smart summary strictly on Dispatchers.Default and only when showAiSummary is enabled
+    LaunchedEffect(showAiSummary, cleanArticle, fallbackHeadline, currentWebUrl) {
+        if (!showAiSummary) return@LaunchedEffect
+        val targetArticle = cleanArticle
+        val targetUrl = currentWebUrl
+        val computed = extractor.generateSmartSummaryAsync(
+            article = targetArticle,
+            fallbackTitle = fallbackHeadline,
+            dispatcher = Dispatchers.Default
+        )
+        ensureActive()
+        if (targetUrl == currentWebUrl) {
+            summaryBullets = computed
+            summaryArticleUrl = targetUrl
         }
     }
 
@@ -562,20 +823,21 @@ fun ReaderScreen(
                         )
                     }
 
-                    // TTS button
+                    // TTS button (initializes TTS lazily on first tap)
                     IconButton(
                         onClick = {
                             val openingControls = !showTtsControls
                             showTtsControls = openingControls
                             if (openingControls && !isTtsPlaying) {
-                                // Extract latest DOM text and start speaking right away
                                 if (extractor.hasSubstantiveContent(cleanArticle)) {
-                                    startTtsPlayback(cleanArticle)
+                                    ensureTtsInitializedAndPlay(cleanArticle)
                                 } else {
                                     extractLiveFromWebView(webViewRef) { updatedArticle ->
-                                        startTtsPlayback(updatedArticle ?: cleanArticle)
+                                        ensureTtsInitializedAndPlay(updatedArticle ?: cleanArticle)
                                     }
                                 }
+                            } else if (!openingControls) {
+                                pendingTtsAutoPlay = false
                             }
                         }
                     ) {
@@ -808,14 +1070,16 @@ fun ReaderScreen(
                                 IconButton(
                                     onClick = {
                                         if (isTtsPlaying) {
+                                            ttsPlaybackJob?.cancel()
                                             tts?.stop()
                                             isTtsPlaying = false
+                                            pendingTtsAutoPlay = false
                                         } else {
                                             if (extractor.hasSubstantiveContent(cleanArticle)) {
-                                                startTtsPlayback(cleanArticle)
+                                                ensureTtsInitializedAndPlay(cleanArticle)
                                             } else {
                                                 extractLiveFromWebView(webViewRef) { updatedArticle ->
-                                                    startTtsPlayback(updatedArticle ?: cleanArticle)
+                                                    ensureTtsInitializedAndPlay(updatedArticle ?: cleanArticle)
                                                 }
                                             }
                                         }
@@ -828,14 +1092,20 @@ fun ReaderScreen(
                                 }
                                 IconButton(
                                     onClick = {
+                                        ttsPlaybackJob?.cancel()
                                         tts?.stop()
                                         isTtsPlaying = false
+                                        pendingTtsAutoPlay = false
                                     }
                                 ) {
                                     Icon(Icons.Filled.Stop, contentDescription = "বন্ধ করুন")
                                 }
                                 Text(
-                                    text = if (isTtsPlaying) "পড়ে শোনানো হচ্ছে..." else "শুনতে Play চাপুন",
+                                    text = when {
+                                        isTtsPlaying -> "পড়ে শোনানো হচ্ছে..."
+                                        isTtsInitializing -> "ইঞ্জিন প্রস্তুত হচ্ছে..."
+                                        else -> "শুনতে Play চাপুন"
+                                    },
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                                     maxLines = 1
@@ -872,10 +1142,12 @@ fun ReaderScreen(
                     }
                 }
 
-                // AI News Summary Drawer/Card (works in both Website View and Clean Reader Mode)
+                // AI News Summary Drawer/Card (computed off Main Thread on Dispatchers.Default)
                 AnimatedVisibility(visible = showAiSummary) {
-                    val summaryBullets = remember(cleanArticle, fallbackHeadline) {
-                        extractor.generateSmartSummary(cleanArticle, fallbackHeadline)
+                    val displayedBullets = if (summaryBullets.isNotEmpty() && summaryArticleUrl == currentWebUrl) {
+                        summaryBullets
+                    } else {
+                        listOf("সংবাদটির মূল অংশ বিশ্লেষণ করা হচ্ছে...")
                     }
 
                     Card(
@@ -913,7 +1185,7 @@ fun ReaderScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
-                            summaryBullets.forEach { bullet ->
+                            displayedBullets.forEach { bullet ->
                                 Row(modifier = Modifier.padding(vertical = 3.dp)) {
                                     Text(
                                         text = "• ",
@@ -959,11 +1231,19 @@ fun ReaderScreen(
 
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                        webProgress = newProgress
+                                        val nowMs = SystemClock.uptimeMillis()
+                                        if (shouldUpdateWebProgress(webProgress, newProgress, lastProgressUpdateMs, nowMs)) {
+                                            webProgress = newProgress.coerceIn(0, 100)
+                                            lastProgressUpdateMs = nowMs
+                                        }
                                         val loadedUrl = view?.url ?: ""
                                         if (loadedUrl.isNotEmpty() && !loadedUrl.contains("news.google.com") && newProgress >= 45) {
-                                            currentWebUrl = loadedUrl
-                                            isRedirectingGoogleNews = false
+                                            if (currentWebUrl != loadedUrl) {
+                                                currentWebUrl = loadedUrl
+                                            }
+                                            if (isRedirectingGoogleNews) {
+                                                isRedirectingGoogleNews = false
+                                            }
                                         }
                                     }
                                 }
@@ -972,8 +1252,10 @@ fun ReaderScreen(
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                         val u = request?.url?.toString() ?: return false
                                         if (u.startsWith("http://") || u.startsWith("https://")) {
-                                            currentWebUrl = u
-                                            if (!u.contains("news.google.com")) {
+                                            if (currentWebUrl != u) {
+                                                currentWebUrl = u
+                                            }
+                                            if (!u.contains("news.google.com") && isRedirectingGoogleNews) {
                                                 isRedirectingGoogleNews = false
                                             }
                                             return false
@@ -990,8 +1272,10 @@ fun ReaderScreen(
                                     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                         super.doUpdateVisitedHistory(view, url, isReload)
                                         if (!url.isNullOrEmpty()) {
-                                            currentWebUrl = url
-                                            if (!url.contains("news.google.com")) {
+                                            if (currentWebUrl != url) {
+                                                currentWebUrl = url
+                                            }
+                                            if (!url.contains("news.google.com") && isRedirectingGoogleNews) {
                                                 isRedirectingGoogleNews = false
                                             }
                                         }
@@ -999,17 +1283,26 @@ fun ReaderScreen(
 
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
-                                        val resolvedUrl = url ?: currentWebUrl
-                                        currentWebUrl = resolvedUrl
+                                        val resolvedUrl = (url ?: currentWebUrl).trim()
+                                        if (resolvedUrl.isNotEmpty() && currentWebUrl != resolvedUrl) {
+                                            currentWebUrl = resolvedUrl
+                                        }
 
                                         if (!resolvedUrl.contains("news.google.com")) {
-                                            isRedirectingGoogleNews = false
+                                            if (isRedirectingGoogleNews) {
+                                                isRedirectingGoogleNews = false
+                                            }
 
-                                            // Extract live rendered DOM immediately and once more after JS settles
-                                            extractLiveFromWebView(view)
-                                            scope.launch {
-                                                delay(1400L)
+                                            // Only extract if this URL has not already produced substantive content
+                                            if (!extractionCoordinator.hasSubstantiveResultFor(resolvedUrl)) {
                                                 extractLiveFromWebView(view)
+                                                delayedPageFinishedJob?.cancel()
+                                                delayedPageFinishedJob = scope.launch {
+                                                    delay(1400L)
+                                                    if (!extractionCoordinator.hasSubstantiveResultFor(resolvedUrl)) {
+                                                        extractLiveFromWebView(view)
+                                                    }
+                                                }
                                             }
                                         } else {
                                             // If still on news.google.com, help click any direct external article anchor if present
@@ -1245,6 +1538,7 @@ fun ReaderScreen(
 
 /**
  * Selects the most natural available Bengali (bn-BD / bn-IN) or English voice on the TTS engine.
+ * Executed off the Main Thread to avoid blocking UI frames on Binder IPC calls.
  */
 private fun configureNaturalTtsVoice(engine: TextToSpeech, hasBengali: Boolean): Boolean {
     if (!hasBengali) {
@@ -1263,9 +1557,17 @@ private fun configureNaturalTtsVoice(engine: TextToSpeech, hasBengali: Boolean):
 
     var supported = false
     for (loc in localesToTry) {
-        val avail = engine.isLanguageAvailable(loc)
+        val avail = try {
+            engine.isLanguageAvailable(loc)
+        } catch (_: Exception) {
+            TextToSpeech.LANG_NOT_SUPPORTED
+        }
         if (avail >= TextToSpeech.LANG_AVAILABLE) {
-            val res = engine.setLanguage(loc)
+            val res = try {
+                engine.setLanguage(loc)
+            } catch (_: Exception) {
+                TextToSpeech.LANG_NOT_SUPPORTED
+            }
             if (res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED) {
                 supported = true
                 break
@@ -1274,11 +1576,19 @@ private fun configureNaturalTtsVoice(engine: TextToSpeech, hasBengali: Boolean):
     }
 
     if (!supported) {
-        val resBd = engine.setLanguage(Locale("bn", "BD"))
+        val resBd = try {
+            engine.setLanguage(Locale("bn", "BD"))
+        } catch (_: Exception) {
+            TextToSpeech.LANG_NOT_SUPPORTED
+        }
         if (resBd != TextToSpeech.LANG_MISSING_DATA && resBd != TextToSpeech.LANG_NOT_SUPPORTED) {
             supported = true
         } else {
-            val resIn = engine.setLanguage(Locale("bn", "IN"))
+            val resIn = try {
+                engine.setLanguage(Locale("bn", "IN"))
+            } catch (_: Exception) {
+                TextToSpeech.LANG_NOT_SUPPORTED
+            }
             if (resIn != TextToSpeech.LANG_MISSING_DATA && resIn != TextToSpeech.LANG_NOT_SUPPORTED) {
                 supported = true
             }
@@ -1331,7 +1641,6 @@ private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 220): List<S
     val chunks = mutableListOf<String>()
 
     for (paragraph in paragraphs) {
-        // Split into individual sentences at Bengali danda (।), ?, !, or non-abbreviation period followed by space
         val sentences = paragraph
             .split(
                 Regex(
@@ -1362,7 +1671,6 @@ private fun splitTextIntoTtsChunks(text: String, maxChunkLen: Int = 220): List<S
  */
 private fun splitLongSentenceAtNaturalBoundaries(sentence: String, maxChunkLen: Int): List<String> {
     val result = mutableListOf<String>()
-    // First split by natural clause punctuation (, or ; or : not inside numbers) or coordinating conjunctions
     val clauses = sentence
         .split(Regex("(?<![0-9০-৯])(?<=[,;:])\\s+|\\s+(?=(?:এবং|কিন্তু|তবে|অথবা|কারণ|যাতে)\\s)"))
         .map { it.trim() }
@@ -1380,7 +1688,6 @@ private fun splitLongSentenceAtNaturalBoundaries(sentence: String, maxChunkLen: 
     for (clause in clauses) {
         if (clause.length > maxChunkLen) {
             flushCurrent()
-            // Split oversized clause strictly at word boundaries (spaces), never mid-word
             val words = clause.split(Regex("\\s+")).filter { it.isNotEmpty() }
             var wordBuf = StringBuilder()
             for (word in words) {
@@ -1408,4 +1715,3 @@ private fun splitLongSentenceAtNaturalBoundaries(sentence: String, maxChunkLen: 
     flushCurrent()
     return result
 }
-

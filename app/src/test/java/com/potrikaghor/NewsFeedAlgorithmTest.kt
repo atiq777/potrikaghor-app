@@ -1,5 +1,10 @@
 package com.potrikaghor
 
+import android.content.SharedPreferences
+import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.ArticleExtractionCoordinator
+import com.potrikaghor.data.ArticleExtractor
+import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.data.DirectRssFeedSpec
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
@@ -8,8 +13,10 @@ import com.potrikaghor.model.NewsItem
 import com.potrikaghor.ui.screens.HOME_LOAD_ERROR_MESSAGE
 import com.potrikaghor.ui.screens.HomeBodyState
 import com.potrikaghor.ui.screens.HomeLoadStateSnapshot
+import com.potrikaghor.ui.screens.LazyTtsLifecycleState
 import com.potrikaghor.ui.screens.applyHomeLoadResult
 import com.potrikaghor.ui.screens.resolveHomeBodyState
+import com.potrikaghor.ui.screens.shouldUpdateWebProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -18,6 +25,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,11 +35,15 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Timeout
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+
 
 /**
  * Phase 1 Verification Suite for PotrikaGhor Core News Engine:
@@ -1179,6 +1191,432 @@ class NewsFeedAlgorithmTest {
         checkTrue(clusters.isNotEmpty(), "Top Stories clustering must succeed with precomputed signatures")
     }
 
+    @Test
+    fun test23_boundedHtmlExtractionAndTruncatedStreamFallback() {
+        val extractor = ArticleExtractor()
+
+        // Case A: Oversized stream with heavy <head> script before <article> triggers adaptive extension
+        // and still bounds total bytes read instead of reading unbounded megabytes.
+        val heavyHeadScript = "<script>" + ("var x = '0123456789ABCDEF';\n".repeat(1200)) + "</script>"
+        val articleBodyHtml = """
+            <article>
+                <h1>বাংলাদেশে মেট্রোরেলের নতুন সময়সূচি ঘোষণা করেছে কর্তৃপক্ষ</h1>
+                <p>ঢাকায় মেট্রোরেলের যাত্রীদের সুবিধার্থে আগামী রবিবার থেকে নতুন সময়সূচি কার্যকর হতে যাচ্ছে বলে জানিয়েছে কর্তৃপক্ষ।</p>
+                <p>সকাল সাতটা থেকে রাত নয়টা পর্যন্ত নিয়মিত বিরতিতে ট্রেন চলাচল করবে এবং পিক আওয়ারে ট্রেনের সংখ্যা বাড়ানো হয়েছে।</p>
+                <p>যাত্রীরা এমআরটি পাস ও সিঙ্গেল জার্নি টিকিট উভয়ই ব্যবহার করে সহজে যাতায়াত করতে পারবেন বলে বিজ্ঞপ্তিতে জানানো হয়।</p>
+            </article>
+        """.trimIndent()
+        val trailingNoise = "<div>" + ("trailing_padding_data_".repeat(5000)) + "</div>"
+        val fullLargeHtml = "<html><head><title>মেট্রোরেল সংবাদ</title>$heavyHeadScript</head><body>$articleBodyHtml$trailingNoise</body></html>"
+        val fullBytes = fullLargeHtml.toByteArray(Charsets.UTF_8)
+
+        val readResult = extractor.readBoundedHtmlStream(
+            inputStream = ByteArrayInputStream(fullBytes),
+            charset = Charsets.UTF_8,
+            maxBytes = 24 * 1024,
+            fallbackExtensionBytes = 48 * 1024
+        )
+
+        checkTrue(readResult.extendedReadUsed, "Adaptive extension read should activate when initial 24KB had only script header")
+        checkTrue(readResult.bytesRead <= 72 * 1024, "Total bytes read must be strictly bounded by primary + extension limit")
+        checkTrue(readResult.bytesRead < fullBytes.size, "Bounded stream reader must stop before reading entire oversized stream")
+
+        val parsed = extractor.parseHtml(
+            html = readResult.html,
+            url = "https://www.prothomalo.com/bangladesh/metro-schedule",
+            fallbackTitle = "মেট্রোরেলের নতুন সময়সূচি",
+            source = "প্রথম আলো"
+        )
+        checkTrue(extractor.hasSubstantiveContent(parsed), "Article paragraphs after heavy script header must be extracted via adaptive fallback")
+        checkTrue(parsed.paragraphs.size >= 3, "All 3 article paragraphs must be extracted")
+
+        // Case B: Stream truncated mid-<p> still salvages completed paragraphs and substantive trailing text
+        val truncatedHtml = """
+            <html><head><meta property="og:title" content="বাজেট আলোচনা শুরু"/></head><body>
+            <p>আগামী অর্থবছরের জাতীয় বাজেটকে সামনে রেখে অর্থ মন্ত্রণালয়ের প্রাক-বাজেট আলোচনা আজ আনুষ্ঠানিকভাবে শুরু হয়েছে।</p>
+            <p>অর্থনীতিবিদ ও ব্যবসায়ী নেতারা মূল্যস্ফীতি নিয়ন্ত্রণ এবং কর্মসংস্থান বৃদ্ধির ওপর বিশেষ গুরুত্ব আরোপ করেছেন এই বৈঠকে
+        """.trimIndent()
+        val parsedTruncated = extractor.parseHtml(
+            html = truncatedHtml,
+            url = "https://www.jugantor.com/economics/budget",
+            fallbackTitle = "বাজেট আলোচনা শুরু",
+            source = "যুগান্তর"
+        )
+        checkEquals(2, parsedTruncated.paragraphs.size, "Both completed <p> and substantive truncated trailing <p> must be salvaged")
+    }
+
+    @Test
+    fun test24_jsonLdValidInvalidAndHtmlFallbackExtraction() {
+        val extractor = ArticleExtractor()
+
+        // Case A: Valid JSON-LD with @graph, articleBody, headline, and image object
+        val validJsonLdHtml = """
+            <html>
+            <head>
+                <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@graph": [
+                    {
+                      "@type": "NewsArticle",
+                      "headline": "সুন্দরবনে পর্যটকদের জন্য নতুন নির্দেশনা জারি করেছে বন বিভাগ",
+                      "image": {
+                        "@type": "ImageObject",
+                        "url": "https://cdn.example.com/sundarbans-lead.jpg"
+                      },
+                      "articleBody": "সুন্দরবনের জীববৈচিত্র্য রক্ষায় পর্যটকদের ভ্রমণে নতুন নির্দেশনা জারি করেছে বন বিভাগ।\n\nএখন থেকে নির্ধারিত রুটের বাইরে কোনো নৌযান চলাচল করতে পারবে না এবং প্লাস্টিক বহন সম্পূর্ণ নিষিদ্ধ করা হয়েছে।"
+                    }
+                  ]
+                }
+                </script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val fromJsonLd = extractor.parseHtml(
+            html = validJsonLdHtml,
+            url = "https://www.prothomalo.com/environment/sundarbans",
+            fallbackTitle = "সুন্দরবন সংবাদ",
+            source = "প্রথম আলো"
+        )
+        checkEquals("সুন্দরবনে পর্যটকদের জন্য নতুন নির্দেশনা জারি করেছে বন বিভাগ", fromJsonLd.title, "Headline must be extracted from JSON-LD")
+        checkEquals("https://cdn.example.com/sundarbans-lead.jpg", fromJsonLd.leadImageUrl, "Lead image URL must be extracted from JSON-LD")
+        checkEquals(2, fromJsonLd.paragraphs.size, "Both paragraphs from JSON-LD articleBody must be extracted")
+
+        // Case B: Malformed / pathological JSON-LD (which previously caused catastrophic regex backtracking)
+        // plus unclosed <footer tag must complete quickly (<500ms) and fall back cleanly to HTML <p> extraction
+        val pathologicalBody = "\\\"".repeat(4000) + "unclosed_json_string_without_end"
+        val invalidJsonLdWithHtmlFallback = """
+            <html>
+            <head>
+                <meta property="og:title" content="কৃষি প্রযুক্তিতে নতুন উদ্ভাবন"/>
+                <script type="application/ld+json">
+                {"@type": "NewsArticle", "articleBody": "$pathologicalBody
+                </script>
+            </head>
+            <body>
+                <div class="story-element-text">দেশের দক্ষিণাঞ্চলে লবণাক্ততা সহনশীল ধানের নতুন জাত উদ্ভাবন করেছেন কৃষি বিজ্ঞানীরা, যা ফলন বাড়াতে বড় ভূমিকা রাখবে।</div>
+                <p>নতুন এই ধানের জাতটি উপকূলীয় অঞ্চলের কৃষকদের জন্য আশীর্বাদ হয়ে আসবে বলে আশা করছেন সংশ্লিষ্ট গবেষকেরা।</p>
+                <footer class="broken-footer">কপিরাইট তথ্য
+            </body>
+            </html>
+        """.trimIndent()
+
+        val startMs = System.currentTimeMillis()
+        val fallbackResult = extractor.parseHtml(
+            html = invalidJsonLdWithHtmlFallback,
+            url = "https://www.kalbela.com/agri/innovation",
+            fallbackTitle = "কৃষি প্রযুক্তি",
+            source = "কালবেলা"
+        )
+        val elapsedMs = System.currentTimeMillis() - startMs
+
+        checkTrue(elapsedMs < 500L, "Malformed JSON-LD with escaped quotes must never backtrack catastrophically (took ${elapsedMs}ms)")
+        checkEquals("কৃষি প্রযুক্তিতে নতুন উদ্ভাবন", fallbackResult.title, "Title must be extracted from og:title")
+        checkEquals(2, fallbackResult.paragraphs.size, "Fallback HTML extraction must extract both story-element-text and <p> paragraphs")
+    }
+
+    @Test
+    fun test25_duplicateExtractionPreventionAndUrlChangeInvalidation() {
+        val coordinator = ArticleExtractionCoordinator()
+        val urlA = "https://www.prothomalo.com/bangladesh/story-a"
+        val urlB = "https://www.prothomalo.com/bangladesh/story-b"
+
+        val v1 = coordinator.onUrlChanged(urlA)
+        checkTrue(coordinator.isCurrent(v1, urlA), "Version v1 must be current for urlA")
+        checkFalse(coordinator.hasSubstantiveResultFor(urlA), "urlA should not be marked succeeded initially")
+
+        // First live DOM extraction starts
+        checkTrue(coordinator.tryStartLiveDomExtraction(urlA), "First live DOM extraction for urlA must be allowed")
+        // Concurrent duplicate call (e.g., second onPageFinished or delayed callback) must be blocked
+        checkFalse(coordinator.tryStartLiveDomExtraction(urlA), "Duplicate concurrent live DOM extraction for urlA must be rejected")
+
+        // Mark urlA succeeded
+        coordinator.markSucceeded(urlA)
+        checkTrue(coordinator.hasSubstantiveResultFor(urlA), "urlA must be recorded as succeeded")
+        checkFalse(coordinator.tryStartLiveDomExtraction(urlA), "Subsequent non-forced extraction for already succeeded urlA must be skipped")
+
+        // Now user navigates to urlB
+        val v2 = coordinator.onUrlChanged(urlB)
+        checkTrue(v2 > v1, "URL change must increment requestVersion")
+        checkFalse(coordinator.isCurrent(v1, urlA), "Old version v1 for urlA must be invalidated after switching to urlB")
+        checkTrue(coordinator.isCurrent(v2, urlB), "New version v2 for urlB must be active")
+        checkTrue(coordinator.tryStartLiveDomExtraction(urlB), "Live DOM extraction for new urlB must be allowed")
+    }
+
+    @Test
+    fun test26_concurrentReadAndHistoryUpdatesPreserveAllEntriesWithO1SetLookup() = runBlocking {
+        val fakePrefs = InMemorySharedPreferences()
+        val testRepo = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+        val callerThreadName = Thread.currentThread().name
+
+        // Launch 25 concurrent markArticleRead calls and 10 concurrent addRecent calls
+        val jobs = (1..25).map { idx ->
+            launch(Dispatchers.Default) {
+                testRepo.markArticleRead(
+                    url = "https://www.prothomalo.com/article-$idx",
+                    title = "গুরুত্বপূর্ণ সংবাদ শিরোনাম নম্বর $idx",
+                    sourceName = "প্রথম আলো",
+                    paperUrl = "https://www.prothomalo.com"
+                )
+                if (idx <= 10) {
+                    testRepo.addRecent("https://www.paper-$idx.com")
+                }
+            }
+        }
+        jobs.forEach { it.join() }
+
+        // Verify immediate in-memory O(1) Set lookup and zero lost entries
+        for (idx in 1..25) {
+            checkTrue(
+                testRepo.isArticleRead("https://www.prothomalo.com/article-$idx"),
+                "O(1) Set lookup must report article-$idx as read"
+            )
+            checkTrue(
+                testRepo.isArticleRead("", "গুরুত্বপূর্ণ সংবাদ শিরোনাম নম্বর $idx"),
+                "O(1) Set lookup by title key must report article-$idx as read"
+            )
+        }
+        checkEquals(25, testRepo.state.value.readHistory.size, "All 25 concurrent readHistory items must be preserved without loss")
+        checkEquals(10, testRepo.state.value.recents.size, "All 10 concurrent recent paper URLs must be preserved")
+        checkTrue(testRepo.readLookupSetSizeForTest() >= 50, "In-memory HashSet must hold both URL and title keys for all 25 articles")
+
+        // Wait for asynchronous IO persistence to finish and verify SharedPreferences compatibility
+        testRepo.awaitPendingPersistence()
+        checkTrue(
+            testRepo.lastPersistenceThreadName.isNotEmpty() && testRepo.lastPersistenceThreadName != callerThreadName,
+            "JSON serialization and SharedPreferences persistence must execute on background IO thread, actual=${testRepo.lastPersistenceThreadName}"
+        )
+
+        // Reload into a brand-new AppStateRepository instance from the same SharedPreferences
+        val reloadedRepo = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+        checkEquals(25, reloadedRepo.state.value.readHistory.size, "Reloaded repository must restore all 25 persisted readHistory entries")
+        checkEquals(10, reloadedRepo.state.value.recents.size, "Reloaded repository must restore all 10 persisted recent entries")
+        for (idx in 1..25) {
+            checkTrue(
+                reloadedRepo.isArticleRead("https://www.prothomalo.com/article-$idx"),
+                "Reloaded repository O(1) Set lookup must contain article-$idx"
+            )
+        }
+    }
+
+    @Test
+    fun test27_articleExtractorCoroutineCancellationAndTimeoutHandling() = runBlocking {
+        val extractor = ArticleExtractor()
+
+        // Part A: Cancelling extractArticle coroutine immediately calls Call.cancel()
+        val callCanceled = AtomicBoolean(false)
+        val callStarted = CountDownLatch(1)
+        val blockLatch = CountDownLatch(1)
+
+        val blockingCallFactory: (Request) -> Call = { req ->
+            object : Call {
+                override fun request(): Request = req
+                override fun execute(): Response {
+                    callStarted.countDown()
+                    try {
+                        blockLatch.await(10, TimeUnit.SECONDS)
+                    } catch (_: InterruptedException) {}
+                    throw IOException("Canceled")
+                }
+                override fun enqueue(responseCallback: Callback) {}
+                override fun cancel() {
+                    callCanceled.set(true)
+                    blockLatch.countDown()
+                }
+                override fun isExecuted(): Boolean = true
+                override fun isCanceled(): Boolean = callCanceled.get()
+                override fun timeout(): Timeout = Timeout.NONE
+                override fun clone(): Call = this
+            }
+        }
+
+        val extractionJob = launch(Dispatchers.IO) {
+            extractor.extractArticle(
+                url = "https://www.prothomalo.com/slow-article",
+                fallbackTitle = "ধীরগতির সংবাদ",
+                source = "প্রথম আলো",
+                timeoutMs = 10_000L,
+                callFactory = blockingCallFactory
+            )
+        }
+        checkTrue(callStarted.await(2, TimeUnit.SECONDS), "ArticleExtractor HTTP Call must start")
+        extractionJob.cancelAndJoin()
+        checkTrue(callCanceled.get(), "Cancelling extractArticle coroutine must cancel underlying OkHttp Call")
+
+        // Part B: Timeout returns offline fallback CleanArticle within bounded time and cancels underlying Call
+        val timeoutCallCanceled = AtomicBoolean(false)
+        val timeoutLatch = CountDownLatch(1)
+        val startMs = System.currentTimeMillis()
+        val timedOutArticle = extractor.extractArticle(
+            url = "https://www.jugantor.com/hung-article",
+            fallbackTitle = "টাইমআউট সংবাদ শিরোনাম",
+            source = "যুগান্তর",
+            timeoutMs = 250L,
+            callFactory = { req ->
+                object : Call {
+                    override fun request(): Request = req
+                    override fun execute(): Response {
+                        try {
+                            timeoutLatch.await(5, TimeUnit.SECONDS)
+                        } catch (_: InterruptedException) {}
+                        throw IOException("Timed out")
+                    }
+                    override fun enqueue(responseCallback: Callback) {}
+                    override fun cancel() {
+                        timeoutCallCanceled.set(true)
+                        timeoutLatch.countDown()
+                    }
+                    override fun isExecuted(): Boolean = true
+                    override fun isCanceled(): Boolean = timeoutCallCanceled.get()
+                    override fun timeout(): Timeout = Timeout.NONE
+                    override fun clone(): Call = this
+                }
+            }
+        )
+        val elapsedMs = System.currentTimeMillis() - startMs
+        checkTrue(elapsedMs < 1_500L, "Timed-out article extraction must return promptly (<1500ms), actual=${elapsedMs}ms")
+        checkTrue(timeoutCallCanceled.get(), "Timed-out extraction must cancel the hung OkHttp Call")
+        checkEquals("টাইমআউট সংবাদ শিরোনাম", timedOutArticle.title, "Fallback title must be preserved on timeout")
+        checkEquals(ArticleExtractor.PLACEHOLDER_OFFLINE, timedOutArticle.paragraphs.first(), "Offline placeholder must be returned on timeout")
+    }
+
+    @Test
+    fun test28_smartSummaryRunsOnBackgroundDispatcherAndPreventsCrossArticleLeak() = runBlocking {
+        val extractor = ArticleExtractor()
+        val callerThreadName = Thread.currentThread().name
+        val summaryWorkerThread = AtomicReference("")
+
+        val article1 = CleanArticle(
+            title = "পদ্মা সেতুতে একদিনে রেকর্ড টোল আদায় হয়েছে",
+            source = "প্রথম আলো",
+            url = "https://www.prothomalo.com/bangladesh/padma-toll",
+            paragraphs = listOf(
+                "ঈদযাত্রাকে কেন্দ্র করে পদ্মা সেতুতে গত ২৪ ঘণ্টায় ৪ কোটি ৮০ লাখ টাকার রেকর্ড টোল আদায় হয়েছে বলে জানিয়েছে সেতু কর্তৃপক্ষ।",
+                "এই সময়ে সেতু দিয়ে মোট ৪৫ হাজারের বেশি যানবাহন পারাপার হয়েছে যা স্বাভাবিক সময়ের তুলনায় প্রায় দ্বিগুণ।",
+                "যানজট এড়াতে মাওয়া ও জাজিরা প্রান্তে অতিরিক্ত টোল বুথ চালু রাখা হয়েছে এবং নিরাপত্তা জোরদার করা হয়েছে।",
+                "সেতু বিভাগের কর্মকর্তারা জানিয়েছেন যে ইলেকট্রনিক টোল কালেকশন ব্যবস্থা চালু হওয়ায় দ্রুত যানবাহন পারাপার সম্ভব হচ্ছে।",
+                "আগামী কয়েক দিন যানবাহনের এই চাপ অব্যাহত থাকতে পারে বলে ধারণা করছে সংশ্লিষ্ট কর্তৃপক্ষ।"
+            ),
+            plainText = ""
+        )
+
+        val bullets = withContext(Dispatchers.Default) {
+            summaryWorkerThread.set(Thread.currentThread().name)
+            extractor.generateSmartSummaryAsync(article1, article1.title, Dispatchers.Default)
+        }
+
+        checkTrue(
+            summaryWorkerThread.get().contains("DefaultDispatcher") || summaryWorkerThread.get() != callerThreadName,
+            "Smart summary must execute on Dispatchers.Default background thread, actual=${summaryWorkerThread.get()}"
+        )
+        checkTrue(bullets.size in 3..4, "Smart summary must generate 3 to 4 extractive bullets, actual=${bullets.size}")
+        checkTrue(bullets.any { it.contains("পদ্মা সেতু") || it.contains("টোল") }, "Summary bullets must reflect article1 facts")
+    }
+
+    @Test
+    fun test29_lazyTtsLifecycleAndWebProgressThrottling() {
+        // Part A: Verify ReaderScreen opens without initializing TTS until user explicitly requests Listen
+        val ttsLifecycle = LazyTtsLifecycleState()
+        checkFalse(ttsLifecycle.shouldCreateEngineOnReaderOpen(), "ReaderScreen must NOT initialize TTS on screen open")
+        checkEquals(0, ttsLifecycle.initRequestCount, "TTS initRequestCount must be 0 when ReaderScreen opens without tapping Listen")
+        checkFalse(ttsLifecycle.isInitialized, "TTS must not be initialized before Listen tap")
+
+        // User taps Listen for the first time
+        var factoryCalls = 0
+        val startedFirst = ttsLifecycle.requestEngineInitialization { factoryCalls++ }
+        checkTrue(startedFirst, "First Listen tap must trigger lazy TTS initialization")
+        checkEquals(1, factoryCalls, "TTS factory must be invoked once")
+        checkTrue(ttsLifecycle.isInitializing, "isInitializing must be true while TTS engine binds")
+
+        // Duplicate tap while initializing must NOT create a second TTS engine
+        val startedDuplicate = ttsLifecycle.requestEngineInitialization { factoryCalls++ }
+        checkFalse(startedDuplicate, "Duplicate tap while initializing must not create another TTS instance")
+        checkEquals(1, factoryCalls, "TTS factory count must remain 1")
+
+        // Engine initialization succeeds
+        ttsLifecycle.onEngineInitResult(success = true)
+        checkFalse(ttsLifecycle.isInitializing, "isInitializing must become false after init callback")
+        checkTrue(ttsLifecycle.isInitialized, "isInitialized must become true after SUCCESS callback")
+
+        // Disposing ReaderScreen shuts down TTS once
+        var shutdownCalls = 0
+        ttsLifecycle.onDispose { shutdownCalls++ }
+        checkEquals(1, shutdownCalls, "Disposing ReaderScreen must invoke TTS shutdown")
+        checkTrue(ttsLifecycle.isDisposed, "isDisposed must be true after disposal")
+
+        // Part B: Verify WebView progress updates are throttled to prevent excessive recompositions
+        checkTrue(shouldUpdateWebProgress(0, 10, 0L, 100L), "Initial transition from 0 to >0 must update webProgress")
+        checkFalse(shouldUpdateWebProgress(10, 15, 100L, 150L), "Small 5% progress step after 50ms must be throttled")
+        checkFalse(shouldUpdateWebProgress(10, 28, 100L, 200L), "18% step within 100ms (<180ms) must be throttled")
+        checkTrue(shouldUpdateWebProgress(10, 28, 100L, 300L), ">=15% step after >=180ms must update webProgress")
+        checkTrue(shouldUpdateWebProgress(28, 100, 300L, 350L), "Completion (100%) must always update immediately")
+    }
+
+    private class InMemorySharedPreferences : SharedPreferences {
+        private val data = ConcurrentHashMap<String, Any>()
+
+        override fun getAll(): MutableMap<String, *> = HashMap(data)
+        override fun getString(key: String?, defValue: String?): String? =
+            if (key != null) (data[key] as? String) ?: defValue else defValue
+        @Suppress("UNCHECKED_CAST")
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+            if (key != null) (data[key] as? MutableSet<String>) ?: defValues else defValues
+        override fun getInt(key: String?, defValue: Int): Int =
+            if (key != null) (data[key] as? Int) ?: defValue else defValue
+        override fun getLong(key: String?, defValue: Long): Long =
+            if (key != null) (data[key] as? Long) ?: defValue else defValue
+        override fun getFloat(key: String?, defValue: Float): Float =
+            if (key != null) (data[key] as? Float) ?: defValue else defValue
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean =
+            if (key != null) (data[key] as? Boolean) ?: defValue else defValue
+        override fun contains(key: String?): Boolean = key != null && data.containsKey(key)
+        override fun edit(): SharedPreferences.Editor = EditorImpl()
+        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+
+        private inner class EditorImpl : SharedPreferences.Editor {
+            private val staged = HashMap<String, Any?>()
+            private var clearAll = false
+
+            override fun putString(key: String?, value: String?): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = value
+            }
+            override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = values?.toMutableSet()
+            }
+            override fun putInt(key: String?, value: Int): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = value
+            }
+            override fun putLong(key: String?, value: Long): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = value
+            }
+            override fun putFloat(key: String?, value: Float): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = value
+            }
+            override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = value
+            }
+            override fun remove(key: String?): SharedPreferences.Editor = apply {
+                if (key != null) staged[key] = null
+            }
+            override fun clear(): SharedPreferences.Editor = apply {
+                clearAll = true
+            }
+            override fun commit(): Boolean {
+                apply()
+                return true
+            }
+            override fun apply() {
+                if (clearAll) data.clear()
+                for ((k, v) in staged) {
+                    if (v == null) data.remove(k) else data[k] = v
+                }
+            }
+        }
+    }
+
     fun runAllTests(): List<String> {
         val results = mutableListOf<String>()
         val tests = listOf<Pair<String, () -> Unit>>(
@@ -1203,7 +1641,14 @@ class NewsFeedAlgorithmTest {
             "test19_concurrentStartupRequestsDoNotTriggerDuplicateBatches" to ::test19_concurrentStartupRequestsDoNotTriggerDuplicateBatches,
             "test20_breakingNewsNotifierWaitsForInitialHomeLoadAndReusesCache" to ::test20_breakingNewsNotifierWaitsForInitialHomeLoadAndReusesCache,
             "test21_cachedNewsRemainsVisibleWhenRefreshFails" to ::test21_cachedNewsRemainsVisibleWhenRefreshFails,
-            "test22_precomputedTitleSignatureAvoidsRepeatedTokenization" to ::test22_precomputedTitleSignatureAvoidsRepeatedTokenization
+            "test22_precomputedTitleSignatureAvoidsRepeatedTokenization" to ::test22_precomputedTitleSignatureAvoidsRepeatedTokenization,
+            "test23_boundedHtmlExtractionAndTruncatedStreamFallback" to ::test23_boundedHtmlExtractionAndTruncatedStreamFallback,
+            "test24_jsonLdValidInvalidAndHtmlFallbackExtraction" to ::test24_jsonLdValidInvalidAndHtmlFallbackExtraction,
+            "test25_duplicateExtractionPreventionAndUrlChangeInvalidation" to ::test25_duplicateExtractionPreventionAndUrlChangeInvalidation,
+            "test26_concurrentReadAndHistoryUpdatesPreserveAllEntriesWithO1SetLookup" to ::test26_concurrentReadAndHistoryUpdatesPreserveAllEntriesWithO1SetLookup,
+            "test27_articleExtractorCoroutineCancellationAndTimeoutHandling" to ::test27_articleExtractorCoroutineCancellationAndTimeoutHandling,
+            "test28_smartSummaryRunsOnBackgroundDispatcherAndPreventsCrossArticleLeak" to ::test28_smartSummaryRunsOnBackgroundDispatcherAndPreventsCrossArticleLeak,
+            "test29_lazyTtsLifecycleAndWebProgressThrottling" to ::test29_lazyTtsLifecycleAndWebProgressThrottling
         )
         for ((name, block) in tests) {
             block()
