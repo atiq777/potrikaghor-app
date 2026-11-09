@@ -21,7 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hub
@@ -32,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -41,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,8 +60,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.CachedCoverageResult
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
+import com.potrikaghor.model.NewsItem
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
 import com.potrikaghor.ui.components.MotionTokens
@@ -70,11 +75,128 @@ import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
 
-private enum class CoverageBodyState {
+enum class CoverageBodyState {
     LOADING,
     ERROR,
     EMPTY,
     CONTENT
+}
+
+enum class CoverageEnterAction {
+    SHOW_CACHED_ONLY,
+    BACKGROUND_REFRESH,
+    INITIAL_LOAD
+}
+
+data class CoverageUiStateSnapshot(
+    val coverageList: List<Coverage> = emptyList(),
+    val manyCoverage: List<Coverage> = emptyList(),
+    val fewCoverage: List<Coverage> = emptyList(),
+    val originalItems: List<NewsItem> = emptyList(),
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val errorMsg: String? = null,
+    val fetchedAtMs: Long = 0L
+)
+
+const val COVERAGE_LOAD_ERROR_MESSAGE = "কভারেজ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
+
+fun resolveCoverageEnterAction(
+    cached: CachedCoverageResult?,
+    isCacheFresh: Boolean,
+    returningFromReader: Boolean = false
+): CoverageEnterAction {
+    if (cached == null || cached.coverageList.isEmpty()) {
+        return CoverageEnterAction.INITIAL_LOAD
+    }
+    if (returningFromReader || isCacheFresh) {
+        return CoverageEnterAction.SHOW_CACHED_ONLY
+    }
+    return CoverageEnterAction.BACKGROUND_REFRESH
+}
+
+fun createInitialCoverageSnapshot(cached: CachedCoverageResult?): CoverageUiStateSnapshot {
+    return if (cached != null && cached.coverageList.isNotEmpty()) {
+        CoverageUiStateSnapshot(
+            coverageList = cached.coverageList,
+            manyCoverage = cached.manyCoverage,
+            fewCoverage = cached.fewCoverage,
+            originalItems = cached.originalItems,
+            isLoading = false,
+            isRefreshing = false,
+            errorMsg = null,
+            fetchedAtMs = cached.fetchedAtMs
+        )
+    } else {
+        CoverageUiStateSnapshot(
+            coverageList = emptyList(),
+            manyCoverage = emptyList(),
+            fewCoverage = emptyList(),
+            originalItems = emptyList(),
+            isLoading = true,
+            isRefreshing = false,
+            errorMsg = null,
+            fetchedAtMs = 0L
+        )
+    }
+}
+
+fun beginCoverageRefreshState(current: CoverageUiStateSnapshot): CoverageUiStateSnapshot {
+    return if (current.coverageList.isNotEmpty()) {
+        current.copy(isLoading = false, isRefreshing = true, errorMsg = null)
+    } else {
+        current.copy(isLoading = true, isRefreshing = false, errorMsg = null)
+    }
+}
+
+fun applyCoverageLoadResult(
+    current: CoverageUiStateSnapshot,
+    newResult: CachedCoverageResult?,
+    errorMessage: String? = null
+): CoverageUiStateSnapshot {
+    return if (newResult != null) {
+        CoverageUiStateSnapshot(
+            coverageList = newResult.coverageList,
+            manyCoverage = newResult.manyCoverage,
+            fewCoverage = newResult.fewCoverage,
+            originalItems = newResult.originalItems,
+            isLoading = false,
+            isRefreshing = false,
+            errorMsg = null,
+            fetchedAtMs = newResult.fetchedAtMs
+        )
+    } else if (current.coverageList.isNotEmpty()) {
+        // Stale-while-revalidate failure: preserve existing results and never blank the screen
+        current.copy(
+            isLoading = false,
+            isRefreshing = false,
+            errorMsg = null
+        )
+    } else {
+        current.copy(
+            isLoading = false,
+            isRefreshing = false,
+            errorMsg = errorMessage ?: COVERAGE_LOAD_ERROR_MESSAGE
+        )
+    }
+}
+
+fun resolveCoverageBodyState(snapshot: CoverageUiStateSnapshot): CoverageBodyState {
+    return when {
+        snapshot.coverageList.isNotEmpty() -> CoverageBodyState.CONTENT
+        snapshot.isLoading -> CoverageBodyState.LOADING
+        snapshot.errorMsg != null -> CoverageBodyState.ERROR
+        else -> CoverageBodyState.EMPTY
+    }
+}
+
+internal fun coverageStableKey(prefix: String, index: Int, coverage: Coverage): String {
+    val firstLink = coverage.items.firstOrNull()?.link?.takeIf { it.isNotBlank() }
+    return if (firstLink != null) {
+        "${prefix}_${firstLink}"
+    } else {
+        "${prefix}_${index}_${coverage.headline.hashCode()}"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,43 +208,128 @@ fun CoverageScreen(
 ) {
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
-    var isIntl by remember { mutableStateOf(false) }
-    var coverageList by remember { mutableStateOf<List<Coverage>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val stateHolder = newsRepo.coverageStateHolder
 
-    fun loadCoverage() {
-        scope.launch {
-            isLoading = true
-            errorMsg = null
-            try {
-                coverageList = newsRepo.fetchCoverage(isIntl)
-            } catch (e: Exception) {
-                errorMsg = "কভারেজ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
-            } finally {
-                isLoading = false
-            }
+    var isIntl by remember { mutableStateOf(stateHolder.isIntl) }
+    val selectedTopic by remember { mutableStateOf(stateHolder.selectedTopic) }
+    val activeKey = remember(isIntl, selectedTopic) {
+        newsRepo.coverageCacheKey(isIntl, selectedTopic)
+    }
+
+    var uiState by remember(activeKey) {
+        val cached = newsRepo.getCachedCoverageResult(isIntl, selectedTopic)
+        mutableStateOf(createInitialCoverageSnapshot(cached))
+    }
+
+    val listState = remember(activeKey) {
+        val savedPos = stateHolder.getScrollPosition(activeKey)
+        LazyListState(
+            firstVisibleItemIndex = savedPos.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = savedPos.firstVisibleItemScrollOffset
+        )
+    }
+
+    DisposableEffect(activeKey, listState) {
+        onDispose {
+            stateHolder.isIntl = isIntl
+            stateHolder.selectedTopic = selectedTopic
+            stateHolder.saveScrollPosition(
+                cacheKey = activeKey,
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset
+            )
         }
     }
 
-    LaunchedEffect(isIntl) {
-        loadCoverage()
+    suspend fun performLoad(forceRefresh: Boolean) {
+        uiState = beginCoverageRefreshState(uiState)
+        stateHolder.isLoading = uiState.isLoading
+        stateHolder.isRefreshing = uiState.isRefreshing
+        stateHolder.errorMsg = uiState.errorMsg
+        try {
+            val result = newsRepo.fetchCoverageCached(
+                intl = isIntl,
+                filterQuery = selectedTopic,
+                forceRefresh = forceRefresh
+            )
+            uiState = applyCoverageLoadResult(uiState, newResult = result)
+            stateHolder.lastSuccessfulResult = result
+        } catch (_: Exception) {
+            uiState = applyCoverageLoadResult(
+                current = uiState,
+                newResult = null,
+                errorMessage = COVERAGE_LOAD_ERROR_MESSAGE
+            )
+        } finally {
+            stateHolder.isLoading = uiState.isLoading
+            stateHolder.isRefreshing = uiState.isRefreshing
+            stateHolder.errorMsg = uiState.errorMsg
+        }
+    }
+
+    fun triggerManualRefresh() {
+        scope.launch {
+            performLoad(forceRefresh = true)
+        }
+    }
+
+    LaunchedEffect(activeKey) {
+        stateHolder.isIntl = isIntl
+        stateHolder.selectedTopic = selectedTopic
+        val wasReturningFromReader = stateHolder.consumeReturningFromReader()
+
+        val cached = newsRepo.getCachedCoverageResult(isIntl, selectedTopic)
+        val isFresh = newsRepo.isCoverageCacheFresh(isIntl, selectedTopic)
+        val action = resolveCoverageEnterAction(
+            cached = cached,
+            isCacheFresh = isFresh,
+            returningFromReader = wasReturningFromReader
+        )
+
+        when (action) {
+            CoverageEnterAction.SHOW_CACHED_ONLY -> {
+                if (cached != null) {
+                    uiState = applyCoverageLoadResult(uiState, newResult = cached)
+                    stateHolder.lastSuccessfulResult = cached
+                    stateHolder.isLoading = false
+                    stateHolder.isRefreshing = false
+                    stateHolder.errorMsg = null
+                }
+            }
+            CoverageEnterAction.BACKGROUND_REFRESH -> {
+                if (cached != null && uiState.coverageList.isEmpty()) {
+                    uiState = createInitialCoverageSnapshot(cached)
+                }
+                performLoad(forceRefresh = true)
+            }
+            CoverageEnterAction.INITIAL_LOAD -> {
+                performLoad(forceRefresh = false)
+            }
+        }
     }
 
     val appState by appRepo.state.collectAsState()
-    val filteredCoverageList = remember(coverageList, appState.mutedKeywords) {
+    val (manyCoverage, fewCoverage) = remember(
+        uiState.coverageList,
+        uiState.manyCoverage,
+        uiState.fewCoverage,
+        appState.mutedKeywords
+    ) {
         if (appState.mutedKeywords.isEmpty()) {
-            coverageList
+            Pair(uiState.manyCoverage, uiState.fewCoverage)
         } else {
-            coverageList.filter { cov ->
+            val filtered = uiState.coverageList.filter { cov ->
                 cov.items.none { appRepo.isMuted(it.title, it.snippet) }
             }
+            Pair(
+                filtered.filter { it.count >= 3 },
+                filtered.filter { it.count == 2 }
+            )
         }
     }
-    val manyCoverage = remember(filteredCoverageList) { filteredCoverageList.filter { it.count >= 3 } }
-    val fewCoverage = remember(filteredCoverageList) { filteredCoverageList.filter { it.count == 2 } }
 
-    val refreshRotation = if (isLoading && !reducedMotion) {
+    val isBusy = uiState.isLoading || uiState.isRefreshing
+    val refreshRotation = if (isBusy && !reducedMotion) {
         val infiniteTransition = rememberInfiniteTransition(label = "covRefreshSpin")
         val angle by infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -165,8 +372,8 @@ fun CoverageScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { if (!isLoading) loadCoverage() },
-                        enabled = !isLoading,
+                        onClick = { if (!isBusy) triggerManualRefresh() },
+                        enabled = !isBusy,
                         interactionSource = refreshInteraction,
                         modifier = Modifier
                             .size(38.dp)
@@ -195,26 +402,49 @@ fun CoverageScreen(
             ) {
                 SegmentedButton(
                     selected = !isIntl,
-                    onClick = { isIntl = false },
+                    onClick = {
+                        if (isIntl) {
+                            stateHolder.saveScrollPosition(
+                                cacheKey = activeKey,
+                                index = listState.firstVisibleItemIndex,
+                                offset = listState.firstVisibleItemScrollOffset
+                            )
+                            stateHolder.isIntl = false
+                            isIntl = false
+                        }
+                    },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                 ) {
                     Text("বাংলাদেশ সংস্করণ", fontSize = 12.5.sp)
                 }
                 SegmentedButton(
                     selected = isIntl,
-                    onClick = { isIntl = true },
+                    onClick = {
+                        if (!isIntl) {
+                            stateHolder.saveScrollPosition(
+                                cacheKey = activeKey,
+                                index = listState.firstVisibleItemIndex,
+                                offset = listState.firstVisibleItemScrollOffset
+                            )
+                            stateHolder.isIntl = true
+                            isIntl = true
+                        }
+                    },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                 ) {
                     Text("আন্তর্জাতিক", fontSize = 12.5.sp)
                 }
             }
 
-            val bodyState = when {
-                isLoading && coverageList.isEmpty() -> CoverageBodyState.LOADING
-                errorMsg != null && coverageList.isEmpty() -> CoverageBodyState.ERROR
-                coverageList.isEmpty() -> CoverageBodyState.EMPTY
-                else -> CoverageBodyState.CONTENT
+            if (uiState.isRefreshing && uiState.coverageList.isNotEmpty()) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                )
             }
+
+            val bodyState = resolveCoverageBodyState(uiState)
 
             Crossfade(
                 targetState = bodyState,
@@ -246,9 +476,9 @@ fun CoverageScreen(
                         EmptyState(
                             icon = Icons.Filled.Hub,
                             title = "কভারেজ লোড হয়নি",
-                            body = errorMsg ?: "",
+                            body = uiState.errorMsg ?: "",
                             actionLabel = "আবার চেষ্টা করুন",
-                            onAction = { loadCoverage() }
+                            onAction = { triggerManualRefresh() }
                         )
                     }
 
@@ -262,10 +492,11 @@ fun CoverageScreen(
 
                     CoverageBodyState.CONTENT -> {
                         LazyColumn(
+                            state = listState,
                             contentPadding = PaddingValues(bottom = 82.dp, top = 4.dp)
                         ) {
                             if (manyCoverage.isNotEmpty()) {
-                                item {
+                                item(key = "header_many_coverage") {
                                     Text(
                                         text = "বেশি কভার হওয়া খবর (৩+ পত্রিকায়)",
                                         style = MaterialTheme.typography.titleSmall,
@@ -276,17 +507,29 @@ fun CoverageScreen(
                                     )
                                 }
 
-                                items(manyCoverage) { item ->
+                                itemsIndexed(
+                                    items = manyCoverage,
+                                    key = { idx, item -> coverageStableKey("many", idx, item) }
+                                ) { _, item ->
                                     CoverageDetailCard(
                                         coverage = item,
                                         appRepo = appRepo,
-                                        onOpenReader = onOpenReader
+                                        readArticles = appState.readArticles,
+                                        onOpenReader = { paper, link, title ->
+                                            stateHolder.saveScrollPosition(
+                                                cacheKey = activeKey,
+                                                index = listState.firstVisibleItemIndex,
+                                                offset = listState.firstVisibleItemScrollOffset
+                                            )
+                                            stateHolder.markNavigatingToReader()
+                                            onOpenReader(paper, link, title)
+                                        }
                                     )
                                 }
                             }
 
                             if (fewCoverage.isNotEmpty()) {
-                                item {
+                                item(key = "header_few_coverage") {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Text(
                                         text = "অন্যান্য কভার হওয়া খবর (২টি পত্রিকায়)",
@@ -298,11 +541,23 @@ fun CoverageScreen(
                                     )
                                 }
 
-                                items(fewCoverage) { item ->
+                                itemsIndexed(
+                                    items = fewCoverage,
+                                    key = { idx, item -> coverageStableKey("few", idx, item) }
+                                ) { _, item ->
                                     CoverageDetailCard(
                                         coverage = item,
                                         appRepo = appRepo,
-                                        onOpenReader = onOpenReader
+                                        readArticles = appState.readArticles,
+                                        onOpenReader = { paper, link, title ->
+                                            stateHolder.saveScrollPosition(
+                                                cacheKey = activeKey,
+                                                index = listState.firstVisibleItemIndex,
+                                                offset = listState.firstVisibleItemScrollOffset
+                                            )
+                                            stateHolder.markNavigatingToReader()
+                                            onOpenReader(paper, link, title)
+                                        }
                                     )
                                 }
                             }
@@ -318,6 +573,7 @@ fun CoverageScreen(
 fun CoverageDetailCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
+    readArticles: List<String> = emptyList(),
     onOpenReader: (Paper, String, String) -> Unit
 ) {
     Card(
@@ -364,11 +620,10 @@ fun CoverageDetailCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val appState by appRepo.state.collectAsState()
             coverage.items.forEachIndexed { idx, itm ->
                 val paper = appRepo.allPapers.firstOrNull { it.bn == itm.source || it.en == itm.source }
                     ?: Paper(itm.source, "", itm.link, "online")
-                val isRead = remember(appState.readArticles, itm.link, itm.title) {
+                val isRead = remember(readArticles, itm.link, itm.title) {
                     appRepo.isArticleRead(itm.link, itm.title)
                 }
 
@@ -431,3 +686,4 @@ fun CoverageDetailCard(
         }
     }
 }
+

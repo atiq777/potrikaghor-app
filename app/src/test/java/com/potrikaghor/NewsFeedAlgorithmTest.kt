@@ -4,17 +4,27 @@ import android.content.SharedPreferences
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.ArticleExtractionCoordinator
 import com.potrikaghor.data.ArticleExtractor
+import com.potrikaghor.data.CachedCoverageResult
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.data.DirectRssFeedSpec
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
+import com.potrikaghor.ui.screens.COVERAGE_LOAD_ERROR_MESSAGE
+import com.potrikaghor.ui.screens.CoverageBodyState
+import com.potrikaghor.ui.screens.CoverageEnterAction
 import com.potrikaghor.ui.screens.HOME_LOAD_ERROR_MESSAGE
 import com.potrikaghor.ui.screens.HomeBodyState
 import com.potrikaghor.ui.screens.HomeLoadStateSnapshot
 import com.potrikaghor.ui.screens.LazyTtsLifecycleState
+import com.potrikaghor.ui.screens.applyCoverageLoadResult
 import com.potrikaghor.ui.screens.applyHomeLoadResult
+import com.potrikaghor.ui.screens.beginCoverageRefreshState
+import com.potrikaghor.ui.screens. coverageStableKey
+import com.potrikaghor.ui.screens.createInitialCoverageSnapshot
+import com.potrikaghor.ui.screens.resolveCoverageBodyState
+import com.potrikaghor.ui.screens.resolveCoverageEnterAction
 import com.potrikaghor.ui.screens.resolveHomeBodyState
 import com.potrikaghor.ui.screens.shouldUpdateWebProgress
 import kotlinx.coroutines.CancellationException
@@ -1894,7 +1904,17 @@ class NewsFeedAlgorithmTest {
             "test34_bengaliUnicodePunctuationAndValidAngleBracketsPreserved" to ::test34_bengaliUnicodePunctuationAndValidAngleBracketsPreserved,
             "test35_mixedHtmlTagsAndPlainTextExtractedInOrder" to ::test35_mixedHtmlTagsAndPlainTextExtractedInOrder,
             "test36_malformedAndIncompleteParagraphTagsHandledCleanly" to ::test36_malformedAndIncompleteParagraphTagsHandledCleanly,
-            "test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression" to ::test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression
+            "test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression" to ::test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression,
+            "test38_coverageResultsCacheHitTest" to ::test38_coverageResultsCacheHitTest,
+            "test39_articleReaderBackCacheRestoreTest" to ::test39_articleReaderBackCacheRestoreTest,
+            "test40_scrollPositionPreservationTest" to ::test40_scrollPositionPreservationTest,
+            "test41_mainTabSwitchingStatePreservationTest" to ::test41_mainTabSwitchingStatePreservationTest,
+            "test42_ttlExpiryWithStaleResultsTest" to ::test42_ttlExpiryWithStaleResultsTest,
+            "test43_backgroundRefreshWhileShowingCachedResultsTest" to ::test43_backgroundRefreshWhileShowingCachedResultsTest,
+            "test44_refreshFailurePreservesPreviousResultsTest" to ::test44_refreshFailurePreservesPreviousResultsTest,
+            "test45_concurrentCoverageRequestDeduplicationTest" to ::test45_concurrentCoverageRequestDeduplicationTest,
+            "test46_articleReadStatusUpdateWithoutFullCoverageReloadTest" to ::test46_articleReadStatusUpdateWithoutFullCoverageReloadTest,
+            "test47_differentFilterIntlCacheIsolationTest" to ::test47_differentFilterIntlCacheIsolationTest
         )
         for ((name, block) in tests) {
             block()
@@ -1903,6 +1923,547 @@ class NewsFeedAlgorithmTest {
             results.add(msg)
         }
         return results
+    }
+
+    private fun sampleCoverageInputItems(
+        nowMs: Long,
+        headlinePrefix: String = "জাতীয় বাজেট অধিবেশনে নতুন অর্থনৈতিক সংস্কার প্রস্তাব"
+    ): List<NewsItem> {
+        return listOf(
+            NewsItem(
+                title = "$headlinePrefix পেশ করেছেন অর্থমন্ত্রী",
+                link = "https://www.prothomalo.com/bangladesh/budget-1",
+                source = "প্রথম আলো",
+                sourceUrl = "https://www.prothomalo.com",
+                time = nowMs - 10 * 60 * 1000L
+            ),
+            NewsItem(
+                title = "$headlinePrefix সংসদে উত্থাপন করেছেন অর্থমন্ত্রী",
+                link = "https://www.jugantor.com/national/budget-1",
+                source = "যুগান্তর",
+                sourceUrl = "https://www.jugantor.com",
+                time = nowMs - 12 * 60 * 1000L
+            ),
+            NewsItem(
+                title = "$headlinePrefix নিয়ে সংসদে বিস্তারিত আলোচনা শুরু",
+                link = "https://www.ittefaq.com.bd/national/budget-1",
+                source = "দৈনিক ইত্তেফাক",
+                sourceUrl = "https://www.ittefaq.com.bd",
+                time = nowMs - 15 * 60 * 1000L
+            ),
+            NewsItem(
+                title = "চট্টগ্রাম বন্দরে নতুন কন্টেইনার টার্মিনাল চালু হচ্ছে আগামী মাসে",
+                link = "https://www.kalerkantho.com/national/port-2",
+                source = "কালের কণ্ঠ",
+                sourceUrl = "https://www.kalerkantho.com",
+                time = nowMs - 20 * 60 * 1000L
+            ),
+            NewsItem(
+                title = "চট্টগ্রাম বন্দরে নতুন কন্টেইনার টার্মিনাল আগামী মাসে চালু হবে",
+                link = "https://samakal.com/bangladesh/port-2",
+                source = "সমকাল",
+                sourceUrl = "https://samakal.com",
+                time = nowMs - 22 * 60 * 1000L
+            )
+        )
+    }
+
+    @Test
+    fun test38_coverageResultsCacheHitTest() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val sampleItems = sampleCoverageInputItems(nowMs)
+
+        val first = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleItems else emptyList()
+            }
+        )
+
+        check(first.coverageList.size == 2) {
+            "Expected 2 coverage clusters (1 many, 1 few), got ${first.coverageList.size}"
+        }
+        check(first.manyCoverage.size == 1 && first.fewCoverage.size == 1) {
+            "Expected 1 manyCoverage (3+ papers) and 1 fewCoverage (2 papers)"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == 1) {
+            "Expected exactly 1 fetch execution on initial load, got ${repo.coverageFetchExecutionCounter.get()}"
+        }
+        check(repo.coverageBuildExecutionCounter.get() == 1) {
+            "Expected exactly 1 buildCoverage execution on initial load, got ${repo.coverageBuildExecutionCounter.get()}"
+        }
+
+        // Second call within TTL must hit processed Coverage memory cache with zero network or clustering work
+        val second = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs + 60_000L,
+            topicFetcher = { _, _ ->
+                throw AssertionError("Network fetcher must not be called on fresh Coverage cache hit")
+            }
+        )
+
+        check(second === first) {
+            "Expected cached Coverage result instance to be returned directly on cache hit"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == 1) {
+            "Fetch counter must remain 1 after cache hit"
+        }
+        check(repo.coverageBuildExecutionCounter.get() == 1) {
+            "Build counter must remain 1 after cache hit"
+        }
+    }
+
+    @Test
+    fun test39_articleReaderBackCacheRestoreTest() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val cached = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(nowMs) else emptyList()
+            }
+        )
+
+        // Simulate clicking an article on CoverageScreen to open ReaderScreen
+        repo.coverageStateHolder.markNavigatingToReader()
+        check(repo.coverageStateHolder.returningFromReader) {
+            "Expected returningFromReader flag to be set when opening ReaderScreen"
+        }
+
+        // Simulate pressing Back from ReaderScreen to CoverageScreen
+        val restoredCached = repo.getCachedCoverageResult(intl = false, filterQuery = "")
+        val initialSnapshot = createInitialCoverageSnapshot(restoredCached)
+        check(!initialSnapshot.isLoading && !initialSnapshot.isRefreshing) {
+            "Expected restored Coverage snapshot on Frame 1 to have isLoading=false and isRefreshing=false"
+        }
+        check(initialSnapshot.coverageList.size == 2) {
+            "Expected restored Coverage snapshot on Frame 1 to contain all 2 clusters immediately"
+        }
+        check(resolveCoverageBodyState(initialSnapshot) == CoverageBodyState.CONTENT) {
+            "Expected CoverageBodyState.CONTENT immediately on Frame 1 when returning from Reader"
+        }
+
+        val wasReturning = repo.coverageStateHolder.consumeReturningFromReader()
+        check(wasReturning) { "Expected consumeReturningFromReader() to return true on Back" }
+        check(!repo.coverageStateHolder.returningFromReader) {
+            "Expected consumeReturningFromReader() to reset flag to false"
+        }
+
+        // Even if the user spent > 3 minutes reading in ReaderScreen, Back must show cached results without reload
+        val actionFresh = resolveCoverageEnterAction(
+            cached = restoredCached,
+            isCacheFresh = true,
+            returningFromReader = wasReturning
+        )
+        val actionAfterLongRead = resolveCoverageEnterAction(
+            cached = restoredCached,
+            isCacheFresh = false,
+            returningFromReader = true
+        )
+        check(actionFresh == CoverageEnterAction.SHOW_CACHED_ONLY) {
+            "Expected SHOW_CACHED_ONLY on Reader back with fresh cache"
+        }
+        check(actionAfterLongRead == CoverageEnterAction.SHOW_CACHED_ONLY) {
+            "Expected SHOW_CACHED_ONLY on Reader back even after long article reading session"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == 1 && repo.coverageBuildExecutionCounter.get() == 1) {
+            "Expected zero additional network fetches or clustering rebuilds on Reader Back navigation"
+        }
+        check(cached.coverageList == initialSnapshot.coverageList) {
+            "Expected restored Coverage list to match cached list"
+        }
+    }
+
+    @Test
+    fun test40_scrollPositionPreservationTest() {
+        val repo = NewsRepository()
+        val holder = repo.coverageStateHolder
+        val domKey = repo.coverageCacheKey(intl = false, filterQuery = "")
+        val intlKey = repo.coverageCacheKey(intl = true, filterQuery = "")
+
+        // Default scroll position is (0, 0)
+        val initialDomPos = holder.getScrollPosition(domKey)
+        check(initialDomPos.firstVisibleItemIndex == 0 && initialDomPos.firstVisibleItemScrollOffset == 0) {
+            "Expected default scroll position (0, 0)"
+        }
+
+        // Save scroll position before navigating to ReaderScreen
+        holder.saveScrollPosition(domKey, index = 8, offset = 164)
+        holder.saveScrollPosition(intlKey, index = 4, offset = 92)
+
+        val restoredDom = holder.getScrollPosition(domKey)
+        val restoredIntl = holder.getScrollPosition(intlKey)
+        check(restoredDom.firstVisibleItemIndex == 8 && restoredDom.firstVisibleItemScrollOffset == 164) {
+            "Expected domestic scroll position (8, 164) to be preserved, got $restoredDom"
+        }
+        check(restoredIntl.firstVisibleItemIndex == 4 && restoredIntl.firstVisibleItemScrollOffset == 92) {
+            "Expected international scroll position (4, 92) to be preserved, got $restoredIntl"
+        }
+    }
+
+    @Test
+    fun test41_mainTabSwitchingStatePreservationTest() = runBlocking {
+        val repo = NewsRepository()
+        val holder = repo.coverageStateHolder
+        val nowMs = 1_710_000_000_000L
+
+        // User switches to International edition in Coverage tab and scrolls to item 5, offset 110
+        holder.isIntl = true
+        holder.selectedTopic = ""
+        val intlKey = repo.coverageCacheKey(intl = true, filterQuery = "")
+
+        val loadedIntl = repo.fetchCoverageCached(
+            intl = true,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, isIntl ->
+                if (isIntl && topic == "") sampleCoverageInputItems(nowMs, "জাতিসংঘ সাধারণ পরিষদে জলবায়ু চুক্তি") else emptyList()
+            }
+        )
+        holder.lastSuccessfulResult = loadedIntl
+        holder.saveScrollPosition(intlKey, index = 5, offset = 110)
+
+        // User switches to another Main Tab (e.g., Home / Saved) and comes back to Coverage tab within TTL
+        val restoredIsIntl = holder.isIntl
+        val restoredTopic = holder.selectedTopic
+        val restoredKey = repo.coverageCacheKey(restoredIsIntl, restoredTopic)
+        val restoredCached = repo.getCachedCoverageResult(restoredIsIntl, restoredTopic)
+        val restoredScroll = holder.getScrollPosition(restoredKey)
+        val isFresh = repo.isCoverageCacheFresh(restoredIsIntl, restoredTopic, nowMs = nowMs + 45_000L)
+        val enterAction = resolveCoverageEnterAction(restoredCached, isFresh, returningFromReader = false)
+        val snapshot = createInitialCoverageSnapshot(restoredCached)
+
+        check(restoredIsIntl) { "Expected International selection to persist across Main Tab switches" }
+        check(enterAction == CoverageEnterAction.SHOW_CACHED_ONLY) {
+            "Expected SHOW_CACHED_ONLY when returning to Coverage tab within TTL"
+        }
+        check(resolveCoverageBodyState(snapshot) == CoverageBodyState.CONTENT) {
+            "Expected immediate CONTENT state without loading screen when switching back to Coverage tab"
+        }
+        check(restoredScroll.firstVisibleItemIndex == 5 && restoredScroll.firstVisibleItemScrollOffset == 110) {
+            "Expected scroll position (5, 110) to be preserved across Main Tab switches"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == 1) {
+            "Expected no network reload when switching back to Coverage tab within TTL"
+        }
+    }
+
+    @Test
+    fun test42_ttlExpiryWithStaleResultsTest() = runBlocking {
+        val repo = NewsRepository()
+        val t0 = 1_710_000_000_000L
+
+        val initial = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = t0,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(t0) else emptyList()
+            }
+        )
+
+        // At 2 minutes (< 3 min TTL), cache is fresh
+        val at2Min = t0 + 2 * 60 * 1000L
+        check(repo.isCoverageCacheFresh(intl = false, filterQuery = "", nowMs = at2Min)) {
+            "Expected Coverage cache to be fresh at 2 minutes (TTL = 3 minutes)"
+        }
+
+        // At 3 minutes + 1 ms (> 3 min TTL), cache is stale, but cached data MUST NOT be deleted
+        val afterTtl = t0 + NewsRepository.COVERAGE_CACHE_TTL_MS + 1L
+        check(!repo.isCoverageCacheFresh(intl = false, filterQuery = "", nowMs = afterTtl)) {
+            "Expected Coverage cache to be marked stale after 3 minutes"
+        }
+        val staleCached = repo.getCachedCoverageResult(intl = false, filterQuery = "")
+        check(staleCached != null && staleCached === initial) {
+            "TTL expiry must NEVER delete or evict cached Coverage results"
+        }
+
+        val actionOnStaleTabReturn = resolveCoverageEnterAction(
+            cached = staleCached,
+            isCacheFresh = false,
+            returningFromReader = false
+        )
+        check(actionOnStaleTabReturn == CoverageEnterAction.BACKGROUND_REFRESH) {
+            "Expected BACKGROUND_REFRESH (Stale-While-Revalidate) when cache is stale on tab return"
+        }
+    }
+
+    @Test
+    fun test43_backgroundRefreshWhileShowingCachedResultsTest() = runBlocking {
+        val repo = NewsRepository()
+        val t0 = 1_710_000_000_000L
+
+        val cachedV1 = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = t0,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(t0, "প্রথম সংস্করণ বাজেট সংবাদ") else emptyList()
+            }
+        )
+
+        // Frame 1 when returning to stale cache: immediately shows V1 content
+        var uiState = createInitialCoverageSnapshot(cachedV1)
+        check(resolveCoverageBodyState(uiState) == CoverageBodyState.CONTENT) {
+            "Expected stale cached results V1 to be displayed immediately as CONTENT"
+        }
+        check(uiState.coverageList.first().headline.contains("প্রথম সংস্করণ")) {
+            "Expected V1 headline to be visible before background refresh completes"
+        }
+
+        // Background refresh starts: V1 remains visible, isLoading=false, isRefreshing=true
+        uiState = beginCoverageRefreshState(uiState)
+        check(!uiState.isLoading && uiState.isRefreshing) {
+            "Expected background refresh to set isLoading=false and isRefreshing=true"
+        }
+        check(resolveCoverageBodyState(uiState) == CoverageBodyState.CONTENT) {
+            "Screen must remain in CONTENT state (never LOADING or blank) during background refresh"
+        }
+        check(uiState.coverageList.size == cachedV1.coverageList.size) {
+            "Existing V1 Coverage cards must remain visible during background refresh"
+        }
+
+        // Background refresh finishes with V2
+        val t1 = t0 + NewsRepository.COVERAGE_CACHE_TTL_MS + 5_000L
+        val cachedV2 = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = true,
+            nowMs = t1,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(t1, "দ্বিতীয় সংস্করণ আপডেট সংবাদ") else emptyList()
+            }
+        )
+        uiState = applyCoverageLoadResult(uiState, newResult = cachedV2)
+
+        check(!uiState.isLoading && !uiState.isRefreshing && uiState.errorMsg == null) {
+            "Expected refresh flags to clear after background refresh succeeds"
+        }
+        check(resolveCoverageBodyState(uiState) == CoverageBodyState.CONTENT) {
+            "Expected CONTENT state after background refresh succeeds"
+        }
+        check(uiState.coverageList.first().headline.contains("দ্বিতীয় সংস্করণ")) {
+            "Expected Coverage list to update atomically to V2 after background refresh"
+        }
+    }
+
+    @Test
+    fun test44_refreshFailurePreservesPreviousResultsTest() = runBlocking {
+        val repo = NewsRepository()
+        val t0 = 1_710_000_000_000L
+
+        val cachedV1 = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = t0,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(t0) else emptyList()
+            }
+        )
+
+        var uiState = createInitialCoverageSnapshot(cachedV1)
+        uiState = beginCoverageRefreshState(uiState)
+
+        // Simulate background refresh throwing an exception (e.g., offline / timeout)
+        var threw = false
+        try {
+            repo.fetchCoverageCached(
+                intl = false,
+                filterQuery = "",
+                forceRefresh = true,
+                nowMs = t0 + 300_000L,
+                topicFetcher = { _, _ ->
+                    throw IOException("Simulated network failure during background refresh")
+                }
+            )
+        } catch (_: Exception) {
+            threw = true
+            uiState = applyCoverageLoadResult(
+                current = uiState,
+                newResult = null,
+                errorMessage = COVERAGE_LOAD_ERROR_MESSAGE
+            )
+        }
+
+        check(threw) { "Expected simulated refresh failure to throw" }
+        check(uiState.coverageList == cachedV1.coverageList) {
+            "Previous Coverage results must be preserved when background refresh fails"
+        }
+        check(!uiState.isLoading && !uiState.isRefreshing) {
+            "Expected loading/refreshing flags to be false after failed background refresh"
+        }
+        check(uiState.errorMsg == null) {
+            "Expected errorMsg to remain null when cached results are preserved"
+        }
+        check(resolveCoverageBodyState(uiState) == CoverageBodyState.CONTENT) {
+            "Expected screen to stay on CONTENT (never ERROR or blank) when cached results exist"
+        }
+        check(repo.getCachedCoverageResult(intl = false, filterQuery = "") === cachedV1) {
+            "Repository memory cache must still hold V1 after failed refresh"
+        }
+    }
+
+    @Test
+    fun test45_concurrentCoverageRequestDeduplicationTest() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+
+        val deferreds = (1..6).map {
+            async(Dispatchers.Default) {
+                repo.fetchCoverageCached(
+                    intl = false,
+                    filterQuery = "",
+                    forceRefresh = false,
+                    nowMs = nowMs,
+                    topicFetcher = { topic, _ ->
+                        Thread.sleep(25)
+                        if (topic == "") sampleCoverageInputItems(nowMs) else emptyList()
+                    }
+                )
+            }
+        }
+
+        val results = deferreds.awaitAll()
+        val first = results.first()
+        check(results.all { it === first }) {
+            "Expected all 6 concurrent callers to receive the exact same shared CachedCoverageResult"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == 1) {
+            "Expected concurrent requests for the same key to execute only 1 underlying fetch batch, got ${repo.coverageFetchExecutionCounter.get()}"
+        }
+        check(repo.coverageBuildExecutionCounter.get() == 1) {
+            "Expected concurrent requests for the same key to execute only 1 buildCoverage pass, got ${repo.coverageBuildExecutionCounter.get()}"
+        }
+    }
+
+    @Test
+    fun test46_articleReadStatusUpdateWithoutFullCoverageReloadTest() = runBlocking {
+        val prefs = InMemorySharedPreferences()
+        val appRepo = AppStateRepository(prefs = prefs, ioDispatcher = Dispatchers.IO)
+        val newsRepo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+
+        val cached = newsRepo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(nowMs) else emptyList()
+            }
+        )
+
+        val targetCluster = cached.manyCoverage.first()
+        val clickedArticle = targetCluster.items[0]
+        val siblingUnreadArticle = targetCluster.items[1]
+
+        check(!appRepo.isArticleRead(clickedArticle.link, clickedArticle.title)) {
+            "Expected article to be unread before click"
+        }
+
+        // User clicks article in CoverageDetailCard -> marks read and navigates to ReaderScreen
+        appRepo.markArticleRead(
+            url = clickedArticle.link,
+            title = clickedArticle.title,
+            sourceName = clickedArticle.source,
+            paperUrl = clickedArticle.sourceUrl
+        )
+        newsRepo.coverageStateHolder.markNavigatingToReader()
+
+        // User returns from ReaderScreen -> read status is updated in appRepo.state.value.readArticles
+        // while Coverage cache and clusters are untouched (zero refetch or rebuild)
+        check(appRepo.isArticleRead(clickedArticle.link, clickedArticle.title)) {
+            "Expected clicked article to be marked as read ('• পঠিত') immediately"
+        }
+        check(!appRepo.isArticleRead(siblingUnreadArticle.link, siblingUnreadArticle.title)) {
+            "Expected sibling article in the same Coverage card to remain unread"
+        }
+        check(newsRepo.coverageFetchExecutionCounter.get() == 1 && newsRepo.coverageBuildExecutionCounter.get() == 1) {
+            "Marking an article read and returning from Reader must never trigger Coverage reload or rebuild"
+        }
+    }
+
+    @Test
+    fun test47_differentFilterIntlCacheIsolationTest() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+
+        val domDefault = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, _ ->
+                if (topic == "") sampleCoverageInputItems(nowMs, "বাংলাদেশ জাতীয় বাজেট সংস্কার প্রস্তাব") else emptyList()
+            }
+        )
+
+        val intlDefault = repo.fetchCoverageCached(
+            intl = true,
+            filterQuery = "",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, isIntl ->
+                if (isIntl && topic == "") sampleCoverageInputItems(nowMs, "বিশ্ব অর্থনৈতিক সম্মেলনে নতুন ঘোষণা") else emptyList()
+            }
+        )
+
+        val domSports = repo.fetchCoverageCached(
+            intl = false,
+            filterQuery = "খেলা",
+            forceRefresh = false,
+            nowMs = nowMs,
+            topicFetcher = { topic, _ ->
+                if (topic == "খেলা") sampleCoverageInputItems(nowMs, "বাংলাদেশ ক্রিকেট দলের টেস্ট সিরিজ জয়") else emptyList()
+            }
+        )
+
+        check(domDefault.cacheKey != intlDefault.cacheKey && domDefault.cacheKey != domSports.cacheKey) {
+            "Expected distinct cache keys for (intl=false, q=''), (intl=true, q=''), and (intl=false, q='খেলা')"
+        }
+        check(repo.getCachedCoverageResult(false, "") === domDefault) {
+            "Expected domestic default cache to remain isolated and intact"
+        }
+        check(repo.getCachedCoverageResult(true, "") === intlDefault) {
+            "Expected international default cache to remain isolated and intact"
+        }
+        check(repo.getCachedCoverageResult(false, "খেলা") === domSports) {
+            "Expected domestic 'খেলা' topic cache to remain isolated and intact"
+        }
+        check(domDefault.coverageList.first().headline.contains("বাংলাদেশ জাতীয় বাজেট")) {
+            "Unexpected domestic default headline: ${domDefault.coverageList.first().headline}"
+        }
+        check(intlDefault.coverageList.first().headline.contains("বিশ্ব অর্থনৈতিক সম্মেলনে")) {
+            "Unexpected international default headline: ${intlDefault.coverageList.first().headline}"
+        }
+        check(domSports.coverageList.first().headline.contains("বাংলাদেশ ক্রিকেট দলের")) {
+            "Unexpected domestic sports headline: ${domSports.coverageList.first().headline}"
+        }
+
+        // Switching back to any already-cached filter hits memory cache without executing another fetch
+        val countBefore = repo.coverageFetchExecutionCounter.get()
+        val hitDom = repo.fetchCoverageCached(intl = false, filterQuery = "", forceRefresh = false, nowMs = nowMs + 10_000L)
+        val hitIntl = repo.fetchCoverageCached(intl = true, filterQuery = "", forceRefresh = false, nowMs = nowMs + 10_000L)
+        val hitSports = repo.fetchCoverageCached(intl = false, filterQuery = "খেলা", forceRefresh = false, nowMs = nowMs + 10_000L)
+        check(hitDom === domDefault && hitIntl === intlDefault && hitSports === domSports) {
+            "Expected switching between cached editions/filters to return their respective cached instances"
+        }
+        check(repo.coverageFetchExecutionCounter.get() == countBefore) {
+            "Expected zero additional fetch executions when switching among cached filters"
+        }
     }
 
     companion object {

@@ -66,6 +66,82 @@ data class ImagePipelineDiagnostic(
     val loadStatus: String
 )
 
+data class CachedCoverageResult(
+    val cacheKey: String,
+    val intl: Boolean,
+    val filterQuery: String,
+    val coverageList: List<Coverage>,
+    val manyCoverage: List<Coverage>,
+    val fewCoverage: List<Coverage>,
+    val originalItems: List<NewsItem>,
+    val fetchedAtMs: Long
+) {
+    fun isExpired(
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = NewsRepository.COVERAGE_CACHE_TTL_MS
+    ): Boolean {
+        return (nowMs - fetchedAtMs) > ttlMs
+    }
+}
+
+data class CoverageScrollPosition(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0
+)
+
+class CoveragePersistentStateHolder {
+    @Volatile
+    var isIntl: Boolean = false
+    @Volatile
+    var selectedTopic: String = ""
+    @Volatile
+    var isLoading: Boolean = false
+    @Volatile
+    var isRefreshing: Boolean = false
+    @Volatile
+    var errorMsg: String? = null
+    @Volatile
+    var lastSuccessfulResult: CachedCoverageResult? = null
+    @Volatile
+    var lastSuccessfulFetchTimeMs: Long = 0L
+    @Volatile
+    var returningFromReader: Boolean = false
+
+    private val scrollPositionsByKey = ConcurrentHashMap<String, CoverageScrollPosition>()
+    private val lastResultsByKey = ConcurrentHashMap<String, CachedCoverageResult>()
+
+    fun recordSuccessfulResult(result: CachedCoverageResult) {
+        lastSuccessfulResult = result
+        lastSuccessfulFetchTimeMs = result.fetchedAtMs
+        lastResultsByKey[result.cacheKey] = result
+    }
+
+    fun getLastSuccessfulResult(cacheKey: String): CachedCoverageResult? {
+        return lastResultsByKey[cacheKey] ?: lastSuccessfulResult?.takeIf { it.cacheKey == cacheKey }
+    }
+
+    fun getScrollPosition(cacheKey: String): CoverageScrollPosition {
+        return scrollPositionsByKey[cacheKey] ?: CoverageScrollPosition()
+    }
+
+    fun saveScrollPosition(cacheKey: String, index: Int, offset: Int) {
+        scrollPositionsByKey[cacheKey] = CoverageScrollPosition(
+            firstVisibleItemIndex = index.coerceAtLeast(0),
+            firstVisibleItemScrollOffset = offset.coerceAtLeast(0)
+        )
+    }
+
+    fun markNavigatingToReader() {
+        returningFromReader = true
+    }
+
+    fun consumeReturningFromReader(): Boolean {
+        val wasReturning = returningFromReader
+        returningFromReader = false
+        return wasReturning
+    }
+}
+
 class NewsRepository {
     companion object {
         const val DIAG_TAG = "PotrikaImageDiag"
@@ -105,6 +181,7 @@ class NewsRepository {
         const val PER_FEED_TIMEOUT_MS = 10_000L
         const val DIRECT_FEED_BATCH_DEADLINE_MS = 13_000L
         const val GOOGLE_FEED_TIMEOUT_MS = 10_000L
+        const val COVERAGE_CACHE_TTL_MS = 3 * 60 * 1000L
 
         /**
          * Curated direct publisher RSS/Atom feeds.
@@ -438,6 +515,13 @@ class NewsRepository {
 
     private val directFeedCacheTtlMs = 3 * 60 * 1000L
     private val categoryFeedMemoryCache = ConcurrentHashMap<String, List<NewsItem>>()
+
+    // Processed Coverage Memory Cache & Persistent State Holder (survives Reader & Tab navigation)
+    val coverageStateHolder = CoveragePersistentStateHolder()
+    private val coverageMemoryCache = ConcurrentHashMap<String, CachedCoverageResult>()
+    private val inFlightCoverageRequests = ConcurrentHashMap<String, SharedInFlightRequest<CachedCoverageResult>>()
+    internal val coverageFetchExecutionCounter = AtomicInteger(0)
+    internal val coverageBuildExecutionCounter = AtomicInteger(0)
 
     @Volatile
     var dataSaverMode: Boolean = false
@@ -2107,21 +2191,152 @@ class NewsRepository {
             .trim()
     }
 
-    suspend fun fetchCoverage(intl: Boolean): List<Coverage> = coroutineScope {
-        val topics = if (intl) {
+    fun coverageCacheKey(intl: Boolean, filterQuery: String = ""): String {
+        val normQuery = filterQuery.trim().lowercase(Locale.ROOT)
+        return "intl=$intl|q=$normQuery"
+    }
+
+    /**
+     * Returns the processed [CachedCoverageResult] for [intl] and [filterQuery] if present in memory.
+     * IMPORTANT: TTL expiry NEVER deletes or hides previously cached Coverage results; stale entries
+     * remain available for immediate display (Stale-While-Revalidate) and fallback on refresh failure.
+     */
+    fun getCachedCoverageResult(intl: Boolean, filterQuery: String = ""): CachedCoverageResult? {
+        val key = coverageCacheKey(intl, filterQuery)
+        return coverageMemoryCache[key] ?: coverageStateHolder.getLastSuccessfulResult(key)
+    }
+
+    fun isCoverageCacheFresh(
+        intl: Boolean,
+        filterQuery: String = "",
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = COVERAGE_CACHE_TTL_MS
+    ): Boolean {
+        val cached = getCachedCoverageResult(intl, filterQuery) ?: return false
+        return !cached.isExpired(nowMs, ttlMs)
+    }
+
+    fun putCachedCoverageResult(result: CachedCoverageResult) {
+        if (result.coverageList.isNotEmpty()) {
+            coverageMemoryCache[result.cacheKey] = result
+            coverageStateHolder.recordSuccessfulResult(result)
+        }
+    }
+
+    suspend fun fetchCoverage(intl: Boolean): List<Coverage> {
+        return fetchCoverageCached(intl = intl).coverageList
+    }
+
+    suspend fun fetchCoverageCached(
+        intl: Boolean,
+        filterQuery: String = "",
+        forceRefresh: Boolean = false,
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = COVERAGE_CACHE_TTL_MS,
+        topicFetcher: (suspend (String, Boolean) -> List<NewsItem>)? = null
+    ): CachedCoverageResult = withContext(Dispatchers.IO) {
+        val q = filterQuery.trim()
+        val key = coverageCacheKey(intl, q)
+
+        if (!forceRefresh) {
+            val cached = getCachedCoverageResult(intl, q)
+            if (cached != null && !cached.isExpired(nowMs, ttlMs)) {
+                coverageStateHolder.recordSuccessfulResult(cached)
+                return@withContext cached
+            }
+        }
+
+        val shared: SharedInFlightRequest<CachedCoverageResult> = synchronized(inFlightLock) {
+            val existing = inFlightCoverageRequests[key]
+            if (existing != null && existing.deferred.isActive) {
+                existing.activeWaiters++
+                existing
+            } else {
+                lateinit var created: SharedInFlightRequest<CachedCoverageResult>
+                val deferred = sharedFetchScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        performFetchCoverage(
+                            intl = intl,
+                            filterQuery = q,
+                            cacheKey = key,
+                            nowMs = nowMs,
+                            topicFetcher = topicFetcher
+                        )
+                    } finally {
+                        synchronized(inFlightLock) {
+                            if (inFlightCoverageRequests[key] === created) {
+                                inFlightCoverageRequests.remove(key)
+                            }
+                        }
+                    }
+                }
+                created = SharedInFlightRequest(deferred = deferred, activeWaiters = 1)
+                inFlightCoverageRequests[key] = created
+                created
+            }
+        }
+
+        shared.deferred.start()
+        var cancelled = false
+        try {
+            shared.deferred.await()
+        } catch (e: CancellationException) {
+            cancelled = true
+            val shouldCancelUnderlying = synchronized(inFlightLock) {
+                shared.activeWaiters--
+                if (shared.activeWaiters <= 0) {
+                    if (inFlightCoverageRequests[key] === shared) {
+                        inFlightCoverageRequests.remove(key)
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            if (shouldCancelUnderlying) {
+                withContext(NonCancellable) {
+                    shared.deferred.cancelAndJoin()
+                }
+            }
+            throw e
+        } finally {
+            if (!cancelled) {
+                synchronized(inFlightLock) {
+                    shared.activeWaiters = (shared.activeWaiters - 1).coerceAtLeast(0)
+                }
+            }
+        }
+    }
+
+    private suspend fun performFetchCoverage(
+        intl: Boolean,
+        filterQuery: String,
+        cacheKey: String,
+        nowMs: Long,
+        topicFetcher: (suspend (String, Boolean) -> List<NewsItem>)?
+    ): CachedCoverageResult = coroutineScope {
+        coverageFetchExecutionCounter.incrementAndGet()
+
+        val topics = if (filterQuery.isNotEmpty()) {
+            listOf(filterQuery)
+        } else if (intl) {
             listOf("", "WORLD", "BUSINESS", "TECHNOLOGY", "SPORTS", "SCIENCE", "HEALTH", "ENTERTAINMENT")
         } else {
             listOf("", "রাজনীতি", "ক্রিকেট", "অর্থনীতি", "বিনোদন", "প্রযুক্তি", "শিক্ষা", "আবহাওয়া")
         }
 
         val deferreds = topics.map { topic ->
-            async {
+            async(Dispatchers.IO) {
                 try {
-                    if (intl) {
+                    if (topicFetcher != null) {
+                        topicFetcher(topic, intl)
+                    } else if (intl) {
                         fetchNews(intl = true, section = topic)
                     } else {
                         fetchNews(query = topic)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     emptyList()
                 }
@@ -2129,8 +2344,28 @@ class NewsRepository {
         }
 
         val allItems = deferreds.awaitAll().flatten()
-        if (allItems.isEmpty()) throw Exception("No news items fetched")
-        buildCoverage(allItems)
+        if (allItems.isEmpty()) throw java.io.IOException("No news items fetched")
+
+        val (builtCoverage, many, few) = withContext(Dispatchers.Default) {
+            coverageBuildExecutionCounter.incrementAndGet()
+            val clusters = buildCoverage(allItems, nowMs)
+            val manyList = clusters.filter { it.count >= 3 }
+            val fewList = clusters.filter { it.count == 2 }
+            Triple(clusters, manyList, fewList)
+        }
+
+        val result = CachedCoverageResult(
+            cacheKey = cacheKey,
+            intl = intl,
+            filterQuery = filterQuery,
+            coverageList = builtCoverage,
+            manyCoverage = many,
+            fewCoverage = few,
+            originalItems = allItems,
+            fetchedAtMs = nowMs
+        )
+        putCachedCoverageResult(result)
+        result
     }
 
     private class Group {
