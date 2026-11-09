@@ -1,11 +1,14 @@
 package com.potrikaghor
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -62,7 +65,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                Color.TRANSPARENT,
+                Color.TRANSPARENT
+            )
+        )
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
         try {
             java.io.File(applicationContext.cacheDir, "WebView/Default/HTTP Cache/Code Cache/js").mkdirs()
             java.io.File(applicationContext.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm").mkdirs()
