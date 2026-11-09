@@ -162,7 +162,11 @@ class ArticleExtractor {
 
                     function addText(txt) {
                         if (!txt || paras.length >= maxParas || totalChars >= maxChars) return;
-                        var lines = txt.split(/\n+/);
+                        var normalized = txt
+                            .replace(/&lt;(\/?(?:p|div|br|li|blockquote|h[1-6])\b[^&]*?)&gt;/gi, '\n')
+                            .replace(/<\/?(?:p|div|br|li|blockquote|h[1-6])\b[^>]*>/gi, '\n')
+                            .replace(/<\/?[a-zA-Z][a-zA-Z0-9]*\b[^>]*>/g, '');
+                        var lines = normalized.split(/\n+/);
                         for (var i = 0; i < lines.length; i++) {
                             if (paras.length >= maxParas || totalChars >= maxChars) break;
                             var clean = lines[i].replace(/\s+/g, ' ').trim();
@@ -516,7 +520,8 @@ class ArticleExtractor {
 
             val safeFallbackTitle = fallbackTitle.takeIf { !isGenericGoogleTitle(it) }.orEmpty()
             val rawTitle = (obj["title"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
-            val resolvedTitle = rawTitle
+            val cleanedRawTitle = cleanInlineTextLinear(rawTitle)
+            val resolvedTitle = cleanedRawTitle
                 .takeIf { it.isNotEmpty() && !isGenericGoogleTitle(it) }
                 ?: safeFallbackTitle.ifEmpty { source.ifEmpty { "সংবাদ" } }
 
@@ -534,9 +539,10 @@ class ArticleExtractor {
             if (arr != null) {
                 for (elem in arr) {
                     val rawP = (elem as? JsonPrimitive)?.contentOrNull.orEmpty()
-                    val p = unescape(rawP).trim()
-                    if (isValidParagraph(p) && seen.add(p)) {
-                        paragraphs.add(p)
+                    for (p in extractCleanParagraphs(rawP)) {
+                        if (isValidParagraph(p) && seen.add(p)) {
+                            paragraphs.add(p)
+                        }
                     }
                 }
             }
@@ -875,7 +881,7 @@ class ArticleExtractor {
         val seenParagraphs = mutableSetOf<String>()
         val jsonLdExtracted = extractFromJsonLdBlocks(html)
         if ((title.isEmpty() || isGenericGoogleTitle(title)) && jsonLdExtracted.headline.isNotEmpty()) {
-            val cand = unescape(stripTagsLinear(jsonLdExtracted.headline))
+            val cand = cleanInlineTextLinear(jsonLdExtracted.headline)
             if (!isGenericGoogleTitle(cand)) {
                 title = cand
             }
@@ -887,14 +893,11 @@ class ArticleExtractor {
             }
         }
         for (rawBody in jsonLdExtracted.articleBodies) {
-            rawBody.split(Regex("\n+"))
-                .map { unescape(stripTagsLinear(it)).replace(Regex("\\s+"), " ").trim() }
-                .filter { isValidParagraph(it) }
-                .forEach { p ->
-                    if (seenParagraphs.add(p)) {
-                        paragraphs.add(p)
-                    }
+            for (p in extractCleanParagraphs(rawBody)) {
+                if (isValidParagraph(p) && seenParagraphs.add(p)) {
+                    paragraphs.add(p)
                 }
+            }
         }
 
         if (title.isEmpty() || isGenericGoogleTitle(title)) {
@@ -911,9 +914,10 @@ class ArticleExtractor {
             val metaDesc = extractMetaContent(headWindow, "property", "og:description")
                 .ifEmpty { extractMetaContent(headWindow, "name", "description") }
                 .ifEmpty { jsonLdExtracted.description }
-            val cleanDesc = unescape(stripTagsLinear(metaDesc)).replace(Regex("\\s+"), " ").trim()
-            if (isValidParagraph(cleanDesc) && seenParagraphs.add(cleanDesc)) {
-                paragraphs.add(cleanDesc)
+            for (cleanDesc in extractCleanParagraphs(metaDesc)) {
+                if (isValidParagraph(cleanDesc) && seenParagraphs.add(cleanDesc)) {
+                    paragraphs.add(cleanDesc)
+                }
             }
         }
 
@@ -1124,14 +1128,18 @@ class ArticleExtractor {
 
     /**
      * Single-pass O(N) noise remover that strips comments and `<script>`, `<style>`, `<nav>`,
-     * `<header>`, `<footer>`, `<aside>`, `<iframe>`, `<noscript>`, `<svg>` blocks without
-     * allocating multiple full-document copies or risking regex backtracking on unclosed tags.
+     * `<header>`, `<footer>`, `<aside>`, `<iframe>`, `<noscript>`, `<svg>`, `<form>`, `<button>`,
+     * `<select>`, `<title>`, `<h1>` blocks without allocating multiple full-document copies or
+     * risking regex backtracking on unclosed tags.
      */
     internal fun stripNoiseBlocksLinear(html: String): String {
         val len = html.length
         val sb = StringBuilder(minOf(len, 128 * 1024))
         var i = 0
-        val noiseTags = arrayOf("script", "style", "nav", "header", "footer", "aside", "iframe", "noscript", "svg")
+        val noiseTags = arrayOf(
+            "script", "style", "nav", "header", "footer", "aside",
+            "iframe", "noscript", "svg", "form", "button", "select", "title", "h1"
+        )
 
         while (i < len) {
             val lt = html.indexOf('<', i)
@@ -1157,8 +1165,8 @@ class ArticleExtractor {
             for (tag in noiseTags) {
                 val tagLen = tag.length
                 if (lt + 1 + tagLen < len && html.regionMatches(lt + 1, tag, 0, tagLen, ignoreCase = true)) {
-                    val BoundaryCh = html[lt + 1 + tagLen]
-                    if (BoundaryCh == '>' || BoundaryCh == ' ' || BoundaryCh == '\t' || BoundaryCh == '\n' || BoundaryCh == '\r' || BoundaryCh == '/') {
+                    val boundaryCh = html[lt + 1 + tagLen]
+                    if (boundaryCh == '>' || boundaryCh == ' ' || boundaryCh == '\t' || boundaryCh == '\n' || boundaryCh == '\r' || boundaryCh == '/') {
                         matchedNoiseTag = tag
                         break
                     }
@@ -1191,74 +1199,400 @@ class ArticleExtractor {
     }
 
     /**
-     * Linearly scans [cleanHtml] for `<p ...>...</p>` and `story-element-text` div blocks,
-     * including a truncated-stream salvage for a trailing unclosed `<p>` tag.
+     * Linearly extracts clean paragraphs from [cleanHtml], splitting `<p>`, `</p>`, `<div>`, `</div>`,
+     * `<br>`, `<br/>` and other structural tags into separate paragraphs, stripping inline and
+     * malformed HTML tags, decoding HTML entities, and preserving valid `<` and `>` in prose.
      */
     private fun extractParagraphsLinear(
         cleanHtml: String,
         outParagraphs: MutableList<String>,
         seen: MutableSet<String>
     ) {
-        val len = cleanHtml.length
-        var idx = 0
+        val isFullHtmlDocument = cleanHtml.contains("<html", ignoreCase = true) ||
+            cleanHtml.contains("<body", ignoreCase = true)
 
-        while (idx < len) {
-            val lt = cleanHtml.indexOf('<', idx)
-            if (lt == -1) break
+        val extracted = extractCleanParagraphs(
+            rawInput = cleanHtml,
+            allowShortNonPTags = !isFullHtmlDocument,
+            alreadyStrippedNoise = true
+        )
+        for (p in extracted) {
+            if (seen.add(p)) {
+                outParagraphs.add(p)
+            }
+        }
+    }
 
-            // 1. Check <p> or <p ...>
-            if (lt + 2 < len && (cleanHtml[lt + 1] == 'p' || cleanHtml[lt + 1] == 'P')) {
-                val nextCh = cleanHtml[lt + 2]
-                if (nextCh == '>' || nextCh == ' ' || nextCh == '\t' || nextCh == '\n' || nextCh == '\r') {
-                    val openEnd = cleanHtml.indexOf('>', lt + 2)
-                    if (openEnd == -1) break
-                    val closeP = cleanHtml.indexOf("</p>", openEnd + 1, ignoreCase = true)
-                    if (closeP != -1) {
-                        val rawInner = cleanHtml.substring(openEnd + 1, closeP)
-                        val text = unescape(stripTagsLinear(rawInner)).replace(Regex("\\s+"), " ").trim()
-                        if (isValidParagraph(text) && seen.add(text)) {
-                            outParagraphs.add(text)
+    private data class MatchedHtmlTag(
+        val tagName: String,
+        val endIndex: Int,
+        val isBlockBreak: Boolean,
+        val isClosing: Boolean
+    )
+
+    private val knownHtmlTags = setOf(
+        "p", "div", "br", "hr", "span", "a", "strong", "b", "em", "i", "u", "s",
+        "strike", "del", "ins", "font", "small", "big", "sub", "sup", "mark",
+        "blockquote", "q", "cite", "code", "pre", "ul", "ol", "li", "dl", "dt", "dd",
+        "h1", "h2", "h3", "h4", "h5", "h6", "article", "section", "main", "aside",
+        "header", "footer", "nav", "figure", "figcaption", "img", "picture", "source",
+        "video", "audio", "iframe", "table", "thead", "tbody", "tfoot", "tr", "td", "th",
+        "caption", "time", "abbr", "address", "details", "summary", "wbr", "ruby", "rt",
+        "rp", "bdi", "bdo", "data", "dfn", "kbd", "samp", "var", "html", "head", "body",
+        "meta", "link", "style", "script", "noscript", "svg", "path", "form", "input",
+        "button", "select", "option", "label", "center"
+    )
+
+    private val blockBreakHtmlTags = setOf(
+        "p", "div", "br", "hr", "li", "blockquote", "pre",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        "article", "section", "main", "figure", "figcaption",
+        "table", "tr", "ul", "ol", "dl", "dt", "dd", "header", "footer", "aside", "nav"
+    )
+
+    private val structuralMalformedAllowedTags = setOf(
+        "p", "div", "br", "hr", "li", "blockquote", "span", "strong", "em", "article", "section"
+    )
+
+    /**
+     * Public linear-time paragraph extractor that converts HTML or mixed HTML/plain-text input
+     * into a list of clean, separated paragraphs with zero HTML tag leakage.
+     */
+    fun extractCleanParagraphs(
+        rawInput: String,
+        allowShortNonPTags: Boolean = true,
+        alreadyStrippedNoise: Boolean = false
+    ): List<String> {
+        if (rawInput.isBlank()) return emptyList()
+
+        val noiseFree = if (alreadyStrippedNoise) rawInput else stripNoiseBlocksLinear(rawInput)
+        val decoded = decodeHtmlEntitiesLinear(noiseFree)
+        val len = decoded.length
+        if (len == 0) return emptyList()
+
+        val result = mutableListOf<String>()
+        val currentParagraph = StringBuilder(minOf(len, 512))
+        var inOpenPTag = false
+        var segmentTouchedPTag = false
+        var hadAnyHtmlTag = false
+
+        fun flushParagraph() {
+            if (currentParagraph.isEmpty()) {
+                segmentTouchedPTag = false
+                return
+            }
+            val text = collapseWhitespaceLinear(currentParagraph)
+            currentParagraph.setLength(0)
+            val fromP = segmentTouchedPTag
+            segmentTouchedPTag = false
+            if (text.isEmpty()) return
+            val minLen = if (allowShortNonPTags || fromP) 8 else 26
+            if (isValidParagraph(text, minLen = minLen)) {
+                result.add(text)
+            }
+        }
+
+        var i = 0
+        while (i < len) {
+            val ch = decoded[i]
+
+            if (ch == '\r' || ch == '\n') {
+                var nextIdx = i + 1
+                var newlineCount = 1
+                if (ch == '\r' && nextIdx < len && decoded[nextIdx] == '\n') {
+                    nextIdx++
+                }
+                while (nextIdx < len && (decoded[nextIdx] == '\n' || decoded[nextIdx] == '\r' || decoded[nextIdx] == ' ' || decoded[nextIdx] == '\t')) {
+                    if (decoded[nextIdx] == '\n') newlineCount++
+                    nextIdx++
+                }
+                if (!inOpenPTag || newlineCount >= 2) {
+                    flushParagraph()
+                } else {
+                    currentParagraph.append(' ')
+                }
+                i = nextIdx
+                continue
+            }
+
+            if (ch == '<') {
+                val matched = tryMatchHtmlTagLinear(decoded, i)
+                if (matched != null) {
+                    hadAnyHtmlTag = true
+                    if (matched.tagName == "p") {
+                        segmentTouchedPTag = true
+                    }
+                    if (matched.isBlockBreak) {
+                        flushParagraph()
+                        if (matched.tagName == "p" && !matched.isClosing) {
+                            inOpenPTag = true
+                            segmentTouchedPTag = true
+                        } else if (matched.tagName == "p" && matched.isClosing) {
+                            inOpenPTag = false
+                        } else if (matched.isClosing && matched.tagName in blockBreakHtmlTags) {
+                            inOpenPTag = false
                         }
-                        idx = closeP + 4
-                        continue
+                    } else if (matched.tagName == "td" || matched.tagName == "th") {
+                        currentParagraph.append(' ')
+                    }
+                    i = matched.endIndex
+                    continue
+                } else if (i == len - 1 && hadAnyHtmlTag) {
+                    // Ignore a lone trailing '<' truncated at the very end of an HTML stream
+                    break
+                }
+            }
+
+            currentParagraph.append(ch)
+            i++
+        }
+
+        flushParagraph()
+        return result
+    }
+
+    /**
+     * Attempts to match an HTML tag (complete or malformed/incomplete) starting at [ltIndex] (`'<'`).
+     * Returns `null` if `'<'` is a normal character in prose (e.g., `"৫ < ১০"`, `"x < y"`, `"<বাংলা>"`).
+     */
+    private fun tryMatchHtmlTagLinear(s: String, ltIndex: Int): MatchedHtmlTag? {
+        val len = s.length
+        if (ltIndex + 1 >= len) return null
+
+        // 1. HTML comment <!-- ... -->
+        if (s.startsWith("<!--", ltIndex)) {
+            val endComment = s.indexOf("-->", ltIndex + 4)
+            val endPos = if (endComment != -1) endComment + 3 else len
+            return MatchedHtmlTag("!--", endPos, isBlockBreak = false, isClosing = false)
+        }
+
+        // 2. <!DOCTYPE ...> or <![CDATA[...]]>
+        if (s[ltIndex + 1] == '!' || s[ltIndex + 1] == '?') {
+            val gt = s.indexOf('>', ltIndex + 2)
+            if (gt != -1 && gt - ltIndex <= 512) {
+                return MatchedHtmlTag("!decl", gt + 1, isBlockBreak = false, isClosing = false)
+            }
+            return null
+        }
+
+        var cursor = ltIndex + 1
+        var isClosing = false
+        if (s[cursor] == '/') {
+            isClosing = true
+            cursor++
+            if (cursor >= len) {
+                // Truncated "</" at the very end of string
+                return MatchedHtmlTag("", len, isBlockBreak = false, isClosing = true)
+            }
+        }
+
+        val firstCh = s[cursor]
+        if (!isAsciiLetter(firstCh)) {
+            return null
+        }
+
+        var nameEnd = cursor + 1
+        while (nameEnd < len && nameEnd - cursor < 20 && isAsciiLetterOrDigit(s[nameEnd])) {
+            nameEnd++
+        }
+
+        val tagName = s.substring(cursor, nameEnd).lowercase(Locale.ROOT)
+        if (tagName !in knownHtmlTags) {
+            return null
+        }
+
+        val isBlock = tagName in blockBreakHtmlTags
+
+        // Case A: Truncated right after tag name at EOF (e.g. "</p" or "<p")
+        if (nameEnd == len) {
+            return MatchedHtmlTag(tagName, len, isBlock, isClosing)
+        }
+
+        val nextCh = s[nameEnd]
+
+        // Case B: Immediate '>' (e.g. "<p>", "</p>", "<div>", "</div>", "<br>")
+        if (nextCh == '>') {
+            return MatchedHtmlTag(tagName, nameEnd + 1, isBlock, isClosing)
+        }
+
+        // Case C: Self-closing '/' (e.g. "<br/>", "<hr/>", or truncated "<br/")
+        if (nextCh == '/') {
+            if (nameEnd + 1 == len) {
+                return MatchedHtmlTag(tagName, len, isBlock, isClosing)
+            }
+            if (s[nameEnd + 1] == '>') {
+                return MatchedHtmlTag(tagName, nameEnd + 2, isBlock, isClosing)
+            }
+            if (s[nameEnd + 1] == '<') {
+                return MatchedHtmlTag(tagName, nameEnd + 1, isBlock, isClosing)
+            }
+        }
+
+        // Case D: Immediately followed by another '<' (malformed "<p<p>" or "</p<p>")
+        if (nextCh == '<') {
+            return MatchedHtmlTag(tagName, nameEnd, isBlock, isClosing)
+        }
+
+        // Case E: Followed by whitespace (e.g. "<p class=\"...\">", "<br />", "</p >", or malformed "<p class=\"...\"")
+        if (isAsciiWhitespace(nextCh)) {
+            var p = skipAsciiWhitespace(s, nameEnd)
+            if (p == len || s[p] == '<') {
+                return MatchedHtmlTag(tagName, p, isBlock, isClosing)
+            }
+            if (s[p] == '>') {
+                return MatchedHtmlTag(tagName, p + 1, isBlock, isClosing)
+            }
+            if (s[p] == '/' && (p + 1 == len || s[p + 1] == '>')) {
+                val endPos = if (p + 1 < len) p + 2 else len
+                return MatchedHtmlTag(tagName, endPos, isBlock, isClosing)
+            }
+
+            if (isClosing) {
+                // Malformed closing tag like "</p 텍스트" without '>'
+                return MatchedHtmlTag(tagName, p, isBlock, isClosing = true)
+            }
+
+            // Scan zero or more HTML attributes: attrName(=("..."|'...'|unquoted))?
+            var attrCount = 0
+            var lastValidAttrEnd = p
+            val maxScan = minOf(len, ltIndex + 2048)
+
+            while (p < maxScan) {
+                p = skipAsciiWhitespace(s, p)
+                if (p >= maxScan) break
+                val c = s[p]
+                if (c == '>') {
+                    return MatchedHtmlTag(tagName, p + 1, isBlock, isClosing = false)
+                }
+                if (c == '/' && (p + 1 == len || (p + 1 < len && s[p + 1] == '>'))) {
+                    val endPos = if (p + 1 < len) p + 2 else len
+                    return MatchedHtmlTag(tagName, endPos, isBlock, isClosing = false)
+                }
+                if (c == '<') {
+                    return if (attrCount > 0 || tagName in structuralMalformedAllowedTags) {
+                        MatchedHtmlTag(tagName, p, isBlock, isClosing = false)
                     } else {
-                        // Truncated stream mid-<p>: salvage trailing paragraph if substantive
-                        val rawTail = cleanHtml.substring(openEnd + 1)
-                        val tailText = unescape(stripTagsLinear(rawTail)).replace(Regex("\\s+"), " ").trim()
-                        if (tailText.length > 45 && isValidParagraph(tailText) && seen.add(tailText)) {
-                            outParagraphs.add(tailText)
+                        null
+                    }
+                }
+                if (!isAsciiAttrStart(c)) {
+                    break
+                }
+
+                var attrNameEnd = p + 1
+                while (attrNameEnd < maxScan && isAsciiAttrChar(s[attrNameEnd])) {
+                    attrNameEnd++
+                }
+                var afterName = skipAsciiWhitespace(s, attrNameEnd)
+                if (afterName < maxScan && s[afterName] == '=') {
+                    var valStart = skipAsciiWhitespace(s, afterName + 1)
+                    if (valStart >= maxScan) {
+                        attrCount++
+                        lastValidAttrEnd = maxScan
+                        p = maxScan
+                        break
+                    }
+                    val quote = s[valStart]
+                    if (quote == '"' || quote == '\'') {
+                        var qEnd = valStart + 1
+                        while (qEnd < maxScan && s[qEnd] != quote) {
+                            qEnd++
                         }
+                        p = if (qEnd < maxScan) qEnd + 1 else maxScan
+                        attrCount++
+                        lastValidAttrEnd = skipAsciiWhitespace(s, p)
+                    } else {
+                        var uEnd = valStart
+                        while (uEnd < maxScan && !isAsciiWhitespace(s[uEnd]) && s[uEnd] != '>' && s[uEnd] != '<') {
+                            uEnd++
+                        }
+                        p = uEnd
+                        attrCount++
+                        lastValidAttrEnd = skipAsciiWhitespace(s, p)
+                    }
+                } else {
+                    // Boolean attribute (e.g. disabled, itemscope) only if followed by '>', '/', '=', or another ASCII attr
+                    p = afterName
+                    if (p == len || s[p] == '>' || s[p] == '/') {
+                        attrCount++
+                        lastValidAttrEnd = p
+                    } else {
                         break
                     }
                 }
             }
 
-            // 2. Check <div ... class="...story-element-text..." ...>
-            if (lt + 4 < len && cleanHtml.regionMatches(lt + 1, "div", 0, 3, ignoreCase = true)) {
-                val nextCh = cleanHtml[lt + 4]
-                if (nextCh == ' ' || nextCh == '\t' || nextCh == '\n' || nextCh == '\r') {
-                    val openEnd = cleanHtml.indexOf('>', lt + 4)
-                    if (openEnd == -1) break
-                    val openTag = cleanHtml.substring(lt + 4, openEnd)
-                    if (openTag.contains("story-element-text", ignoreCase = true) ||
-                        openTag.contains("article-content", ignoreCase = true) ||
-                        openTag.contains("news-details", ignoreCase = true)
-                    ) {
-                        val closeDiv = cleanHtml.indexOf("</div>", openEnd + 1, ignoreCase = true)
-                        val endPos = if (closeDiv != -1) closeDiv else len
-                        val rawInner = cleanHtml.substring(openEnd + 1, endPos)
-                        val text = unescape(stripTagsLinear(rawInner)).replace(Regex("\\s+"), " ").trim()
-                        if (isValidParagraph(text) && seen.add(text)) {
-                            outParagraphs.add(text)
-                        }
-                        idx = if (closeDiv != -1) closeDiv + 6 else len
-                        continue
-                    }
-                }
+            if (p < len && s[p] == '>') {
+                return MatchedHtmlTag(tagName, p + 1, isBlock, isClosing = false)
             }
-
-            idx = lt + 1
+            if (attrCount > 0) {
+                return MatchedHtmlTag(tagName, lastValidAttrEnd, isBlock, isClosing = false)
+            }
+            if (tagName in structuralMalformedAllowedTags && (tagName.length >= 2 || hasMatchingCloseTagAhead(s, nameEnd, tagName))) {
+                return MatchedHtmlTag(tagName, skipAsciiWhitespace(s, nameEnd), isBlock, isClosing = false)
+            }
         }
+
+        return null
+    }
+
+    private fun hasMatchingCloseTagAhead(s: String, fromIndex: Int, tagName: String): Boolean {
+        val marker = "</$tagName"
+        val idx = s.indexOf(marker, fromIndex, ignoreCase = true)
+        if (idx == -1) return false
+        val after = idx + marker.length
+        return after == s.length || s[after] == '>' || isAsciiWhitespace(s[after]) || s[after] == '<'
+    }
+
+    private fun isAsciiLetter(c: Char): Boolean =
+        (c in 'a'..'z') || (c in 'A'..'Z')
+
+    private fun isAsciiLetterOrDigit(c: Char): Boolean =
+        isAsciiLetter(c) || (c in '0'..'9')
+
+    private fun isAsciiAttrStart(c: Char): Boolean =
+        isAsciiLetter(c) || c == '_' || c == ':'
+
+    private fun isAsciiAttrChar(c: Char): Boolean =
+        isAsciiLetterOrDigit(c) || c == '-' || c == '_' || c == ':' || c == '.'
+
+    private fun isAsciiWhitespace(c: Char): Boolean =
+        c == ' ' || c == '\t' || c == '\n' || c == '\r'
+
+    private fun skipAsciiWhitespace(s: String, start: Int): Int {
+        var i = start
+        while (i < s.length && isAsciiWhitespace(s[i])) {
+            i++
+        }
+        return i
+    }
+
+    private fun collapseWhitespaceLinear(cs: CharSequence): String {
+        val sb = StringBuilder(cs.length)
+        var lastWasSpace = true
+        for (i in 0 until cs.length) {
+            val c = cs[i]
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\u00A0') {
+                if (!lastWasSpace) {
+                    sb.append(' ')
+                    lastWasSpace = true
+                }
+            } else {
+                sb.append(c)
+                lastWasSpace = false
+            }
+        }
+        if (sb.isNotEmpty() && sb[sb.length - 1] == ' ') {
+            sb.setLength(sb.length - 1)
+        }
+        return sb.toString()
+    }
+
+    private fun cleanInlineTextLinear(raw: String): String {
+        if (raw.isBlank()) return ""
+        val decoded = decodeHtmlEntitiesLinear(raw)
+        val stripped = stripTagsLinear(decoded)
+        return collapseWhitespaceLinear(stripped)
     }
 
     private fun extractMetaContent(headHtml: String, attrName: String, attrValue: String): String {
@@ -1274,7 +1608,7 @@ class ArticleExtractor {
             if (matchedAttr.equals(attrValue, ignoreCase = true)) {
                 val content = extractTagAttributeValue(tag, "content")
                 if (content.isNotEmpty()) {
-                    return unescape(content).trim()
+                    return cleanInlineTextLinear(content)
                 }
             }
             idx = metaEnd + 1
@@ -1304,7 +1638,7 @@ class ArticleExtractor {
             val closeIdx = html.indexOf("</$tagName", openEnd + 1, ignoreCase = true)
             if (closeIdx == -1) return ""
             val raw = html.substring(openEnd + 1, closeIdx)
-            val text = unescape(stripTagsLinear(raw)).replace(Regex("\\s+"), " ").trim()
+            val text = cleanInlineTextLinear(raw)
             if (text.isNotEmpty()) return text
             searchFrom = closeIdx + tagName.length + 3
         }
@@ -1314,17 +1648,22 @@ class ArticleExtractor {
     private fun stripTagsLinear(s: String): String {
         if (s.indexOf('<') == -1) return s
         val sb = StringBuilder(s.length)
-        var inTag = false
-        for (i in 0 until s.length) {
+        var i = 0
+        val len = s.length
+        while (i < len) {
             val ch = s[i]
             if (ch == '<') {
-                inTag = true
-                sb.append(' ')
-            } else if (ch == '>') {
-                inTag = false
-            } else if (!inTag) {
-                sb.append(ch)
+                val matched = tryMatchHtmlTagLinear(s, i)
+                if (matched != null) {
+                    if (matched.isBlockBreak || matched.tagName == "td" || matched.tagName == "th") {
+                        sb.append(' ')
+                    }
+                    i = matched.endIndex
+                    continue
+                }
             }
+            sb.append(ch)
+            i++
         }
         return sb.toString()
     }
@@ -1345,8 +1684,18 @@ class ArticleExtractor {
             u.contains("google.com/logos")
     }
 
-    private fun isValidParagraph(text: String): Boolean {
-        if (text.length <= 25) return false
+    private fun isValidParagraph(text: String, minLen: Int = 8): Boolean {
+        if (text.length < minLen) return false
+        if (text.length > 35 && !text.contains(' ')) return false
+        var hasLetter = false
+        for (i in 0 until text.length) {
+            val c = text[i]
+            if (Character.isLetter(c) || c in '\u0980'..'\u09FF') {
+                hasLetter = true
+                break
+            }
+        }
+        if (!hasLetter) return false
         if (isGenericGoogleTitle(text)) return false
         if (isPlaceholderText(text)) return false
         val lower = text.lowercase()
@@ -1362,18 +1711,93 @@ class ArticleExtractor {
         return true
     }
 
+    internal fun decodeHtmlEntitiesLinear(s: String): String {
+        if (s.indexOf('&') == -1) return s
+        val pass1 = decodeHtmlEntitiesSinglePass(s)
+        return if (pass1.indexOf('&') != -1 && pass1 != s) {
+            decodeHtmlEntitiesSinglePass(pass1)
+        } else {
+            pass1
+        }
+    }
+
+    private fun decodeHtmlEntitiesSinglePass(s: String): String {
+        val len = s.length
+        val sb = StringBuilder(len)
+        var i = 0
+        while (i < len) {
+            val ch = s[i]
+            if (ch == '&') {
+                val semi = s.indexOf(';', i + 1)
+                if (semi != -1 && semi - i <= 12) {
+                    val entity = s.substring(i + 1, semi)
+                    val decodedEntity = resolveHtmlEntity(entity)
+                    if (decodedEntity != null) {
+                        sb.append(decodedEntity)
+                        i = semi + 1
+                        continue
+                    }
+                }
+            }
+            sb.append(ch)
+            i++
+        }
+        return sb.toString()
+    }
+
+    private fun resolveHtmlEntity(entity: String): String? {
+        if (entity.isEmpty()) return null
+        if (entity[0] == '#') {
+            val codePoint = try {
+                if (entity.length > 2 && (entity[1] == 'x' || entity[1] == 'X')) {
+                    entity.substring(2).toInt(16)
+                } else {
+                    entity.substring(1).toInt(10)
+                }
+            } catch (_: NumberFormatException) {
+                return null
+            }
+            return when (codePoint) {
+                160 -> " "
+                8216 -> "‘"
+                8217 -> "’"
+                8220 -> "“"
+                8221 -> "”"
+                8211 -> "–"
+                8212 -> "—"
+                in 32..0x10FFFF -> try {
+                    String(Character.toChars(codePoint))
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+                else -> null
+            }
+        }
+        return when (entity.lowercase(Locale.ROOT)) {
+            "nbsp" -> " "
+            "amp" -> "&"
+            "lt" -> "<"
+            "gt" -> ">"
+            "quot" -> "\""
+            "apos", "#39" -> "'"
+            "lsquo" -> "‘"
+            "rsquo" -> "’"
+            "ldquo" -> "“"
+            "rdquo" -> "”"
+            "ndash" -> "–"
+            "mdash" -> "—"
+            "hellip" -> "…"
+            "bull" -> "•"
+            "copy" -> "©"
+            "reg" -> "®"
+            "trade" -> "™"
+            "zwnj" -> "\u200C"
+            "zwj" -> "\u200D"
+            else -> null
+        }
+    }
+
     private fun unescape(s: String): String {
-        return s.replace("&nbsp;", " ")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&apos;", "'")
-            .replace("&#8217;", "’")
-            .replace("&#8216;", "‘")
-            .replace("&#8220;", "“")
-            .replace("&#8221;", "”")
-            .trim()
+        return decodeHtmlEntitiesLinear(s).trim()
     }
 }

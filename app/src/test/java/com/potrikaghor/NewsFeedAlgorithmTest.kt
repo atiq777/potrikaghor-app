@@ -1554,6 +1554,244 @@ class NewsFeedAlgorithmTest {
         checkTrue(shouldUpdateWebProgress(28, 100, 300L, 350L), "Completion (100%) must always update immediately")
     }
 
+    @Test
+    fun test30_paragraphTagsRemoveInCleanReader() {
+        val extractor = ArticleExtractor()
+        val html = "<p>পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ আজ থেকে আনুষ্ঠানিকভাবে শুরু হয়েছে।</p>"
+        val parsed = extractor.parseHtml(
+            html = html,
+            url = "https://www.anandabazar.com/west-bengal/voter-list",
+            fallbackTitle = "ভোটার তালিকা সংশোধন",
+            source = "আনন্দবাজার পত্রিকা"
+        )
+        checkEquals(1, parsed.paragraphs.size, "Single <p> block must produce 1 clean paragraph")
+        checkEquals(
+            "পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ আজ থেকে আনুষ্ঠানিকভাবে শুরু হয়েছে।",
+            parsed.paragraphs.first(),
+            "Paragraph text must not contain <p> or </p>"
+        )
+        checkFalse(parsed.plainText.contains("<p"), "plainText must never contain <p")
+        checkFalse(parsed.plainText.contains("</p"), "plainText must never contain </p")
+    }
+
+    @Test
+    fun test31_multipleConsecutiveParagraphsSeparatedWithoutRawTags() {
+        val extractor = ArticleExtractor()
+
+        // Exact prompt requirement: "<p>বাংলা সংবাদ</p><p>পরবর্তী অনুচ্ছেদ</p>" -> 2 clean paragraphs, no raw HTML tags
+        val exactPromptHtml = "<p>বাংলা সংবাদ</p><p>পরবর্তী অনুচ্ছেদ</p>"
+        val exactParsed = extractor.parseHtml(
+            html = exactPromptHtml,
+            url = "https://www.prothomalo.com/bangladesh/test",
+            fallbackTitle = "সংবাদ শিরোনাম",
+            source = "প্রথম আলো"
+        )
+        checkEquals(2, exactParsed.paragraphs.size, "'<p>বাংলা সংবাদ</p><p>পরবর্তী অনুচ্ছেদ</p>' must yield exactly 2 paragraphs")
+        checkEquals("বাংলা সংবাদ", exactParsed.paragraphs[0], "First paragraph must be 'বাংলা সংবাদ'")
+        checkEquals("পরবর্তী অনুচ্ছেদ", exactParsed.paragraphs[1], "Second paragraph must be 'পরবর্তী অনুচ্ছেদ'")
+        checkFalse(exactParsed.plainText.contains("<"), "No raw HTML tag characters may remain in exactPromptHtml result")
+        checkFalse(exactParsed.plainText.contains(">"), "No raw HTML tag characters may remain in exactPromptHtml result")
+
+        // Real device screenshot scenario: consecutive </p><p> and structural <div>, <br>, <br/>
+        val screenshotHtml = "<p>পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের প্রক্রিয়ায় নতুন জটিলতা তৈরি হয়েছে এবং চারজন বিচারপতি পদত্যাগ করলেন।</p><p>সর্বশেষ পদত্যাগ করা বিচারপতির চিঠি ইতিমধ্যে সংশ্লিষ্ট দপ্তরে পৌঁছেছে।</p><div>তৃতীয় অনুচ্ছেদটি ডিভ ট্যাগের ভেতরে রয়েছে।<br>চতুর্থ লাইনটি ব্রেক ট্যাগের পরে এসেছে।<br/>পঞ্চম লাইনটি সেলফ-ক্লোজিং ব্রেক ট্যাগের পরে এসেছে।</div>"
+        val screenshotParsed = extractor.parseHtml(
+            html = screenshotHtml,
+            url = "https://www.anandabazar.com/west-bengal/judges",
+            fallbackTitle = "বিচারপতি পদত্যাগ",
+            source = "আনন্দবাজার পত্রিকা"
+        )
+        checkEquals(5, screenshotParsed.paragraphs.size, "Consecutive <p>, <div>, <br>, and <br/> blocks must produce 5 separate paragraphs")
+        checkEquals(
+            "পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের প্রক্রিয়ায় নতুন জটিলতা তৈরি হয়েছে এবং চারজন বিচারপতি পদত্যাগ করলেন।",
+            screenshotParsed.paragraphs[0],
+            "First screenshot paragraph must be clean"
+        )
+        checkEquals(
+            "সর্বশেষ পদত্যাগ করা বিচারপতির চিঠি ইতিমধ্যে সংশ্লিষ্ট দপ্তরে পৌঁছেছে।",
+            screenshotParsed.paragraphs[1],
+            "Second screenshot paragraph must be separated cleanly without </p><p>"
+        )
+        screenshotParsed.paragraphs.forEach { p ->
+            checkFalse(p.contains("<p", ignoreCase = true), "Paragraph must not contain <p: $p")
+            checkFalse(p.contains("</p", ignoreCase = true), "Paragraph must not contain </p: $p")
+            checkFalse(p.contains("<div", ignoreCase = true), "Paragraph must not contain <div: $p")
+            checkFalse(p.contains("</div", ignoreCase = true), "Paragraph must not contain </div: $p")
+            checkFalse(p.contains("<br", ignoreCase = true), "Paragraph must not contain <br: $p")
+        }
+    }
+
+    @Test
+    fun test32_nestedHtmlTagsStrippedPreservingParagraphs() {
+        val extractor = ArticleExtractor()
+        val nestedHtml = """
+            <div class="article-content">
+                <p>এটি <strong>খুবই <em>গুরুত্বপূর্ণ</em></strong> এবং <span class="highlight"><a href="https://example.com/news">বিস্তারিত তথ্যসমৃদ্ধ</a></span> একটি বাংলা সংবাদ অনুচ্ছেদ।</p>
+                <p>দ্বিতীয় অনুচ্ছেদে <b>বিশেষ <i>অর্থনৈতিক বিশ্লেষণ</i></b> ও <mark>পরিসংখ্যান</mark> যুক্ত করা হয়েছে।</p>
+            </div>
+        """.trimIndent()
+
+        val parsed = extractor.parseHtml(
+            html = nestedHtml,
+            url = "https://www.jugantor.com/national/nested",
+            fallbackTitle = "নেস্টেড ট্যাগ সংবাদ",
+            source = "যুগান্তর"
+        )
+        checkEquals(2, parsed.paragraphs.size, "Nested <p> blocks inside <div class='article-content'> must remain 2 separate paragraphs")
+        checkEquals(
+            "এটি খুবই গুরুত্বপূর্ণ এবং বিস্তারিত তথ্যসমৃদ্ধ একটি বাংলা সংবাদ অনুচ্ছেদ।",
+            parsed.paragraphs[0],
+            "All nested inline tags (strong, em, span, a) must be stripped cleanly"
+        )
+        checkEquals(
+            "দ্বিতীয় অনুচ্ছেদে বিশেষ অর্থনৈতিক বিশ্লেষণ ও পরিসংখ্যান যুক্ত করা হয়েছে।",
+            parsed.paragraphs[1],
+            "All nested inline tags (b, i, mark) in second paragraph must be stripped cleanly"
+        )
+    }
+
+    @Test
+    fun test33_htmlEntitiesAndEscapedTagsDecodedCorrectly() {
+        val extractor = ArticleExtractor()
+
+        // Part A: Standard and numeric HTML entities (&nbsp;, &amp;, &lt;, &gt;, &quot;, &#39;, &#8220;, &#8221;)
+        val entityHtml = "<p>বাংলাদেশ &amp; ভারতের মধ্যে &nbsp; বাণিজ্য বৈঠক: &quot;নতুন দিগন্ত&quot;, &#39;২০২৬&#39;, &#8220;সফল&#8221; এবং প্রবৃদ্ধি &lt; ১০% ও রপ্তানি &gt; ৫%।</p>"
+        val parsedEntity = extractor.parseHtml(
+            html = entityHtml,
+            url = "https://samakal.com/economics/trade",
+            fallbackTitle = "বাণিজ্য বৈঠক",
+            source = "সমকাল"
+        )
+        checkEquals(1, parsedEntity.paragraphs.size, "Entity paragraph must be extracted")
+        checkEquals(
+            "বাংলাদেশ & ভারতের মধ্যে বাণিজ্য বৈঠক: \"নতুন দিগন্ত\", '২০২৬', “সফল” এবং প্রবৃদ্ধি < ১০% ও রপ্তানি > ৫%।",
+            parsedEntity.paragraphs[0],
+            "All HTML entities (&nbsp;, &amp;, &quot;, &#39;, &#8220;, &#8221;, &lt;, &gt;) must decode accurately"
+        )
+
+        // Part B: HTML-escaped paragraph tags (&lt;p&gt;...&lt;/p&gt;) and double-escaped (&amp;lt;p&amp;gt;)
+        val escapedParagraphTags = "&lt;p&gt;পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ চলছে।&lt;/p&gt;&lt;p&gt;সর্বশেষ পদত্যাগ করা চারজন বিচারপতি পদত্যাগ করলেন।&lt;/p&gt;"
+        val parsedEscaped = extractor.parseHtml(
+            html = escapedParagraphTags,
+            url = "https://www.anandabazar.com/escaped",
+            fallbackTitle = "ভোটার তালিকা",
+            source = "আনন্দবাজার পত্রিকা"
+        )
+        checkEquals(2, parsedEscaped.paragraphs.size, "Escaped &lt;p&gt;...&lt;/p&gt; tags must be decoded, stripped, and split into 2 paragraphs")
+        checkEquals("পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ চলছে।", parsedEscaped.paragraphs[0], "First escaped paragraph must have no <p> tag")
+        checkEquals("সর্বশেষ পদত্যাগ করা চারজন বিচারপতি পদত্যাগ করলেন।", parsedEscaped.paragraphs[1], "Second escaped paragraph must have no <p> tag")
+    }
+
+    @Test
+    fun test34_bengaliUnicodePunctuationAndValidAngleBracketsPreserved() {
+        val extractor = ArticleExtractor()
+        val bengaliTextWithMath = "<p>“বাংলাদেশের অর্থনীতিতে র‍্যাপিড প্রবৃদ্ধি > ৫.৫% এবং মূল্যস্ফীতি < ৯.২% রাখা জরুরি”—বলেছেন বিশিষ্ট অর্থনীতিবিদ ড. মুহাম্মদ ইউনূস; বিস্তারিত: (১০০ > ৫০ এবং ২৫ < ৫০)!</p>"
+        val parsed = extractor.parseHtml(
+            html = bengaliTextWithMath,
+            url = "https://www.prothomalo.com/business/economy",
+            fallbackTitle = "অর্থনীতি সংবাদ",
+            source = "প্রথম আলো"
+        )
+        checkEquals(1, parsed.paragraphs.size, "Must extract 1 paragraph")
+        checkEquals(
+            "“বাংলাদেশের অর্থনীতিতে র‍্যাপিড প্রবৃদ্ধি > ৫.৫% এবং মূল্যস্ফীতি < ৯.২% রাখা জরুরি”—বলেছেন বিশিষ্ট অর্থনীতিবিদ ড. মুহাম্মদ ইউনূস; বিস্তারিত: (১০০ > ৫০ এবং ২৫ < ৫০)!",
+            parsed.paragraphs[0],
+            "Bengali Unicode (including ZWNJ/ZWJ র‍্যা), punctuation, smart quotes, and valid '<' and '>' comparisons must remain completely intact"
+        )
+    }
+
+    @Test
+    fun test35_mixedHtmlTagsAndPlainTextExtractedInOrder() {
+        val extractor = ArticleExtractor()
+        val mixedInput = "প্রথম অনুচ্ছেদ কোনো এইচটিএমএল ট্যাগ ছাড়াই সরাসরি লেখা হয়েছে।<p>দ্বিতীয় অনুচ্ছেদ প্যারাগ্রাফ ট্যাগের ভেতরে লেখা হয়েছে।</p>তৃতীয় অনুচ্ছেদ আবার সাধারণ টেক্সট হিসেবে শেষে যুক্ত রয়েছে।"
+        val parsed = extractor.parseHtml(
+            html = mixedInput,
+            url = "https://www.kalbela.com/national/mixed",
+            fallbackTitle = "মিশ্র টেক্সট সংবাদ",
+            source = "কালবেলা"
+        )
+        checkEquals(3, parsed.paragraphs.size, "Mixed plain text and <p> paragraphs must all be extracted in order")
+        checkEquals("প্রথম অনুচ্ছেদ কোনো এইচটিএমএল ট্যাগ ছাড়াই সরাসরি লেখা হয়েছে।", parsed.paragraphs[0], "1st plain text segment must be preserved")
+        checkEquals("দ্বিতীয় অনুচ্ছেদ প্যারাগ্রাফ ট্যাগের ভেতরে লেখা হয়েছে।", parsed.paragraphs[1], "2nd <p> segment must be preserved without tags")
+        checkEquals("তৃতীয় অনুচ্ছেদ আবার সাধারণ টেক্সট হিসেবে শেষে যুক্ত রয়েছে।", parsed.paragraphs[2], "3rd plain text segment must be preserved")
+    }
+
+    @Test
+    fun test36_malformedAndIncompleteParagraphTagsHandledCleanly() {
+        val extractor = ArticleExtractor()
+        val malformedHtml = "<p>প্রথম অনুচ্ছেদে ক্লোজিং ট্যাগ নেই<p class=\"lead\">দ্বিতীয় অনুচ্ছেদের শেষে ক্লোজিং ব্র্যাকেট নেই</p<p class=\"broken\" তৃতীয় অনুচ্ছেদে ওপেনিং ট্যাগের ব্র্যাকেট নেই।</p><p class=\"truncated"
+        val parsed = extractor.parseHtml(
+            html = malformedHtml,
+            url = "https://www.ittefaq.com.bd/malformed",
+            fallbackTitle = "অসম্পূর্ণ ট্যাগ সংবাদ",
+            source = "ইত্তেফাক"
+        )
+        checkEquals(3, parsed.paragraphs.size, "All 3 substantive paragraphs from malformed/incomplete <p> markup must be salvaged")
+        checkEquals("প্রথম অনুচ্ছেদে ক্লোজিং ট্যাগ নেই", parsed.paragraphs[0], "Unclosed <p> before next <p> must be separated")
+        checkEquals("দ্বিতীয় অনুচ্ছেদের শেষে ক্লোজিং ব্র্যাকেট নেই", parsed.paragraphs[1], "Incomplete </p without '>' must be stripped")
+        checkEquals("তৃতীয় অনুচ্ছেদে ওপেনিং ট্যাগের ব্র্যাকেট নেই।", parsed.paragraphs[2], "Malformed <p class=\"broken\" without '>' must strip attribute and preserve Bengali text")
+        parsed.paragraphs.forEach { p ->
+            checkFalse(p.contains("<p", ignoreCase = true), "No malformed <p may leak: $p")
+            checkFalse(p.contains("</p", ignoreCase = true), "No malformed </p may leak: $p")
+            checkFalse(p.contains("truncated", ignoreCase = true), "Trailing truncated tag attribute must not leak: $p")
+        }
+    }
+
+    @Test
+    fun test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression() {
+        val extractor = ArticleExtractor()
+
+        // Part A: JSON-LD articleBody containing single-line consecutive <p>...</p><p>...</p> without '\n'
+        val jsonLdWithHtmlTags = """
+            <html>
+            <head>
+                <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "NewsArticle",
+                  "headline": "পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের বিশেষ প্রতিবেদন",
+                  "articleBody": "<p>পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের প্রক্রিয়ায় নতুন পদক্ষেপ নেওয়া হয়েছে।</p><p>চারজন বিচারপতি পদত্যাগ করলেন এবং সর্বশেষ পদত্যাগ করা বিচারপতির বক্তব্য প্রকাশিত হয়েছে।</p>"
+                }
+                </script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val jsonLdParsed = extractor.parseHtml(
+            html = jsonLdWithHtmlTags,
+            url = "https://www.anandabazar.com/west-bengal/report",
+            fallbackTitle = "ভোটার তালিকা",
+            source = "আনন্দবাজার পত্রিকা"
+        )
+        checkEquals(2, jsonLdParsed.paragraphs.size, "JSON-LD articleBody with <p>...</p><p>...</p> must split into 2 clean paragraphs")
+        checkEquals(
+            "পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের প্রক্রিয়ায় নতুন পদক্ষেপ নেওয়া হয়েছে।",
+            jsonLdParsed.paragraphs[0],
+            "JSON-LD paragraph 1 must not contain <p> or </p>"
+        )
+        checkEquals(
+            "চারজন বিচারপতি পদত্যাগ করলেন এবং সর্বশেষ পদত্যাগ করা বিচারপতির বক্তব্য প্রকাশিত হয়েছে।",
+            jsonLdParsed.paragraphs[1],
+            "JSON-LD paragraph 2 must not contain <p> or </p>"
+        )
+
+        // Part B: parseLiveDomJson where WebView DOM / JSON-LD passed raw <p>...</p><p>...</p> inside paragraphs array
+        val rawLiveDomJs = """
+            {"title":"<p>ভোটার তালিকা সংশোধন সংবাদ</p>","image":"https://cdn.example.com/img.jpg","url":"https://www.anandabazar.com/live","paragraphs":["<p>পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ চলছে।</p><p>সর্বশেষ পদত্যাগ করা বিচারপতির চিঠি গৃহীত হয়েছে।</p>"]}
+        """.trimIndent()
+        val liveDomParsed = extractor.parseLiveDomJson(
+            rawJsResult = rawLiveDomJs,
+            url = "https://www.anandabazar.com/live",
+            fallbackTitle = "ভোটার তালিকা",
+            source = "আনন্দবাজার পত্রিকা"
+        )
+        checkNotNull(liveDomParsed, "parseLiveDomJson must return a valid CleanArticle")
+        checkEquals("ভোটার তালিকা সংশোধন সংবাদ", liveDomParsed!!.title, "Live DOM title must have <p> tags stripped")
+        checkEquals(2, liveDomParsed.paragraphs.size, "Live DOM paragraph entry containing </p><p> must split into 2 clean paragraphs")
+        checkEquals("পশ্চিমবঙ্গের ভোটার তালিকা সংশোধনের কাজ চলছে।", liveDomParsed.paragraphs[0], "Live DOM paragraph 1 must be tag-free")
+        checkEquals("সর্বশেষ পদত্যাগ করা বিচারপতির চিঠি গৃহীত হয়েছে।", liveDomParsed.paragraphs[1], "Live DOM paragraph 2 must be tag-free")
+    }
+
     private class InMemorySharedPreferences : SharedPreferences {
         private val data = ConcurrentHashMap<String, Any>()
 
@@ -1648,7 +1886,15 @@ class NewsFeedAlgorithmTest {
             "test26_concurrentReadAndHistoryUpdatesPreserveAllEntriesWithO1SetLookup" to ::test26_concurrentReadAndHistoryUpdatesPreserveAllEntriesWithO1SetLookup,
             "test27_articleExtractorCoroutineCancellationAndTimeoutHandling" to ::test27_articleExtractorCoroutineCancellationAndTimeoutHandling,
             "test28_smartSummaryRunsOnBackgroundDispatcherAndPreventsCrossArticleLeak" to ::test28_smartSummaryRunsOnBackgroundDispatcherAndPreventsCrossArticleLeak,
-            "test29_lazyTtsLifecycleAndWebProgressThrottling" to ::test29_lazyTtsLifecycleAndWebProgressThrottling
+            "test29_lazyTtsLifecycleAndWebProgressThrottling" to ::test29_lazyTtsLifecycleAndWebProgressThrottling,
+            "test30_paragraphTagsRemoveInCleanReader" to ::test30_paragraphTagsRemoveInCleanReader,
+            "test31_multipleConsecutiveParagraphsSeparatedWithoutRawTags" to ::test31_multipleConsecutiveParagraphsSeparatedWithoutRawTags,
+            "test32_nestedHtmlTagsStrippedPreservingParagraphs" to ::test32_nestedHtmlTagsStrippedPreservingParagraphs,
+            "test33_htmlEntitiesAndEscapedTagsDecodedCorrectly" to ::test33_htmlEntitiesAndEscapedTagsDecodedCorrectly,
+            "test34_bengaliUnicodePunctuationAndValidAngleBracketsPreserved" to ::test34_bengaliUnicodePunctuationAndValidAngleBracketsPreserved,
+            "test35_mixedHtmlTagsAndPlainTextExtractedInOrder" to ::test35_mixedHtmlTagsAndPlainTextExtractedInOrder,
+            "test36_malformedAndIncompleteParagraphTagsHandledCleanly" to ::test36_malformedAndIncompleteParagraphTagsHandledCleanly,
+            "test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression" to ::test37_jsonLdLiveDomAndFallbackHtmlTagLeakageRegression
         )
         for ((name, block) in tests) {
             block()
