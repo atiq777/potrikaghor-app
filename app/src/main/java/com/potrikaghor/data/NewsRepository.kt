@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import com.potrikaghor.BuildConfig
 import com.potrikaghor.model.Coverage
+import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -142,6 +143,139 @@ class CoveragePersistentStateHolder {
     }
 }
 
+data class CachedHomeFeedResult(
+    val cacheKey: String,
+    val categoryKey: String,
+    val feedMode: HomeFeedMode,
+    val favoritesSignature: String,
+    val newsItems: List<NewsItem>,
+    val coverageList: List<Coverage>,
+    val fetchedAtMs: Long
+) {
+    fun isExpired(
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = NewsRepository.HOME_FEED_CACHE_TTL_MS
+    ): Boolean {
+        return (nowMs - fetchedAtMs) > ttlMs
+    }
+}
+
+data class HomeFeedScrollPosition(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0
+)
+
+class HomeFeedPersistentStateHolder(
+    private val maxCacheEntries: Int = NewsRepository.MAX_HOME_FEED_CACHE_ENTRIES
+) {
+    @Volatile
+    var selectedCategoryIndex: Int = 0
+    @Volatile
+    var selectedLocalRegionId: String = ""
+    @Volatile
+    var lastSuccessfulFetchTimeMs: Long = 0L
+    @Volatile
+    var returningFromReader: Boolean = false
+
+    private val cacheLock = Any()
+    private val processedResultsByKey = object : LinkedHashMap<String, CachedHomeFeedResult>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedHomeFeedResult>?): Boolean {
+            return size > maxCacheEntries
+        }
+    }
+    private val rawCategoryItemsByKey = object : LinkedHashMap<String, Pair<List<NewsItem>, Long>>(24, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<List<NewsItem>, Long>>?): Boolean {
+            return size > maxCacheEntries
+        }
+    }
+    private val scrollPositionsByKey = ConcurrentHashMap<String, HomeFeedScrollPosition>()
+    private val seenItemKeysByCategory = ConcurrentHashMap<String, MutableSet<String>>()
+
+    fun scrollStateKey(categoryKey: String, feedMode: HomeFeedMode): String {
+        val normCat = categoryKey.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        return "cat=$normCat|mode=${feedMode.name}"
+    }
+
+    fun getScrollPosition(categoryKey: String, feedMode: HomeFeedMode): HomeFeedScrollPosition {
+        return scrollPositionsByKey[scrollStateKey(categoryKey, feedMode)] ?: HomeFeedScrollPosition()
+    }
+
+    fun saveScrollPosition(categoryKey: String, feedMode: HomeFeedMode, index: Int, offset: Int) {
+        scrollPositionsByKey[scrollStateKey(categoryKey, feedMode)] = HomeFeedScrollPosition(
+            firstVisibleItemIndex = index.coerceAtLeast(0),
+            firstVisibleItemScrollOffset = offset.coerceAtLeast(0)
+        )
+    }
+
+    fun getSeenItemKeys(categoryKey: String): MutableSet<String> {
+        val normCat = categoryKey.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        return seenItemKeysByCategory.computeIfAbsent(normCat) {
+            ConcurrentHashMap.newKeySet()
+        }
+    }
+
+    fun getOrCreateSeenKeys(categoryKey: String): MutableSet<String> = getSeenItemKeys(categoryKey)
+
+    fun recordSuccessfulResult(result: CachedHomeFeedResult) {
+        if (result.newsItems.isEmpty()) return
+        synchronized(cacheLock) {
+            processedResultsByKey[result.cacheKey] = result
+            rawCategoryItemsByKey[result.categoryKey] = result.newsItems to result.fetchedAtMs
+            lastSuccessfulFetchTimeMs = result.fetchedAtMs
+        }
+    }
+
+    fun recordRawCategoryItems(categoryKey: String, items: List<NewsItem>, fetchedAtMs: Long) {
+        if (items.isEmpty()) return
+        val normCat = categoryKey.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        synchronized(cacheLock) {
+            rawCategoryItemsByKey[normCat] = items to fetchedAtMs
+            if (fetchedAtMs > lastSuccessfulFetchTimeMs) {
+                lastSuccessfulFetchTimeMs = fetchedAtMs
+            }
+        }
+    }
+
+    fun getProcessedResult(cacheKey: String): CachedHomeFeedResult? {
+        return synchronized(cacheLock) {
+            processedResultsByKey[cacheKey]
+        }
+    }
+
+    fun getAnyCachedResultForCategoryAndMode(
+        categoryKey: String,
+        feedMode: HomeFeedMode
+    ): CachedHomeFeedResult? {
+        val normCat = categoryKey.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        return synchronized(cacheLock) {
+            processedResultsByKey.values.lastOrNull {
+                it.categoryKey == normCat && it.feedMode == feedMode
+            } ?: processedResultsByKey.values.lastOrNull {
+                it.categoryKey == normCat
+            }
+        }
+    }
+
+    fun getRawCategoryItems(categoryKey: String): Pair<List<NewsItem>, Long>? {
+        val normCat = categoryKey.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        return synchronized(cacheLock) {
+            rawCategoryItemsByKey[normCat]
+        }
+    }
+
+    fun processedCacheSize(): Int = synchronized(cacheLock) { processedResultsByKey.size }
+
+    fun markNavigatingToReader() {
+        returningFromReader = true
+    }
+
+    fun consumeReturningFromReader(): Boolean {
+        val wasReturning = returningFromReader
+        returningFromReader = false
+        return wasReturning
+    }
+}
+
 class NewsRepository {
     companion object {
         const val DIAG_TAG = "PotrikaImageDiag"
@@ -182,6 +316,8 @@ class NewsRepository {
         const val DIRECT_FEED_BATCH_DEADLINE_MS = 13_000L
         const val GOOGLE_FEED_TIMEOUT_MS = 10_000L
         const val COVERAGE_CACHE_TTL_MS = 3 * 60 * 1000L
+        const val HOME_FEED_CACHE_TTL_MS = 3 * 60 * 1000L
+        const val MAX_HOME_FEED_CACHE_ENTRIES = 24
 
         /**
          * Curated direct publisher RSS/Atom feeds.
@@ -523,6 +659,12 @@ class NewsRepository {
     internal val coverageFetchExecutionCounter = AtomicInteger(0)
     internal val coverageBuildExecutionCounter = AtomicInteger(0)
 
+    // Processed Home Feed Memory Cache & Persistent State Holder (survives Reader & Tab navigation)
+    val homeFeedStateHolder = HomeFeedPersistentStateHolder()
+    private val inFlightHomeFeedRequests = ConcurrentHashMap<String, SharedInFlightRequest<CachedHomeFeedResult>>()
+    internal val homeFeedFetchExecutionCounter = AtomicInteger(0)
+    internal val homeFeedBuildExecutionCounter = AtomicInteger(0)
+
     @Volatile
     var dataSaverMode: Boolean = false
 
@@ -575,13 +717,321 @@ class NewsRepository {
     }
 
     fun getMemoryCachedCategoryFeed(categoryId: String): List<NewsItem> {
-        return categoryFeedMemoryCache[categoryId.ifBlank { "top" }] ?: emptyList()
+        val normKey = normalizeHomeCategoryKey(categoryId)
+        return categoryFeedMemoryCache[normKey]
+            ?: homeFeedStateHolder.getRawCategoryItems(normKey)?.first
+            ?: emptyList()
     }
 
     fun putMemoryCachedCategoryFeed(categoryId: String, items: List<NewsItem>) {
         if (items.isNotEmpty()) {
-            categoryFeedMemoryCache[categoryId.ifBlank { "top" }] = items
+            val normKey = normalizeHomeCategoryKey(categoryId)
+            categoryFeedMemoryCache[normKey] = items
+            homeFeedStateHolder.recordRawCategoryItems(normKey, items, System.currentTimeMillis())
         }
+    }
+
+    fun normalizeHomeCategoryKey(categoryId: String, localRegionId: String = ""): String {
+        val cleanCat = categoryId.trim().lowercase(Locale.ROOT).ifEmpty { "top" }
+        val cleanReg = localRegionId.trim().lowercase(Locale.ROOT)
+        return if (cleanCat == "local" && cleanReg.isNotEmpty()) {
+            "local_$cleanReg"
+        } else {
+            cleanCat
+        }
+    }
+
+    fun computeFavoritesSignature(
+        favoriteUrls: Collection<String>
+    ): String = computeFavoritesSignature(HomeFeedMode.TOP_STORIES, favoriteUrls.toSet())
+
+    fun computeFavoritesSignature(
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String>
+    ): String {
+        if (feedMode == HomeFeedMode.LATEST_NEWS || favoriteUrls.isEmpty()) {
+            return "none"
+        }
+        return favoriteUrls
+            .map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it.isNotEmpty() }
+            .sorted()
+            .joinToString(",")
+            .ifEmpty { "none" }
+    }
+
+    fun homeFeedCacheKey(
+        categoryKey: String,
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String> = emptySet()
+    ): String = homeFeedCacheKey(
+        categoryKey = categoryKey,
+        localRegionId = "",
+        feedMode = feedMode,
+        favoriteUrls = favoriteUrls
+    )
+
+    fun homeFeedCacheKey(
+        categoryKey: String,
+        localRegionId: String = "",
+        feedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES,
+        favoriteUrls: Set<String> = emptySet()
+    ): String {
+        val normCat = normalizeHomeCategoryKey(categoryKey, localRegionId)
+        val favSig = computeFavoritesSignature(feedMode, favoriteUrls)
+        return "cat=$normCat|mode=${feedMode.name}|favs=$favSig"
+    }
+
+    /**
+     * Returns the processed [CachedHomeFeedResult] for the given category, local region, feed mode,
+     * and favorites signature.
+     * IMPORTANT: TTL expiry NEVER deletes or evicts cached results; stale entries remain available
+     * for immediate Frame-1 rendering and Stale-While-Revalidate fallback.
+     */
+    fun getCachedHomeFeedResult(
+        categoryKey: String,
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String> = emptySet()
+    ): CachedHomeFeedResult? = getCachedHomeFeedResult(
+        categoryKey = categoryKey,
+        localRegionId = "",
+        feedMode = feedMode,
+        favoriteUrls = favoriteUrls
+    )
+
+    fun getCachedHomeFeedResult(
+        categoryKey: String,
+        localRegionId: String = "",
+        feedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES,
+        favoriteUrls: Set<String> = emptySet()
+    ): CachedHomeFeedResult? {
+        val key = homeFeedCacheKey(categoryKey, localRegionId, feedMode, favoriteUrls)
+        return homeFeedStateHolder.getProcessedResult(key)
+    }
+
+    fun isHomeFeedCacheFresh(
+        categoryKey: String,
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String> = emptySet(),
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = HOME_FEED_CACHE_TTL_MS
+    ): Boolean = isHomeFeedCacheFresh(
+        categoryKey = categoryKey,
+        localRegionId = "",
+        feedMode = feedMode,
+        favoriteUrls = favoriteUrls,
+        nowMs = nowMs,
+        ttlMs = ttlMs
+    )
+
+    fun isHomeFeedCacheFresh(
+        categoryKey: String,
+        localRegionId: String = "",
+        feedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES,
+        favoriteUrls: Set<String> = emptySet(),
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = HOME_FEED_CACHE_TTL_MS
+    ): Boolean {
+        val cached = getCachedHomeFeedResult(categoryKey, localRegionId, feedMode, favoriteUrls) ?: return false
+        return !cached.isExpired(nowMs, ttlMs)
+    }
+
+    fun hasFreshRawCategoryFeed(
+        categoryKey: String,
+        localRegionId: String = "",
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = HOME_FEED_CACHE_TTL_MS
+    ): Boolean {
+        val normCat = normalizeHomeCategoryKey(categoryKey, localRegionId)
+        val rawPair = homeFeedStateHolder.getRawCategoryItems(normCat) ?: return false
+        return rawPair.first.isNotEmpty() && (nowMs - rawPair.second) <= ttlMs
+    }
+
+    fun putCachedHomeFeedResult(result: CachedHomeFeedResult) {
+        if (result.newsItems.isNotEmpty()) {
+            categoryFeedMemoryCache[result.categoryKey] = result.newsItems
+            homeFeedStateHolder.recordSuccessfulResult(result)
+        }
+    }
+
+    internal suspend fun buildHomeFeedCoverageOnDefault(
+        items: List<NewsItem>,
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<Coverage> = withContext(Dispatchers.Default) {
+        homeFeedBuildExecutionCounter.incrementAndGet()
+        if (items.isEmpty()) return@withContext emptyList()
+        try {
+            when (feedMode) {
+                HomeFeedMode.TOP_STORIES -> buildTopStories(all = items, favoriteUrls = favoriteUrls, nowMs = nowMs)
+                HomeFeedMode.LATEST_NEWS -> buildLatestNews(all = items, nowMs = nowMs)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            items.map { Coverage(listOf(it)) }
+        }
+    }
+
+    /**
+     * Fetches or restores the processed Home Feed ([CachedHomeFeedResult]) with:
+     * - 3-minute TTL processed memory cache (never deleting stale entries on TTL expiry)
+     * - Reuse of fresh raw category items when switching [feedMode] or [favoriteUrls] within TTL
+     *   (avoiding unnecessary Google News / RSS network fetches)
+     * - Shared in-flight request deduplication with cancellation safety
+     * - Clustering strictly on [Dispatchers.Default] and network on [Dispatchers.IO]
+     */
+    suspend fun fetchHomeFeedCached(
+        categoryKey: String,
+        localRegionId: String = "",
+        query: String = "",
+        intl: Boolean = false,
+        feedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES,
+        favoriteUrls: Set<String> = emptySet(),
+        forceRefresh: Boolean = false,
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = HOME_FEED_CACHE_TTL_MS,
+        newsFetcher: (suspend (String, Boolean, Boolean) -> List<NewsItem>)? = null
+    ): CachedHomeFeedResult = withContext(Dispatchers.IO) {
+        val normCat = normalizeHomeCategoryKey(categoryKey, localRegionId)
+        val favSig = computeFavoritesSignature(feedMode, favoriteUrls)
+        val key = homeFeedCacheKey(normCat, "", feedMode, favoriteUrls)
+
+        if (!forceRefresh) {
+            val cached = homeFeedStateHolder.getProcessedResult(key)
+            if (cached != null && !cached.isExpired(nowMs, ttlMs)) {
+                return@withContext cached
+            }
+        }
+
+        val requestMapKey = if (forceRefresh) "$key|force" else key
+        val shared: SharedInFlightRequest<CachedHomeFeedResult> = synchronized(inFlightLock) {
+            if (!forceRefresh) {
+                val cached = homeFeedStateHolder.getProcessedResult(key)
+                if (cached != null && !cached.isExpired(nowMs, ttlMs)) {
+                    return@withContext cached
+                }
+            }
+            val existing = inFlightHomeFeedRequests[requestMapKey]
+            if (existing != null && existing.deferred.isActive) {
+                existing.activeWaiters++
+                existing
+            } else {
+                lateinit var created: SharedInFlightRequest<CachedHomeFeedResult>
+                val deferred = sharedFetchScope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        performFetchHomeFeed(
+                            normCat = normCat,
+                            cacheKey = key,
+                            favSig = favSig,
+                            query = query,
+                            intl = intl,
+                            feedMode = feedMode,
+                            favoriteUrls = favoriteUrls,
+                            forceRefresh = forceRefresh,
+                            nowMs = nowMs,
+                            ttlMs = ttlMs,
+                            newsFetcher = newsFetcher
+                        )
+                    } finally {
+                        synchronized(inFlightLock) {
+                            if (inFlightHomeFeedRequests[requestMapKey] === created) {
+                                inFlightHomeFeedRequests.remove(requestMapKey)
+                            }
+                        }
+                    }
+                }
+                created = SharedInFlightRequest(deferred = deferred, activeWaiters = 1)
+                inFlightHomeFeedRequests[requestMapKey] = created
+                created
+            }
+        }
+
+        shared.deferred.start()
+        var cancelled = false
+        try {
+            shared.deferred.await()
+        } catch (e: CancellationException) {
+            cancelled = true
+            val shouldCancelUnderlying = synchronized(inFlightLock) {
+                shared.activeWaiters--
+                if (shared.activeWaiters <= 0) {
+                    if (inFlightHomeFeedRequests[requestMapKey] === shared) {
+                        inFlightHomeFeedRequests.remove(requestMapKey)
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            if (shouldCancelUnderlying) {
+                withContext(NonCancellable) {
+                    shared.deferred.cancelAndJoin()
+                }
+            }
+            throw e
+        } finally {
+            if (!cancelled) {
+                synchronized(inFlightLock) {
+                    shared.activeWaiters = (shared.activeWaiters - 1).coerceAtLeast(0)
+                }
+            }
+        }
+    }
+
+    private suspend fun performFetchHomeFeed(
+        normCat: String,
+        cacheKey: String,
+        favSig: String,
+        query: String,
+        intl: Boolean,
+        feedMode: HomeFeedMode,
+        favoriteUrls: Set<String>,
+        forceRefresh: Boolean,
+        nowMs: Long,
+        ttlMs: Long,
+        newsFetcher: (suspend (String, Boolean, Boolean) -> List<NewsItem>)?
+    ): CachedHomeFeedResult {
+        val rawPair = homeFeedStateHolder.getRawCategoryItems(normCat)
+        val hasFreshRaw = !forceRefresh &&
+            rawPair != null &&
+            rawPair.first.isNotEmpty() &&
+            (nowMs - rawPair.second) <= ttlMs
+
+        val (items, effectiveFetchedAtMs) = if (hasFreshRaw && rawPair != null) {
+            rawPair.first to rawPair.second
+        } else {
+            homeFeedFetchExecutionCounter.incrementAndGet()
+            val fetched = if (newsFetcher != null) {
+                newsFetcher(query, intl, forceRefresh)
+            } else {
+                fetchNews(query = query, intl = intl, forceRefresh = forceRefresh)
+            }
+            if (fetched.isEmpty()) {
+                throw java.io.IOException("No news items fetched for $normCat")
+            }
+            fetched to nowMs
+        }
+
+        val builtCoverage = buildHomeFeedCoverageOnDefault(
+            items = items,
+            feedMode = feedMode,
+            favoriteUrls = favoriteUrls,
+            nowMs = effectiveFetchedAtMs
+        )
+
+        val result = CachedHomeFeedResult(
+            cacheKey = cacheKey,
+            categoryKey = normCat,
+            feedMode = feedMode,
+            favoritesSignature = favSig,
+            newsItems = items,
+            coverageList = builtCoverage,
+            fetchedAtMs = effectiveFetchedAtMs
+        )
+        putCachedHomeFeedResult(result)
+        return result
     }
 
     /**

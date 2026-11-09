@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -49,6 +50,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -56,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -81,6 +84,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.platform.testTag
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.CachedHomeFeedResult
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.BangladeshLocalRegions
 import com.potrikaghor.model.Coverage
@@ -105,6 +109,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Locale
 
 internal const val HOME_SCREEN_LOAD_TIMEOUT_MS = 16_000L
 internal const val HOME_LOAD_ERROR_MESSAGE = "সংবাদ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।"
@@ -179,6 +184,63 @@ internal fun applyHomeLoadResult(
     }
 }
 
+internal enum class HomeFeedEnterAction {
+    SHOW_CACHED_ONLY,
+    BACKGROUND_REFRESH,
+    INITIAL_LOAD
+}
+
+internal fun resolveHomeFeedEnterAction(
+    cached: CachedHomeFeedResult?,
+    isCacheFresh: Boolean,
+    returningFromReader: Boolean
+): HomeFeedEnterAction {
+    if (cached == null || cached.newsItems.isEmpty()) {
+        return HomeFeedEnterAction.INITIAL_LOAD
+    }
+    if (returningFromReader || isCacheFresh) {
+        return HomeFeedEnterAction.SHOW_CACHED_ONLY
+    }
+    return HomeFeedEnterAction.BACKGROUND_REFRESH
+}
+
+internal fun stableArticleIdentifier(item: NewsItem?): String {
+    if (item == null) return "empty_story"
+    val normalizedLink = item.link.trim()
+        .substringBefore('#')
+        .trimEnd('/')
+        .lowercase(Locale.ROOT)
+    if (normalizedLink.isNotEmpty()) {
+        return "url:$normalizedLink"
+    }
+    val normalizedSource = (item.sourceUrl.ifBlank { item.source })
+        .trim()
+        .lowercase(Locale.ROOT)
+    val normalizedTitle = item.title.trim()
+        .replace(Regex("\\s+"), " ")
+        .lowercase(Locale.ROOT)
+    return "pub:$normalizedSource|title:$normalizedTitle"
+}
+
+internal fun buildStableFeedStoryKeys(
+    stories: List<Coverage>,
+    prefix: String = "feed"
+): List<String> {
+    if (stories.isEmpty()) return emptyList()
+    val seenCounts = HashMap<String, Int>(stories.size)
+    return stories.map { coverage ->
+        val primary = coverage.items.firstOrNull()
+        val baseId = stableArticleIdentifier(primary)
+        val nextCount = (seenCounts[baseId] ?: 0) + 1
+        seenCounts[baseId] = nextCount
+        if (nextCount == 1) {
+            "${prefix}_$baseId"
+        } else {
+            "${prefix}_${baseId}#dup$nextCount"
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalHomeScreen(
@@ -193,24 +255,37 @@ fun PersonalHomeScreen(
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
     val nativeAdSlotManager = rememberNativeAdSlotManager()
-
-    var selectedCategoryIndex by remember { mutableStateOf(0) }
-    var selectedLocalRegionId by remember { mutableStateOf(BangladeshLocalRegions.first().id) }
-    var loadedCategoryKey by remember { mutableStateOf<String?>(null) }
-    var newsItems by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
-    var coverageList by remember { mutableStateOf<List<Coverage>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isManualRefreshing by remember { mutableStateOf(false) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var loadJob by remember { mutableStateOf<Job?>(null) }
-    var requestVersion by remember { mutableStateOf(0) }
-
-    val currentFeedMode = appState.homeFeedMode
-    val favoriteUrls = remember(appState.favs) { appState.favs.toSet() }
+    val stateHolder = newsRepo.homeFeedStateHolder
 
     val activeCategories = remember(appState.homeCategories) {
         appState.homeCategories.filter { it.enabled }.sortedBy { it.order }
     }
+
+    var selectedCategoryIndex by remember {
+        val savedIdx = stateHolder.selectedCategoryIndex
+        val validIdx = if (activeCategories.isNotEmpty()) {
+            savedIdx.coerceIn(0, activeCategories.lastIndex)
+        } else {
+            0
+        }
+        mutableStateOf(validIdx)
+    }
+    var selectedLocalRegionId by remember {
+        val savedRegion = stateHolder.selectedLocalRegionId
+        val validRegion = BangladeshLocalRegions.firstOrNull { it.id == savedRegion }?.id
+            ?: BangladeshLocalRegions.first().id
+        mutableStateOf(validRegion)
+    }
+
+    LaunchedEffect(activeCategories.size) {
+        if (activeCategories.isNotEmpty() && selectedCategoryIndex > activeCategories.lastIndex) {
+            selectedCategoryIndex = 0
+            stateHolder.selectedCategoryIndex = 0
+        }
+    }
+
+    val currentFeedMode = appState.homeFeedMode
+    val favoriteUrls = remember(appState.favs) { appState.favs.toSet() }
 
     val currentCat = activeCategories.getOrNull(selectedCategoryIndex) ?: activeCategories.firstOrNull()
     val currentLocalRegion = remember(selectedLocalRegionId) {
@@ -220,52 +295,83 @@ fun PersonalHomeScreen(
         if (currentCat?.id == "local") "local_$selectedLocalRegionId" else (currentCat?.id ?: "top")
     }
 
-    fun buildCoverageSyncForMode(
-        items: List<NewsItem>,
-        mode: HomeFeedMode,
-        favUrls: Set<String>
-    ): List<Coverage> {
-        if (items.isEmpty()) return emptyList()
-        return try {
-            when (mode) {
-                HomeFeedMode.TOP_STORIES -> newsRepo.buildTopStories(all = items, favoriteUrls = favUrls)
-                HomeFeedMode.LATEST_NEWS -> newsRepo.buildLatestNews(all = items)
-            }
-        } catch (_: Exception) {
-            items.map { Coverage(listOf(it)) }
+    val initialCached = remember(effectiveCatKey, currentFeedMode, favoriteUrls) {
+        newsRepo.getCachedHomeFeedResult(
+            categoryKey = effectiveCatKey,
+            feedMode = currentFeedMode,
+            favoriteUrls = favoriteUrls
+        )
+    }
+
+    var loadedCategoryKey by remember {
+        mutableStateOf<String?>(if (initialCached != null) effectiveCatKey else null)
+    }
+    var newsItems by remember {
+        mutableStateOf(initialCached?.newsItems ?: emptyList())
+    }
+    var coverageList by remember {
+        mutableStateOf(initialCached?.coverageList ?: emptyList())
+    }
+    var isLoading by remember {
+        mutableStateOf(initialCached == null)
+    }
+    var isBackgroundRefreshing by remember { mutableStateOf(false) }
+    var isManualRefreshing by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    var requestVersion by remember { mutableStateOf(0) }
+
+    val listState = remember(effectiveCatKey, currentFeedMode) {
+        val savedPos = stateHolder.getScrollPosition(effectiveCatKey, currentFeedMode)
+        LazyListState(
+            firstVisibleItemIndex = savedPos.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = savedPos.firstVisibleItemScrollOffset
+        )
+    }
+
+    DisposableEffect(effectiveCatKey, currentFeedMode, listState) {
+        onDispose {
+            stateHolder.selectedCategoryIndex = selectedCategoryIndex
+            stateHolder.selectedLocalRegionId = selectedLocalRegionId
+            stateHolder.saveScrollPosition(
+                categoryKey = effectiveCatKey,
+                feedMode = currentFeedMode,
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset
+            )
         }
     }
 
-    suspend fun buildCoverageAsyncForMode(
-        items: List<NewsItem>,
-        mode: HomeFeedMode,
-        favUrls: Set<String>
-    ): List<Coverage> {
-        if (items.isEmpty()) return emptyList()
-        return try {
-            when (mode) {
-                HomeFeedMode.TOP_STORIES -> newsRepo.buildTopStoriesAsync(all = items, favoriteUrls = favUrls)
-                HomeFeedMode.LATEST_NEWS -> newsRepo.buildLatestNewsAsync(all = items)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            items.map { Coverage(listOf(it)) }
-        }
-    }
-
-    fun loadData(force: Boolean = false) {
+    fun loadData(force: Boolean = false, backgroundRefresh: Boolean = false) {
         val targetCat = currentCat
         val targetCatId = targetCat?.id
         val cacheKey = if (targetCatId == "local") "local_$selectedLocalRegionId" else (targetCatId ?: "top")
+        val targetMode = appRepo.state.value.homeFeedMode
+        val targetFavs = appRepo.state.value.favs.toSet()
         val isCategorySwitch = loadedCategoryKey != cacheKey
 
-        if (!force && !isCategorySwitch && newsItems.isNotEmpty() && errorMsg == null) {
+        // Prevent duplicate manual refresh while already loading the same category
+        if (force && !isCategorySwitch && (isLoading || isBackgroundRefreshing) && loadJob?.isActive == true) {
             return
         }
 
-        // Prevent duplicate manual refresh while already loading the same category
-        if (force && !isCategorySwitch && isLoading && loadJob?.isActive == true) {
+        val cachedProcessed = newsRepo.getCachedHomeFeedResult(
+            categoryKey = cacheKey,
+            feedMode = targetMode,
+            favoriteUrls = targetFavs
+        )
+
+        if (!force && !backgroundRefresh && cachedProcessed != null &&
+            newsRepo.isHomeFeedCacheFresh(cacheKey, targetMode, targetFavs)
+        ) {
+            loadedCategoryKey = cacheKey
+            newsItems = cachedProcessed.newsItems
+            coverageList = cachedProcessed.coverageList
+            errorMsg = null
+            isLoading = false
+            isBackgroundRefreshing = false
+            isManualRefreshing = false
+            newsRepo.markInitialHomeLoadCompleted()
             return
         }
 
@@ -273,45 +379,65 @@ fun PersonalHomeScreen(
         val currentRequestVersion = ++requestVersion
         loadedCategoryKey = cacheKey
 
-        if (isCategorySwitch || newsItems.isEmpty()) {
-            isManualRefreshing = false
-            val cachedItems = newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
-                appRepo.getCachedFeed(cacheKey)
-            }
-            if (cachedItems.isNotEmpty()) {
-                newsItems = cachedItems
-                coverageList = buildCoverageSyncForMode(cachedItems, currentFeedMode, favoriteUrls)
-                errorMsg = null
-                isLoading = true
-            } else {
-                newsItems = emptyList()
-                coverageList = emptyList()
-                errorMsg = null
-                isLoading = true
-            }
-        } else {
+        if (cachedProcessed != null && cachedProcessed.newsItems.isNotEmpty()) {
+            newsItems = cachedProcessed.newsItems
+            coverageList = cachedProcessed.coverageList
+            errorMsg = null
+            isLoading = false
+            isBackgroundRefreshing = !force
+            isManualRefreshing = force
+        } else if (isCategorySwitch || newsItems.isEmpty()) {
+            newsItems = emptyList()
+            coverageList = emptyList()
             errorMsg = null
             isLoading = true
+            isBackgroundRefreshing = false
+            isManualRefreshing = false
+        } else {
+            errorMsg = null
+            isLoading = false
+            isBackgroundRefreshing = !force
             isManualRefreshing = force && newsItems.isNotEmpty()
         }
 
         loadJob = scope.launch {
             try {
+                // If processed memory cache is empty on cold start or category switch, hydrate from disk cache
+                // on background threads (never on Main Thread) before network fetch completes.
+                if (newsItems.isEmpty()) {
+                    val fallbackRaw = newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
+                        appRepo.getCachedFeed(cacheKey)
+                    }
+                    if (fallbackRaw.isNotEmpty() && currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
+                        val fallbackBuilt = newsRepo.buildHomeFeedCoverageOnDefault(
+                            items = fallbackRaw,
+                            feedMode = targetMode,
+                            favoriteUrls = targetFavs
+                        )
+                        if (currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey && newsItems.isEmpty()) {
+                            newsItems = fallbackRaw
+                            coverageList = fallbackBuilt
+                            errorMsg = null
+                            isLoading = false
+                            isBackgroundRefreshing = true
+                        }
+                    }
+                }
+
                 val q = if (targetCatId == "local") {
                     currentLocalRegion.query
                 } else {
                     targetCat?.query ?: ""
                 }
                 val fetchedResult = withTimeoutOrNull(HOME_SCREEN_LOAD_TIMEOUT_MS) {
-                    val items = newsRepo.fetchNews(
+                    newsRepo.fetchHomeFeedCached(
+                        categoryKey = cacheKey,
                         query = q,
                         intl = (targetCatId == "intl"),
+                        feedMode = targetMode,
+                        favoriteUrls = targetFavs,
                         forceRefresh = force
                     )
-                    val activeMode = appRepo.state.value.homeFeedMode
-                    val activeFavs = appRepo.state.value.favs.toSet()
-                    val builtCoverage = buildCoverageAsyncForMode(items, activeMode, activeFavs)
-                    items to builtCoverage
                 }
 
                 val updated = applyHomeLoadResult(
@@ -326,8 +452,8 @@ fun PersonalHomeScreen(
                     ),
                     completedRequestVersion = currentRequestVersion,
                     targetCategoryKey = cacheKey,
-                    fetchedItems = fetchedResult?.first,
-                    builtCoverage = fetchedResult?.second,
+                    fetchedItems = fetchedResult?.newsItems,
+                    builtCoverage = fetchedResult?.coverageList,
                     failure = if (fetchedResult == null) Exception("Home load timed out") else null
                 )
 
@@ -335,10 +461,8 @@ fun PersonalHomeScreen(
                     newsItems = updated.newsItems
                     coverageList = updated.coverageList
                     errorMsg = updated.errorMsg
-                    if (!fetchedResult?.first.isNullOrEmpty()) {
-                        val validItems = fetchedResult!!.first
-                        newsRepo.putMemoryCachedCategoryFeed(cacheKey, validItems)
-                        appRepo.saveCachedFeed(cacheKey, validItems)
+                    if (fetchedResult != null && fetchedResult.newsItems.isNotEmpty()) {
+                        appRepo.saveCachedFeed(cacheKey, fetchedResult.newsItems)
                     }
                 }
             } catch (e: CancellationException) {
@@ -371,6 +495,7 @@ fun PersonalHomeScreen(
                         loadedCategoryKey = cacheKey
                     }
                     isLoading = false
+                    isBackgroundRefreshing = false
                     isManualRefreshing = false
                 }
                 newsRepo.markInitialHomeLoadCompleted()
@@ -378,25 +503,80 @@ fun PersonalHomeScreen(
         }
     }
 
-    LaunchedEffect(effectiveCatKey) {
-        loadData(force = false)
+    val activeCacheKey = remember(effectiveCatKey, currentFeedMode, favoriteUrls) {
+        newsRepo.homeFeedCacheKey(effectiveCatKey, currentFeedMode, favoriteUrls)
     }
 
-    LaunchedEffect(currentFeedMode, favoriteUrls) {
-        if (newsItems.isNotEmpty()) {
-            coverageList = buildCoverageAsyncForMode(newsItems, currentFeedMode, favoriteUrls)
+    LaunchedEffect(activeCacheKey) {
+        val wasReturningFromReader = stateHolder.consumeReturningFromReader()
+        val cached = newsRepo.getCachedHomeFeedResult(
+            categoryKey = effectiveCatKey,
+            feedMode = currentFeedMode,
+            favoriteUrls = favoriteUrls
+        )
+        val isFresh = newsRepo.isHomeFeedCacheFresh(
+            categoryKey = effectiveCatKey,
+            feedMode = currentFeedMode,
+            favoriteUrls = favoriteUrls
+        )
+        val action = resolveHomeFeedEnterAction(
+            cached = cached,
+            isCacheFresh = isFresh,
+            returningFromReader = wasReturningFromReader
+        )
+        when (action) {
+            HomeFeedEnterAction.SHOW_CACHED_ONLY -> {
+                if (cached != null) {
+                    loadedCategoryKey = effectiveCatKey
+                    newsItems = cached.newsItems
+                    coverageList = cached.coverageList
+                    errorMsg = null
+                    isLoading = false
+                    isBackgroundRefreshing = false
+                    isManualRefreshing = false
+                    newsRepo.markInitialHomeLoadCompleted()
+                }
+            }
+            HomeFeedEnterAction.BACKGROUND_REFRESH -> {
+                if (cached != null) {
+                    loadedCategoryKey = effectiveCatKey
+                    newsItems = cached.newsItems
+                    coverageList = cached.coverageList
+                    errorMsg = null
+                    isLoading = false
+                }
+                loadData(force = false, backgroundRefresh = true)
+            }
+            HomeFeedEnterAction.INITIAL_LOAD -> {
+                loadData(force = false, backgroundRefresh = false)
+            }
         }
+    }
+
+    val navigateToReaderWithSave: (Paper, String, String) -> Unit = { paper, url, title ->
+        stateHolder.selectedCategoryIndex = selectedCategoryIndex
+        stateHolder.selectedLocalRegionId = selectedLocalRegionId
+        stateHolder.saveScrollPosition(
+            categoryKey = effectiveCatKey,
+            feedMode = currentFeedMode,
+            index = listState.firstVisibleItemIndex,
+            offset = listState.firstVisibleItemScrollOffset
+        )
+        stateHolder.markNavigatingToReader()
+        onOpenReader(paper, url, title)
     }
 
     val recentPaper = remember(appState.recents) {
         appState.recents.firstOrNull()?.let { appRepo.paperFor(it) }
     }
 
-    // Track which items have already animated in for the active category so scrolling never repeats reveals
-    val seenItemKeys = remember(loadedCategoryKey) { HashSet<String>() }
+    // Track which items have already animated in for the active category across Reader/Tab navigation
+    val seenItemKeys = remember(loadedCategoryKey ?: effectiveCatKey) {
+        stateHolder.getOrCreateSeenKeys(loadedCategoryKey ?: effectiveCatKey)
+    }
 
-    // Header quick fade-in on first mount
-    var headerVisible by remember { mutableStateOf(reducedMotion) }
+    // Header quick fade-in on first mount (instant when returning with cached content)
+    var headerVisible by remember { mutableStateOf(reducedMotion || initialCached != null) }
     LaunchedEffect(reducedMotion) {
         headerVisible = true
     }
@@ -409,8 +589,8 @@ fun PersonalHomeScreen(
         label = "homeHeaderAlpha"
     )
 
-    // Natural refresh icon rotation while loading
-    val refreshRotation = if (isLoading && !reducedMotion) {
+    // Natural refresh icon rotation while loading or refreshing in background
+    val refreshRotation = if ((isLoading || isBackgroundRefreshing) && !reducedMotion) {
         val infiniteTransition = rememberInfiniteTransition(label = "homeRefreshSpin")
         val angle by infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -552,7 +732,14 @@ fun PersonalHomeScreen(
                         selected = isSelected,
                         onClick = {
                             if (selectedCategoryIndex != idx) {
+                                stateHolder.saveScrollPosition(
+                                    categoryKey = effectiveCatKey,
+                                    feedMode = currentFeedMode,
+                                    index = listState.firstVisibleItemIndex,
+                                    offset = listState.firstVisibleItemScrollOffset
+                                )
                                 selectedCategoryIndex = idx
+                                stateHolder.selectedCategoryIndex = idx
                             } else if (errorMsg != null || newsItems.isEmpty()) {
                                 loadData(true)
                             }
@@ -593,7 +780,14 @@ fun PersonalHomeScreen(
                             selected = isRegionSelected,
                             onClick = {
                                 if (selectedLocalRegionId != region.id) {
+                                    stateHolder.saveScrollPosition(
+                                        categoryKey = effectiveCatKey,
+                                        feedMode = currentFeedMode,
+                                        index = listState.firstVisibleItemIndex,
+                                        offset = listState.firstVisibleItemScrollOffset
+                                    )
                                     selectedLocalRegionId = region.id
+                                    stateHolder.selectedLocalRegionId = region.id
                                 } else if (errorMsg != null || newsItems.isEmpty()) {
                                     loadData(true)
                                 }
@@ -650,6 +844,12 @@ fun PersonalHomeScreen(
                         selected = isModeSelected,
                         onClick = {
                             if (currentFeedMode != mode) {
+                                stateHolder.saveScrollPosition(
+                                    categoryKey = effectiveCatKey,
+                                    feedMode = currentFeedMode,
+                                    index = listState.firstVisibleItemIndex,
+                                    offset = listState.firstVisibleItemScrollOffset
+                                )
                                 appRepo.setHomeFeedMode(mode)
                             } else if (errorMsg != null || newsItems.isEmpty()) {
                                 loadData(true)
@@ -689,6 +889,14 @@ fun PersonalHomeScreen(
                         border = null
                     )
                 }
+            }
+
+            if ((isBackgroundRefreshing || (isLoading && newsItems.isNotEmpty())) && !isManualRefreshing) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                )
             }
 
             val bodyState = resolveHomeBodyState(
@@ -766,11 +974,15 @@ fun PersonalHomeScreen(
                         val leadStory = remember(rankedStories) { rankedStories.firstOrNull() }
                         val briefingStories = remember(rankedStories) { rankedStories.drop(1).take(5) }
                         val feedStories = remember(rankedStories) { rankedStories.drop(6) }
+                        val stableFeedKeys = remember(feedStories) {
+                            buildStableFeedStoryKeys(feedStories, prefix = "feed")
+                        }
                         val topMultiCoverage = remember(rankedStories) {
                             rankedStories.filter { it.count >= 3 }.take(2)
                         }
 
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(bottom = 82.dp)
                         ) {
@@ -789,7 +1001,7 @@ fun PersonalHomeScreen(
                                                 .padding(horizontal = 14.dp, vertical = 4.dp)
                                                 .clip(RoundedCornerShape(12.dp))
                                                 .subtleClickable(pressedScale = 0.985f) {
-                                                    onOpenReader(recentPaper, recentPaper.openUrl, recentPaper.bn)
+                                                    navigateToReaderWithSave(recentPaper, recentPaper.openUrl, recentPaper.bn)
                                                 },
                                             colors = CardDefaults.cardColors(
                                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -838,10 +1050,16 @@ fun PersonalHomeScreen(
 
                             // 2. Lead Story / Hero (Story #1)
                             if (leadStory != null) {
-                                val leadKey = leadStory.items.firstOrNull()?.link?.ifBlank {
-                                    leadStory.items.firstOrNull()?.title
-                                } ?: "lead_story"
+                                val leadPrimary = leadStory.items.firstOrNull()
+                                val leadKey = stableArticleIdentifier(leadPrimary)
                                 item(key = "lead_$leadKey") {
+                                    val isLeadRead = remember(appState.readArticles, leadPrimary?.link, leadPrimary?.title) {
+                                        if (leadPrimary != null) {
+                                            appRepo.isArticleRead(leadPrimary.link, leadPrimary.title)
+                                        } else {
+                                            false
+                                        }
+                                    }
                                     OncePerSessionReveal(
                                         itemKey = "lead_$leadKey",
                                         seenKeys = seenItemKeys,
@@ -852,7 +1070,8 @@ fun PersonalHomeScreen(
                                             coverage = leadStory,
                                             appRepo = appRepo,
                                             newsRepo = newsRepo,
-                                            onOpenReader = onOpenReader,
+                                            onOpenReader = navigateToReaderWithSave,
+                                            isRead = isLeadRead,
                                             badgeLabel = if (currentFeedMode == HomeFeedMode.LATEST_NEWS) {
                                                 "সর্বশেষ সংবাদ"
                                             } else {
@@ -954,7 +1173,7 @@ fun PersonalHomeScreen(
                                                             .clip(RoundedCornerShape(14.dp))
                                                             .subtleClickable(pressedScale = 0.982f) {
                                                                 appRepo.markArticleRead(item.link, item.title, paper.bn, paper.url)
-                                                                onOpenReader(paper, item.link, item.title)
+                                                                navigateToReaderWithSave(paper, item.link, item.title)
                                                             },
                                                         shape = RoundedCornerShape(14.dp),
                                                         colors = CardDefaults.cardColors(
@@ -1126,7 +1345,7 @@ fun PersonalHomeScreen(
                                                         .clip(RoundedCornerShape(8.dp))
                                                         .subtleClickable(pressedScale = 0.985f) {
                                                             appRepo.markArticleRead(topItem.link, topItem.title, topPaper.bn, topPaper.url)
-                                                            onOpenReader(topPaper, topItem.link, topItem.title)
+                                                            navigateToReaderWithSave(topPaper, topItem.link, topItem.title)
                                                         }
                                                         .padding(vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically
@@ -1196,17 +1415,25 @@ fun PersonalHomeScreen(
 
                                 feedStories.forEachIndexed { idx, cov ->
                                     val first = cov.items.firstOrNull()
-                                    val baseKey = first?.link?.ifBlank { first.title } ?: "story_$idx"
+                                    val stableStoryKey = stableFeedKeys.getOrElse(idx) {
+                                        "feed_${stableArticleIdentifier(first)}#idx$idx"
+                                    }
                                     item(
-                                        key = "feed_${idx}_$baseKey",
+                                        key = stableStoryKey,
                                         contentType = "news_story"
                                     ) {
-                                        val itemKey = first?.link?.ifBlank { first.title } ?: "feed_$idx"
+                                        val isSmartRead = remember(appState.readArticles, first?.link, first?.title) {
+                                            if (first != null) {
+                                                appRepo.isArticleRead(first.link, first.title)
+                                            } else {
+                                                false
+                                            }
+                                        }
                                         // Subtle stagger only for the first 5 cards on initial category load
                                         val staggerDelay = if (idx < 5) (idx + 1) * 28 else 0
 
                                         OncePerSessionReveal(
-                                            itemKey = itemKey,
+                                            itemKey = stableStoryKey,
                                             seenKeys = seenItemKeys,
                                             delayMillis = staggerDelay,
                                             initialOffsetYDp = 6.dp
@@ -1215,7 +1442,8 @@ fun PersonalHomeScreen(
                                                 coverage = cov,
                                                 appRepo = appRepo,
                                                 newsRepo = newsRepo,
-                                                onOpenReader = onOpenReader
+                                                onOpenReader = navigateToReaderWithSave,
+                                                isRead = isSmartRead
                                             )
                                         }
                                     }
@@ -1251,7 +1479,7 @@ fun PersonalHomeScreen(
 @Composable
 private fun OncePerSessionReveal(
     itemKey: String,
-    seenKeys: HashSet<String>,
+    seenKeys: MutableSet<String>,
     delayMillis: Int = 0,
     initialOffsetYDp: Dp = 6.dp,
     content: @Composable () -> Unit
@@ -1311,6 +1539,7 @@ fun LeadStoryCard(
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
     onOpenReader: (Paper, String, String) -> Unit,
+    isRead: Boolean = false,
     badgeLabel: String = "প্রধান সংবাদ"
 ) {
     val mainItem = coverage.items.firstOrNull() ?: return
@@ -1335,10 +1564,7 @@ fun LeadStoryCard(
         label = "leadExpandArrow"
     )
 
-    val appState by appRepo.state.collectAsState()
-    val isLeadRead = remember(appState.readArticles, mainItem.link, mainItem.title) {
-        appRepo.isArticleRead(mainItem.link, mainItem.title)
-    }
+    val isLeadRead = isRead
 
     Card(
         modifier = Modifier
@@ -1578,7 +1804,8 @@ fun SmartStoryCard(
     coverage: Coverage,
     appRepo: AppStateRepository,
     newsRepo: NewsRepository,
-    onOpenReader: (Paper, String, String) -> Unit
+    onOpenReader: (Paper, String, String) -> Unit,
+    isRead: Boolean = false
 ) {
     val mainItem = coverage.items.firstOrNull() ?: return
     val reducedMotion = rememberReducedMotion()
@@ -1605,10 +1832,7 @@ fun SmartStoryCard(
         label = "smartExpandArrow"
     )
 
-    val appState by appRepo.state.collectAsState()
-    val isSmartRead = remember(appState.readArticles, mainItem.link, mainItem.title) {
-        appRepo.isArticleRead(mainItem.link, mainItem.title)
-    }
+    val isSmartRead = isRead
 
     Card(
         modifier = Modifier

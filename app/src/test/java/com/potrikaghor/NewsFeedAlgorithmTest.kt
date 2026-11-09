@@ -16,17 +16,21 @@ import com.potrikaghor.ui.screens.CoverageBodyState
 import com.potrikaghor.ui.screens.CoverageEnterAction
 import com.potrikaghor.ui.screens.HOME_LOAD_ERROR_MESSAGE
 import com.potrikaghor.ui.screens.HomeBodyState
+import com.potrikaghor.ui.screens.HomeFeedEnterAction
 import com.potrikaghor.ui.screens.HomeLoadStateSnapshot
 import com.potrikaghor.ui.screens.LazyTtsLifecycleState
 import com.potrikaghor.ui.screens.applyCoverageLoadResult
 import com.potrikaghor.ui.screens.applyHomeLoadResult
 import com.potrikaghor.ui.screens.beginCoverageRefreshState
-import com.potrikaghor.ui.screens. coverageStableKey
+import com.potrikaghor.ui.screens.buildStableFeedStoryKeys
+import com.potrikaghor.ui.screens.coverageStableKey
 import com.potrikaghor.ui.screens.createInitialCoverageSnapshot
 import com.potrikaghor.ui.screens.resolveCoverageBodyState
 import com.potrikaghor.ui.screens.resolveCoverageEnterAction
 import com.potrikaghor.ui.screens.resolveHomeBodyState
+import com.potrikaghor.ui.screens.resolveHomeFeedEnterAction
 import com.potrikaghor.ui.screens.shouldUpdateWebProgress
+import com.potrikaghor.ui.screens.stableArticleIdentifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -1914,7 +1918,19 @@ class NewsFeedAlgorithmTest {
             "test44_refreshFailurePreservesPreviousResultsTest" to ::test44_refreshFailurePreservesPreviousResultsTest,
             "test45_concurrentCoverageRequestDeduplicationTest" to ::test45_concurrentCoverageRequestDeduplicationTest,
             "test46_articleReadStatusUpdateWithoutFullCoverageReloadTest" to ::test46_articleReadStatusUpdateWithoutFullCoverageReloadTest,
-            "test47_differentFilterIntlCacheIsolationTest" to ::test47_differentFilterIntlCacheIsolationTest
+            "test47_differentFilterIntlCacheIsolationTest" to ::test47_differentFilterIntlCacheIsolationTest,
+            "test48_homeFeedScrollRestorationAfterReaderBack" to ::test48_homeFeedScrollRestorationAfterReaderBack,
+            "test49_homeFeedStateRestorationAfterMainTabSwitching" to ::test49_homeFeedStateRestorationAfterMainTabSwitching,
+            "test50_separateScrollStateForLatestNewsAndTopStories" to ::test50_separateScrollStateForLatestNewsAndTopStories,
+            "test51_categoryAndLocalRegionCacheAndScrollIsolation" to ::test51_categoryAndLocalRegionCacheAndScrollIsolation,
+            "test52_homeFeedCacheCorrectnessAfterFavoritesChange" to ::test52_homeFeedCacheCorrectnessAfterFavoritesChange,
+            "test53_avoidNetworkFetchOnFreshHomeFeedCacheHit" to ::test53_avoidNetworkFetchOnFreshHomeFeedCacheHit,
+            "test54_backgroundRefreshOnStaleHomeFeedCache" to ::test54_backgroundRefreshOnStaleHomeFeedCache,
+            "test55_preserveOldHomeFeedDataOnRefreshFailure" to ::test55_preserveOldHomeFeedDataOnRefreshFailure,
+            "test56_duplicateClusteringPreventionOnHomeFeedMountAndModeSwitch" to ::test56_duplicateClusteringPreventionOnHomeFeedMountAndModeSwitch,
+            "test57_stableLazyColumnKeyUniquenessAndReorderBehavior" to ::test57_stableLazyColumnKeyUniquenessAndReorderBehavior,
+            "test58_readStatusUpdateWithoutFullHomeFeedReload" to ::test58_readStatusUpdateWithoutFullHomeFeedReload,
+            "test59_sharedHomeFeedRequestCancellationSafety" to ::test59_sharedHomeFeedRequestCancellationSafety
         )
         for ((name, block) in tests) {
             block()
@@ -2464,6 +2480,743 @@ class NewsFeedAlgorithmTest {
         check(repo.coverageFetchExecutionCounter.get() == countBefore) {
             "Expected zero additional fetch executions when switching among cached filters"
         }
+    }
+
+    // =========================================================================
+    // PHASE 3.5.3: HOME FEED PERSISTENT STATE, SCROLL RESTORATION & BACK NAV
+    // =========================================================================
+
+    @Test
+    fun test48_homeFeedScrollRestorationAfterReaderBack() = runBlocking {
+        val repo = NewsRepository()
+        val holder = repo.homeFeedStateHolder
+        val nowMs = 1_710_000_000_000L
+        val favs = setOf("https://www.prothomalo.com")
+
+        val loaded = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+
+        // Simulate user scrolling down to card #50 (index = 50, offset = 184) and tapping an article
+        val seenKeys = holder.getOrCreateSeenKeys("top")
+        seenKeys.add("feed_url:https://www.prothomalo.com/bangladesh/budget-1")
+        holder.selectedCategoryIndex = 0
+        holder.saveScrollPosition("top", HomeFeedMode.TOP_STORIES, index = 50, offset = 184)
+        holder.markNavigatingToReader()
+
+        checkTrue(holder.returningFromReader, "returningFromReader must be true after opening ReaderScreen")
+
+        // Simulate pressing Back from ReaderScreen -> PersonalHomeScreen mounts on Frame 1
+        val frame1Cached = repo.getCachedHomeFeedResult("top", HomeFeedMode.TOP_STORIES, favs)
+        checkNotNull(frame1Cached, "Frame 1 must find cached HomeFeedResult immediately")
+        checkTrue(frame1Cached === loaded, "Frame 1 cached result must be the exact processed instance")
+
+        val frame1BodyState = resolveHomeBodyState(
+            isLoading = (frame1Cached == null),
+            newsItems = frame1Cached?.newsItems ?: emptyList(),
+            loadedCategoryKey = if (frame1Cached != null) "top" else null,
+            effectiveCatKey = "top",
+            errorMsg = null
+        )
+        checkEquals(HomeBodyState.CONTENT, frame1BodyState, "Frame 1 must render HomeBodyState.CONTENT with zero loading skeleton flash")
+
+        val restoredScroll = holder.getScrollPosition("top", HomeFeedMode.TOP_STORIES)
+        checkEquals(50, restoredScroll.firstVisibleItemIndex, "Scroll index 50 must be restored on Reader Back")
+        checkEquals(184, restoredScroll.firstVisibleItemScrollOffset, "Scroll offset 184 must be restored on Reader Back")
+        checkTrue(
+            holder.getOrCreateSeenKeys("top").contains("feed_url:https://www.prothomalo.com/bangladesh/budget-1"),
+            "Seen item keys must persist across Reader navigation so reveal animations do not replay"
+        )
+
+        val wasReturning = holder.consumeReturningFromReader()
+        checkTrue(wasReturning, "consumeReturningFromReader() must return true on Back")
+        checkFalse(holder.returningFromReader, "consumeReturningFromReader() must reset flag to false")
+
+        // Even if the user spent > 3 minutes reading the article, Back must NOT trigger a reload
+        val enterActionAfterLongRead = resolveHomeFeedEnterAction(
+            cached = frame1Cached,
+            isCacheFresh = false,
+            returningFromReader = wasReturning
+        )
+        checkEquals(
+            HomeFeedEnterAction.SHOW_CACHED_ONLY,
+            enterActionAfterLongRead,
+            "Returning from ReaderScreen must show cached content immediately without reloading even if TTL elapsed"
+        )
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Zero additional fetches on Reader Back")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Zero additional clustering builds on Reader Back")
+    }
+
+    @Test
+    fun test49_homeFeedStateRestorationAfterMainTabSwitching() = runBlocking {
+        val repo = NewsRepository()
+        val holder = repo.homeFeedStateHolder
+        val nowMs = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        // User selects category index 2 ("sports") and scrolls to (18, 96)
+        holder.selectedCategoryIndex = 2
+        holder.selectedLocalRegionId = "chattogram"
+        val sportsLoaded = repo.fetchHomeFeedCached(
+            categoryKey = "sports",
+            query = "খেলা",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs, "বাংলাদেশ ক্রিকেট দলের ঐতিহাসিক টেস্ট জয়") }
+        )
+        holder.saveScrollPosition("sports", HomeFeedMode.TOP_STORIES, index = 18, offset = 96)
+
+        // User switches to another Main Tab (e.g. Coverage / Saved) and comes back to Home Tab within TTL
+        checkEquals(2, holder.selectedCategoryIndex, "Selected category index must persist across Main Tab switch")
+        checkEquals("chattogram", holder.selectedLocalRegionId, "Selected local region ID must persist across Main Tab switch")
+
+        val restoredCached = repo.getCachedHomeFeedResult("sports", HomeFeedMode.TOP_STORIES, favs)
+        val isFresh = repo.isHomeFeedCacheFresh("sports", HomeFeedMode.TOP_STORIES, favs, nowMs = nowMs + 45_000L)
+        val enterAction = resolveHomeFeedEnterAction(
+            cached = restoredCached,
+            isCacheFresh = isFresh,
+            returningFromReader = false
+        )
+        checkEquals(HomeFeedEnterAction.SHOW_CACHED_ONLY, enterAction, "Returning to Home Tab within TTL must use SHOW_CACHED_ONLY")
+        checkTrue(restoredCached === sportsLoaded, "Restored cached result must match sportsLoaded")
+
+        val restoredScroll = holder.getScrollPosition("sports", HomeFeedMode.TOP_STORIES)
+        checkEquals(18, restoredScroll.firstVisibleItemIndex, "Category scroll index 18 must persist across Main Tab switch")
+        checkEquals(96, restoredScroll.firstVisibleItemScrollOffset, "Category scroll offset 96 must persist across Main Tab switch")
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Switching back to Home Tab within TTL must not re-fetch")
+    }
+
+    @Test
+    fun test50_separateScrollStateForLatestNewsAndTopStories() = runBlocking {
+        val repo = NewsRepository()
+        val holder = repo.homeFeedStateHolder
+        val nowMs = 1_710_000_000_000L
+        val favs = setOf("https://www.prothomalo.com")
+
+        val topStoriesResult = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+        val latestNewsResult = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.LATEST_NEWS,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs + 1_000L,
+            newsFetcher = { _, _, _ ->
+                throw AssertionError("Switching to LATEST_NEWS with fresh raw category items must not re-fetch network")
+            }
+        )
+
+        checkTrue(topStoriesResult.cacheKey != latestNewsResult.cacheKey, "TOP_STORIES and LATEST_NEWS must have distinct cache keys")
+        checkTrue(topStoriesResult !== latestNewsResult, "TOP_STORIES and LATEST_NEWS must store separate processed CachedHomeFeedResult instances")
+        checkEquals(HomeFeedMode.TOP_STORIES, topStoriesResult.feedMode, "TOP_STORIES result must have TOP_STORIES mode")
+        checkEquals(HomeFeedMode.LATEST_NEWS, latestNewsResult.feedMode, "LATEST_NEWS result must have LATEST_NEWS mode")
+        checkEquals(2, topStoriesResult.coverageList.size, "TOP_STORIES clusters multi-paper stories (2 clusters)")
+        checkEquals(2, latestNewsResult.coverageList.size, "LATEST_NEWS clusters stories chronologically (2 clusters)")
+
+        // Save distinct scroll positions for TOP_STORIES and LATEST_NEWS in the same "top" category
+        holder.saveScrollPosition("top", HomeFeedMode.TOP_STORIES, index = 35, offset = 140)
+        holder.saveScrollPosition("top", HomeFeedMode.LATEST_NEWS, index = 12, offset = 65)
+
+        val topPos = holder.getScrollPosition("top", HomeFeedMode.TOP_STORIES)
+        val latestPos = holder.getScrollPosition("top", HomeFeedMode.LATEST_NEWS)
+
+        checkEquals(35, topPos.firstVisibleItemIndex, "TOP_STORIES scroll index must remain 35")
+        checkEquals(140, topPos.firstVisibleItemScrollOffset, "TOP_STORIES scroll offset must remain 140")
+        checkEquals(12, latestPos.firstVisibleItemIndex, "LATEST_NEWS scroll index must remain 12")
+        checkEquals(65, latestPos.firstVisibleItemScrollOffset, "LATEST_NEWS scroll offset must remain 65")
+    }
+
+    @Test
+    fun test51_categoryAndLocalRegionCacheAndScrollIsolation() = runBlocking {
+        val repo = NewsRepository()
+        val holder = repo.homeFeedStateHolder
+        val nowMs = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        val categories = listOf(
+            Triple("top", "", "জাতীয় শীর্ষ সংবাদ"),
+            Triple("sports", "খেলা", "ক্রিকেট ও ফুটবল সংবাদ"),
+            Triple("local_dhaka", "ঢাকা", "ঢাকা মহানগরের সংবাদ"),
+            Triple("local_sylhet", "সিলেট", "সিলেট বিভাগের সংবাদ")
+        )
+
+        for ((idx, triple) in categories.withIndex()) {
+            val (catKey, q, prefix) = triple
+            repo.fetchHomeFeedCached(
+                categoryKey = catKey,
+                query = q,
+                intl = false,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = false,
+                nowMs = nowMs,
+                newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs, prefix) }
+            )
+            holder.saveScrollPosition(catKey, HomeFeedMode.TOP_STORIES, index = (idx + 1) * 10, offset = (idx + 1) * 25)
+        }
+
+        for ((idx, triple) in categories.withIndex()) {
+            val (catKey, _, prefix) = triple
+            val cached = repo.getCachedHomeFeedResult(catKey, HomeFeedMode.TOP_STORIES, favs)
+            checkNotNull(cached, "Expected isolated cache for $catKey")
+            checkTrue(
+                cached!!.coverageList.first().headline.contains(prefix),
+                "Expected isolated headline for $catKey to contain '$prefix', got '${cached.coverageList.first().headline}'"
+            )
+            val pos = holder.getScrollPosition(catKey, HomeFeedMode.TOP_STORIES)
+            checkEquals((idx + 1) * 10, pos.firstVisibleItemIndex, "Isolated scroll index for $catKey")
+            checkEquals((idx + 1) * 25, pos.firstVisibleItemScrollOffset, "Isolated scroll offset for $catKey")
+        }
+
+        // Also verify bounded LRU eviction when inserting > MAX_HOME_FEED_CACHE_ENTRIES (24) entries
+        for (i in 1..30) {
+            repo.fetchHomeFeedCached(
+                categoryKey = "cat_$i",
+                query = "q_$i",
+                intl = false,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = false,
+                nowMs = nowMs,
+                newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs, "সংবাদ $i") }
+            )
+        }
+        checkTrue(
+            holder.processedCacheSize() <= NewsRepository.MAX_HOME_FEED_CACHE_ENTRIES,
+            "Processed cache must be bounded by MAX_HOME_FEED_CACHE_ENTRIES (${NewsRepository.MAX_HOME_FEED_CACHE_ENTRIES}), actual=${holder.processedCacheSize()}"
+        )
+    }
+
+    @Test
+    fun test52_homeFeedCacheCorrectnessAfterFavoritesChange() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val favsA = setOf("https://www.prothomalo.com")
+        val favsB = setOf("https://www.jugantor.com", "https://www.prothomalo.com")
+
+        // Order-independent signature for the same set of favorites
+        val sigB1 = repo.computeFavoritesSignature(listOf("https://www.jugantor.com", "https://www.prothomalo.com"))
+        val sigB2 = repo.computeFavoritesSignature(listOf("https://www.prothomalo.com", "https://www.jugantor.com"))
+        checkEquals(sigB1, sigB2, "Favorites signature must be deterministic regardless of collection iteration order")
+
+        val topWithFavA = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favsA,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Initial load must fetch once")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Initial load must build once")
+
+        // Changing favorites in TOP_STORIES must reuse fresh raw category items without network fetch,
+        // while re-computing Top Stories clustering for the new favorites set.
+        val topWithFavB = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favsB,
+            forceRefresh = false,
+            nowMs = nowMs + 5_000L,
+            newsFetcher = { _, _, _ ->
+                throw AssertionError("Favorites change within raw TTL must reuse raw category items without network fetch")
+            }
+        )
+        checkTrue(topWithFavA.cacheKey != topWithFavB.cacheKey, "Different favorites sets must produce distinct TOP_STORIES cache keys")
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Network fetch count must remain 1 after favorites change")
+        checkEquals(2, repo.homeFeedBuildExecutionCounter.get(), "Clustering build count must increment to 2 for new favorites set")
+
+        // In LATEST_NEWS mode, favorites do not affect chronological ordering so cache key ignores favorites changes
+        val latestWithFavA = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.LATEST_NEWS,
+            favoriteUrls = favsA,
+            forceRefresh = false,
+            nowMs = nowMs + 6_000L
+        )
+        val latestWithFavB = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.LATEST_NEWS,
+            favoriteUrls = favsB,
+            forceRefresh = false,
+            nowMs = nowMs + 7_000L
+        )
+        checkTrue(latestWithFavA === latestWithFavB, "LATEST_NEWS cache must be unaffected by favorites changes")
+        checkEquals(3, repo.homeFeedBuildExecutionCounter.get(), "LATEST_NEWS should only build once across both favorites sets")
+    }
+
+    @Test
+    fun test53_avoidNetworkFetchOnFreshHomeFeedCacheHit() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val favs = setOf("https://www.prothomalo.com")
+
+        val first = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+
+        val second = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs + 90_000L, // 1.5 minutes (< 3 min TTL)
+            newsFetcher = { _, _, _ ->
+                throw AssertionError("rawFetcher must never be invoked on a fresh HomeFeed cache hit")
+            }
+        )
+
+        checkTrue(first === second, "Fresh cache hit must return the exact same CachedHomeFeedResult instance")
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Fetch counter must remain 1 on fresh cache hit")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Build counter must remain 1 on fresh cache hit")
+    }
+
+    @Test
+    fun test54_backgroundRefreshOnStaleHomeFeedCache() = runBlocking {
+        val repo = NewsRepository()
+        val t0 = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        val cachedV1 = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = t0,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(t0, "প্রথম সংস্করণ প্রধান সংবাদ") }
+        )
+
+        val afterTtl = t0 + NewsRepository.HOME_FEED_CACHE_TTL_MS + 1L
+        checkFalse(
+            repo.isHomeFeedCacheFresh("top", HomeFeedMode.TOP_STORIES, favs, nowMs = afterTtl),
+            "Cache must be marked stale after 3 minutes"
+        )
+
+        val staleCached = repo.getCachedHomeFeedResult("top", HomeFeedMode.TOP_STORIES, favs)
+        checkTrue(staleCached === cachedV1, "TTL expiry must NEVER delete or evict cached Home Feed results")
+
+        val enterAction = resolveHomeFeedEnterAction(
+            cached = staleCached,
+            isCacheFresh = false,
+            returningFromReader = false
+        )
+        checkEquals(
+            HomeFeedEnterAction.BACKGROUND_REFRESH,
+            enterAction,
+            "Stale cache on tab return must trigger BACKGROUND_REFRESH (Stale-While-Revalidate)"
+        )
+
+        // Frame 1 with stale cache still renders CONTENT immediately (no skeleton loader)
+        val bodyStateDuringRefresh = resolveHomeBodyState(
+            isLoading = false,
+            newsItems = staleCached!!.newsItems,
+            loadedCategoryKey = "top",
+            effectiveCatKey = "top",
+            errorMsg = null
+        )
+        checkEquals(HomeBodyState.CONTENT, bodyStateDuringRefresh, "Stale cache must stay in CONTENT state while refreshing in background")
+
+        // Background refresh completes with V2
+        val cachedV2 = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = afterTtl,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(afterTtl, "দ্বিতীয় সংস্করণ আপডেট সংবাদ") }
+        )
+        checkTrue(cachedV2.coverageList.first().headline.contains("দ্বিতীয় সংস্করণ"), "Background refresh must update cache to V2")
+    }
+
+    @Test
+    fun test55_preserveOldHomeFeedDataOnRefreshFailure() = runBlocking {
+        val repo = NewsRepository()
+        val t0 = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        val cachedV1 = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = t0,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(t0, "সংরক্ষিত পূর্ববর্তী সংবাদ") }
+        )
+
+        val afterTtl = t0 + NewsRepository.HOME_FEED_CACHE_TTL_MS + 10_000L
+        var refreshThrew = false
+        try {
+            repo.fetchHomeFeedCached(
+                categoryKey = "top",
+                query = "",
+                intl = false,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = true,
+                nowMs = afterTtl,
+                newsFetcher = { _, _, _ ->
+                    throw IOException("Network unreachable during background refresh")
+                }
+            )
+        } catch (_: IOException) {
+            refreshThrew = true
+        }
+        checkTrue(refreshThrew, "Failed refresh must throw IOException")
+
+        // Verify repository still holds V1 in memory cache
+        val preservedInCache = repo.getCachedHomeFeedResult("top", HomeFeedMode.TOP_STORIES, favs)
+        checkTrue(preservedInCache === cachedV1, "Failed refresh must preserve previous V1 result in HomeFeedPersistentStateHolder")
+
+        // Verify UI state reducer preserves V1 items, coverageList, and CONTENT state without showing error screen
+        val updatedSnapshot = applyHomeLoadResult(
+            currentSnapshot = HomeLoadStateSnapshot(
+                newsItems = cachedV1.newsItems,
+                coverageList = cachedV1.coverageList,
+                isLoading = false,
+                isManualRefreshing = true,
+                errorMsg = null,
+                loadedCategoryKey = "top",
+                requestVersion = 2
+            ),
+            completedRequestVersion = 2,
+            targetCategoryKey = "top",
+            fetchedItems = null,
+            builtCoverage = null,
+            failure = IOException("Network unreachable")
+        )
+        checkEquals(cachedV1.newsItems, updatedSnapshot.newsItems, "Previous newsItems must be preserved on refresh failure")
+        checkEquals(cachedV1.coverageList, updatedSnapshot.coverageList, "Previous coverageList must be preserved on refresh failure")
+        checkNull(updatedSnapshot.errorMsg, "errorMsg must remain null when previous cached items are present")
+        checkEquals(
+            HomeBodyState.CONTENT,
+            resolveHomeBodyState(
+                isLoading = updatedSnapshot.isLoading,
+                newsItems = updatedSnapshot.newsItems,
+                loadedCategoryKey = updatedSnapshot.loadedCategoryKey,
+                effectiveCatKey = "top",
+                errorMsg = updatedSnapshot.errorMsg
+            ),
+            "Screen must remain on HomeBodyState.CONTENT when refresh fails with cached data"
+        )
+    }
+
+    @Test
+    fun test56_duplicateClusteringPreventionOnHomeFeedMountAndModeSwitch() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val favs = setOf("https://www.prothomalo.com")
+
+        // Initial Home Feed load in TOP_STORIES mode must run clustering exactly ONCE (no triple clustering)
+        val topResult = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Initial mount must execute exactly 1 network fetch")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Initial mount must execute exactly 1 clustering pass")
+
+        // Concurrent duplicate callers for the same activeCacheKey must coalesce into the single build
+        val concurrent = (1..5).map {
+            async(Dispatchers.Default) {
+                repo.fetchHomeFeedCached(
+                    categoryKey = "top",
+                    query = "বাংলাদেশ",
+                    intl = false,
+                    feedMode = HomeFeedMode.TOP_STORIES,
+                    favoriteUrls = favs,
+                    forceRefresh = false,
+                    nowMs = nowMs + 1_000L
+                )
+            }
+        }.awaitAll()
+        checkTrue(concurrent.all { it === topResult }, "All concurrent callers must receive the cached result")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Build counter must remain 1")
+
+        // Switching to LATEST_NEWS reuses raw items (0 new fetches) and runs 1 build for LATEST_NEWS
+        val latestResult = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.LATEST_NEWS,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs + 2_000L,
+            newsFetcher = { _, _, _ ->
+                throw AssertionError("Mode switch must reuse fresh raw category items")
+            }
+        )
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Fetch counter must stay 1 on mode switch")
+        checkEquals(2, repo.homeFeedBuildExecutionCounter.get(), "Build counter must be 2 after building LATEST_NEWS once")
+
+        // Switching back to TOP_STORIES hits the processed TOP_STORIES cache directly (0 fetches, 0 builds)
+        val backToTop = repo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs + 3_000L
+        )
+        checkTrue(backToTop === topResult && latestResult.coverageList.isNotEmpty(), "Switching back to TOP_STORIES must hit processed cache")
+        checkEquals(2, repo.homeFeedBuildExecutionCounter.get(), "Build counter must remain 2 when switching back to cached TOP_STORIES")
+    }
+
+    @Test
+    fun test57_stableLazyColumnKeyUniquenessAndReorderBehavior() {
+        val itemA = NewsItem(
+            title = "সংবাদ ক শিরোনাম",
+            link = "https://www.prothomalo.com/bangladesh/story-a/",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            time = 1000L
+        )
+        val itemB = NewsItem(
+            title = "সংবাদ খ শিরোনাম",
+            link = "https://www.jugantor.com/national/story-b#comments",
+            source = "যুগান্তর",
+            sourceUrl = "https://www.jugantor.com",
+            time = 2000L
+        )
+        val itemBlankLink = NewsItem(
+            title = "লিঙ্ক ছাড়া বিশেষ প্রতিবেদন",
+            link = "   ",
+            source = "সমকাল",
+            sourceUrl = "https://samakal.com",
+            time = 3000L
+        )
+        val itemDuplicateOfA = NewsItem(
+            title = "সংবাদ ক শিরোনাম (কপি)",
+            link = "HTTPS://WWW.PROTHOMALO.COM/bangladesh/story-a",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            time = 4000L
+        )
+
+        val listOriginal = listOf(
+            Coverage(listOf(itemA)),
+            Coverage(listOf(itemB)),
+            Coverage(listOf(itemBlankLink))
+        )
+        val listReordered = listOf(
+            Coverage(listOf(itemB)),
+            Coverage(listOf(itemBlankLink)),
+            Coverage(listOf(itemA))
+        )
+
+        val keysOriginal = buildStableFeedStoryKeys(listOriginal, prefix = "feed")
+        val keysReordered = buildStableFeedStoryKeys(listReordered, prefix = "feed")
+
+        checkEquals(3, keysOriginal.distinct().size, "All generated keys must be unique")
+        checkEquals(
+            "feed_url:https://www.prothomalo.com/bangladesh/story-a",
+            keysOriginal[0],
+            "URL key must be normalized without trailing slash"
+        )
+        checkEquals(
+            "feed_url:https://www.jugantor.com/national/story-b",
+            keysOriginal[1],
+            "URL key must strip #fragment"
+        )
+        checkTrue(
+            keysOriginal[2].startsWith("feed_pub:https://samakal.com|title:"),
+            "Blank URL must fall back to deterministic publisher + normalized title key, got ${keysOriginal[2]}"
+        )
+
+        // When stories reorder (e.g., itemA moves from index 0 to index 2), its key MUST stay identical!
+        checkEquals(keysOriginal[0], keysReordered[2], "Story A must keep its exact key when moved from index 0 to index 2")
+        checkEquals(keysOriginal[1], keysReordered[0], "Story B must keep its exact key when moved from index 1 to index 0")
+        checkEquals(keysOriginal[2], keysReordered[1], "Blank-link story must keep its exact key when reordered")
+
+        // Verify collision safety if two clusters ever share the same normalized URL
+        val listWithCollision = listOf(
+            Coverage(listOf(itemA)),
+            Coverage(listOf(itemDuplicateOfA)),
+            Coverage(listOf(itemDuplicateOfA))
+        )
+        val collisionKeys = buildStableFeedStoryKeys(listWithCollision, prefix = "feed")
+        checkEquals(3, collisionKeys.distinct().size, "Collision keys must be 100% unique so LazyColumn never crashes")
+        checkEquals("feed_url:https://www.prothomalo.com/bangladesh/story-a", collisionKeys[0], "First occurrence uses base key")
+        checkEquals("feed_url:https://www.prothomalo.com/bangladesh/story-a#dup2", collisionKeys[1], "Second occurrence gets #dup2 suffix")
+        checkEquals("feed_url:https://www.prothomalo.com/bangladesh/story-a#dup3", collisionKeys[2], "Third occurrence gets #dup3 suffix")
+    }
+
+    @Test
+    fun test58_readStatusUpdateWithoutFullHomeFeedReload() = runBlocking {
+        val prefs = InMemorySharedPreferences()
+        val appRepo = AppStateRepository(prefs = prefs, ioDispatcher = Dispatchers.IO)
+        val newsRepo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        val cached = newsRepo.fetchHomeFeedCached(
+            categoryKey = "top",
+            query = "",
+            intl = false,
+            feedMode = HomeFeedMode.TOP_STORIES,
+            favoriteUrls = favs,
+            forceRefresh = false,
+            nowMs = nowMs,
+            newsFetcher = { _, _, _ -> sampleCoverageInputItems(nowMs) }
+        )
+
+        val leadArticle = cached.coverageList.first().items.first()
+        val secondClusterArticle = cached.coverageList.last().items.first()
+
+        checkFalse(appRepo.isArticleRead(leadArticle.link, leadArticle.title), "Lead article must be unread initially")
+
+        // User taps leadArticle -> marks read and navigates to ReaderScreen
+        appRepo.markArticleRead(
+            url = leadArticle.link,
+            title = leadArticle.title,
+            sourceName = leadArticle.source,
+            paperUrl = leadArticle.sourceUrl
+        )
+        newsRepo.homeFeedStateHolder.markNavigatingToReader()
+
+        // Verify read status updates immediately while Home Feed cache and clusters are not reloaded or rebuilt
+        checkTrue(appRepo.isArticleRead(leadArticle.link, leadArticle.title), "Tapped article must be marked read immediately")
+        checkFalse(appRepo.isArticleRead(secondClusterArticle.link, secondClusterArticle.title), "Other articles must remain unread")
+        checkTrue(
+            newsRepo.getCachedHomeFeedResult("top", HomeFeedMode.TOP_STORIES, favs) === cached,
+            "Cached HomeFeedResult instance must remain untouched after marking an article read"
+        )
+        checkEquals(1, newsRepo.homeFeedFetchExecutionCounter.get(), "Marking article read must not trigger network fetch")
+        checkEquals(1, newsRepo.homeFeedBuildExecutionCounter.get(), "Marking article read must not trigger clustering rebuild")
+    }
+
+    @Test
+    fun test59_sharedHomeFeedRequestCancellationSafety() = runBlocking {
+        val repo = NewsRepository()
+        val nowMs = 1_710_000_000_000L
+        val favs = emptySet<String>()
+
+        // Part A: 2 callers share an in-flight request; Caller 1 cancels, Caller 2 must still succeed!
+        val fetchStarted = CountDownLatch(1)
+        val allowFinish = CountDownLatch(1)
+
+        val slowFetcher: suspend (String, Boolean, Boolean) -> List<NewsItem> = { _, _, _ ->
+            fetchStarted.countDown()
+            withContext(Dispatchers.IO) {
+                allowFinish.await(5, TimeUnit.SECONDS)
+            }
+            sampleCoverageInputItems(nowMs)
+        }
+
+        val caller1 = launch(Dispatchers.Default) {
+            repo.fetchHomeFeedCached(
+                categoryKey = "top",
+                query = "",
+                intl = false,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = false,
+                nowMs = nowMs,
+                newsFetcher = slowFetcher
+            )
+        }
+
+        checkTrue(fetchStarted.await(2, TimeUnit.SECONDS), "Shared in-flight fetch must start")
+
+        val caller2 = async(Dispatchers.Default) {
+            repo.fetchHomeFeedCached(
+                categoryKey = "top",
+                query = "",
+                intl = false,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = false,
+                nowMs = nowMs,
+                newsFetcher = slowFetcher
+            )
+        }
+
+        // Give caller2 a moment to register on the shared request, then cancel caller1
+        delay(30)
+        caller1.cancelAndJoin()
+        allowFinish.countDown()
+
+        val caller2Result = caller2.await()
+        checkTrue(caller2Result.coverageList.isNotEmpty(), "Caller 2 must succeed even after Caller 1 cancelled")
+        checkEquals(1, repo.homeFeedFetchExecutionCounter.get(), "Shared request must execute only 1 fetch")
+        checkEquals(1, repo.homeFeedBuildExecutionCounter.get(), "Shared request must execute only 1 build")
+
+        // Part B: When the sole/last waiter cancels, the underlying shared job is cancelled and cleaned up
+        val soleStarted = CountDownLatch(1)
+        val soleCancelled = AtomicBoolean(false)
+        val soleJob = launch(Dispatchers.Default) {
+            repo.fetchHomeFeedCached(
+                categoryKey = "intl",
+                query = "বিশ্ব",
+                intl = true,
+                feedMode = HomeFeedMode.TOP_STORIES,
+                favoriteUrls = favs,
+                forceRefresh = false,
+                nowMs = nowMs,
+                newsFetcher = { _, _, _ ->
+                    soleStarted.countDown()
+                    try {
+                        delay(10_000L)
+                    } catch (e: CancellationException) {
+                        soleCancelled.set(true)
+                        throw e
+                    }
+                    emptyList()
+                }
+            )
+        }
+        checkTrue(soleStarted.await(2, TimeUnit.SECONDS), "Sole in-flight request for 'intl' must start")
+        soleJob.cancelAndJoin()
+        delay(30)
+        checkTrue(soleCancelled.get(), "Cancelling the last waiter must cancel the underlying shared fetch coroutine")
     }
 
     companion object {
