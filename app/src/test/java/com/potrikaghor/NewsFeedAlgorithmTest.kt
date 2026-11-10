@@ -1930,7 +1930,13 @@ class NewsFeedAlgorithmTest {
             "test56_duplicateClusteringPreventionOnHomeFeedMountAndModeSwitch" to ::test56_duplicateClusteringPreventionOnHomeFeedMountAndModeSwitch,
             "test57_stableLazyColumnKeyUniquenessAndReorderBehavior" to ::test57_stableLazyColumnKeyUniquenessAndReorderBehavior,
             "test58_readStatusUpdateWithoutFullHomeFeedReload" to ::test58_readStatusUpdateWithoutFullHomeFeedReload,
-            "test59_sharedHomeFeedRequestCancellationSafety" to ::test59_sharedHomeFeedRequestCancellationSafety
+            "test59_sharedHomeFeedRequestCancellationSafety" to ::test59_sharedHomeFeedRequestCancellationSafety,
+            "test60_phase41LargeFeedBoundedLimitProthomAloTv9BanglaTribuneDeshRupantor" to ::test60_phase41LargeFeedBoundedLimitProthomAloTv9BanglaTribuneDeshRupantor,
+            "test61_phase41AtomLinkParsingOrderAndRelFiltering" to ::test61_phase41AtomLinkParsingOrderAndRelFiltering,
+            "test62_phase41PurbokoneEmptyPubDateAndBbcBanglaDatelessStableSorting" to ::test62_phase41PurbokoneEmptyPubDateAndBbcBanglaDatelessStableSorting,
+            "test63_phase41DwBanglaPinnedStaleFilteringRegression" to ::test63_phase41DwBanglaPinnedStaleFilteringRegression,
+            "test64_phase41HtmlNamedAndNumericEntityDecodingSinglePassSafety" to ::test64_phase41HtmlNamedAndNumericEntityDecodingSinglePassSafety,
+            "test65_phase41TruncatedAndMalformedXmlSafety" to ::test65_phase41TruncatedAndMalformedXmlSafety
         )
         for ((name, block) in tests) {
             block()
@@ -3219,6 +3225,588 @@ class NewsFeedAlgorithmTest {
         checkTrue(soleCancelled.get(), "Cancelling the last waiter must cancel the underlying shared fetch coroutine")
     }
 
+    private fun buildSyntheticRssFeed(
+        sourceTitle: String,
+        baseUrl: String,
+        itemCount: Int,
+        targetTotalBytes: Int,
+        isAtom: Boolean = false
+    ): ByteArray {
+        val header = if (isAtom) {
+            """<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>$sourceTitle</title><updated>2025-11-06T17:55:00+06:00</updated>"""
+        } else {
+            """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>$sourceTitle</title><link>$baseUrl</link><lastBuildDate>Thu, 06 Nov 2025 17:55:00 +0000</lastBuildDate>"""
+        }
+        val footer = if (isAtom) "</feed>" else "</channel></rss>"
+        val overheadBytes = header.toByteArray(Charsets.UTF_8).size + footer.toByteArray(Charsets.UTF_8).size
+        val perItemTargetBytes = ((targetTotalBytes - overheadBytes) / itemCount.coerceAtLeast(1)).coerceAtLeast(512)
+
+        val sb = StringBuilder(targetTotalBytes + 16_384)
+        sb.append(header)
+
+        val fillerSentence = "বাংলাদেশের অর্থনীতি, শিক্ষা, প্রযুক্তি ও আঞ্চলিক উন্নয়ন বিষয়ক বিস্তারিত প্রতিবেদন ও বিশ্লেষণ। "
+        val fillerUnitBytes = fillerSentence.toByteArray(Charsets.UTF_8).size
+
+        for (i in 1..itemCount) {
+            val minsAgo = i
+            val sec = (60 - (i % 59)).coerceIn(1, 59)
+            val secStr = sec.toString().padStart(2, '0')
+            val hour = (17 - (minsAgo / 60)).coerceIn(0, 17).toString().padStart(2, '0')
+            val min = (59 - (minsAgo % 60)).coerceIn(0, 59).toString().padStart(2, '0')
+            val itemPrefix = if (isAtom) {
+                """<entry><title>$sourceTitle শিরোনাম সংবাদ নম্বর $i</title><link href="$baseUrl/article-$i" rel="alternate" type="text/html"/><published>2025-11-06T$hour:$min:${secStr}Z</published><summary><![CDATA["""
+            } else {
+                """<item><title><![CDATA[$sourceTitle শিরোনাম সংবাদ নম্বর $i]]></title><link>$baseUrl/article-$i</link><pubDate>Thu, 06 Nov 2025 $hour:$min:$secStr +0000</pubDate><media:content url="$baseUrl/images/story-$i.jpg" medium="image"/><description><![CDATA[সংক্ষিপ্ত বিবরণ $i]]></description><content:encoded><![CDATA[<p>"""
+            }
+            val itemSuffix = if (isAtom) {
+                """]]></summary></entry>"""
+            } else {
+                """</p>]]></content:encoded></item>"""
+            }
+            val baseItemBytes = itemPrefix.toByteArray(Charsets.UTF_8).size + itemSuffix.toByteArray(Charsets.UTF_8).size
+            val repeatCount = ((perItemTargetBytes - baseItemBytes) / fillerUnitBytes).coerceAtLeast(1)
+
+            sb.append(itemPrefix)
+            repeat(repeatCount) {
+                sb.append(fillerSentence)
+            }
+            sb.append(itemSuffix)
+        }
+        sb.append(footer)
+        return sb.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    @Test
+    fun test60_phase41LargeFeedBoundedLimitProthomAloTv9BanglaTribuneDeshRupantor() {
+        val repo = NewsRepository()
+        checkEquals(
+            1_200_000,
+            NewsRepository.DIRECT_FEED_MAX_RESPONSE_BYTES,
+            "DIRECT_FEED_MAX_RESPONSE_BYTES must be set to proven-safe 1,200,000 bytes"
+        )
+
+        // 1. Prothom Alo (~987 KB, 80 items)
+        val prothomAloBytes = buildSyntheticRssFeed(
+            sourceTitle = "প্রথম আলো",
+            baseUrl = "https://www.prothomalo.com",
+            itemCount = 80,
+            targetTotalBytes = 987_000,
+            isAtom = true
+        )
+        checkTrue(prothomAloBytes.size in 960_000..1_020_000, "Prothom Alo fixture must be ~987 KB, got ${prothomAloBytes.size}")
+
+        val prothomOld350k = repo.readBoundedBytesWithDiagnostics(prothomAloBytes, 350_000)
+        checkTrue(prothomOld350k.isTruncated, "Prothom Alo (~987 KB) must be marked truncated at old 350 KB limit")
+        checkFalse(prothomOld350k.isCompleteXml, "Truncated 350 KB Prothom Alo response must NOT be marked complete XML")
+        val prothomOldItems = repo.parseXml(prothomOld350k.body, "প্রথম আলো", "https://www.prothomalo.com", "all", fixedNowMs)
+        checkTrue(prothomOldItems.size in 25..32, "Old 350 KB limit only parsed ~28/80 items, got ${prothomOldItems.size}")
+
+        val prothomNew1200k = repo.readBoundedBytesWithDiagnostics(prothomAloBytes, NewsRepository.DIRECT_FEED_MAX_RESPONSE_BYTES)
+        checkFalse(prothomNew1200k.isTruncated, "Prothom Alo (~987 KB) must NOT be truncated at 1,200,000-byte limit")
+        checkTrue(prothomNew1200k.isCompleteXml, "Prothom Alo (~987 KB) must be complete XML at 1,200,000-byte limit")
+        val prothomNewItems = repo.parseXml(prothomNew1200k.body, "প্রথম আলো", "https://www.prothomalo.com", "all", fixedNowMs)
+        checkEquals(80, prothomNewItems.size, "Prothom Alo must parse all 80/80 items under 1,200,000-byte limit")
+
+        // 2. TV9 Bangla (~402 KB, 60 items)
+        val tv9Bytes = buildSyntheticRssFeed(
+            sourceTitle = "টিভি৯ বাংলা",
+            baseUrl = "https://tv9bangla.com",
+            itemCount = 60,
+            targetTotalBytes = 402_000,
+            isAtom = false
+        )
+        checkTrue(tv9Bytes.size in 390_000..435_000, "TV9 Bangla fixture must be ~402 KB, got ${tv9Bytes.size}")
+
+        val tv9Old350k = repo.readBoundedBytesWithDiagnostics(tv9Bytes, 350_000)
+        checkTrue(tv9Old350k.isTruncated, "TV9 Bangla (~402 KB) was truncated at old 350 KB limit")
+        val tv9New1200k = repo.readBoundedBytesWithDiagnostics(tv9Bytes, NewsRepository.DIRECT_FEED_MAX_RESPONSE_BYTES)
+        checkFalse(tv9New1200k.isTruncated, "TV9 Bangla (~402 KB) must NOT be truncated at 1,200,000-byte limit")
+        checkTrue(tv9New1200k.isCompleteXml, "TV9 Bangla must be complete XML at 1,200,000-byte limit")
+        val tv9NewItems = repo.parseXml(tv9New1200k.body, "টিভি৯ বাংলা", "https://tv9bangla.com", "all", fixedNowMs)
+        checkEquals(60, tv9NewItems.size, "TV9 Bangla must parse all 60/60 items under 1,200,000-byte limit")
+
+        // 3. Bangla Tribune (~348 KB, 100 items)
+        val banglaTribuneBytes = buildSyntheticRssFeed(
+            sourceTitle = "বাংলা ট্রিবিউন",
+            baseUrl = "https://www.banglatribune.com",
+            itemCount = 100,
+            targetTotalBytes = 348_000,
+            isAtom = true
+        )
+        val btNew1200k = repo.readBoundedBytesWithDiagnostics(banglaTribuneBytes, NewsRepository.DIRECT_FEED_MAX_RESPONSE_BYTES)
+        checkFalse(btNew1200k.isTruncated, "Bangla Tribune (~348 KB) must have ample headroom under 1,200,000-byte limit")
+        checkTrue(btNew1200k.isCompleteXml, "Bangla Tribune must be complete XML")
+        val btItems = repo.parseXml(btNew1200k.body, "বাংলা ট্রিবিউন", "https://www.banglatribune.com", "all", fixedNowMs)
+        checkEquals(100, btItems.size, "Bangla Tribune must parse all 100/100 items")
+
+        // 4. Desh Rupantor (~311 KB, 100 items)
+        val deshRupantorBytes = buildSyntheticRssFeed(
+            sourceTitle = "দেশ রূপান্তর",
+            baseUrl = "https://www.deshrupantor.com",
+            itemCount = 100,
+            targetTotalBytes = 311_000,
+            isAtom = false
+        )
+        val drNew1200k = repo.readBoundedBytesWithDiagnostics(deshRupantorBytes, NewsRepository.DIRECT_FEED_MAX_RESPONSE_BYTES)
+        checkFalse(drNew1200k.isTruncated, "Desh Rupantor (~311 KB) must not be truncated")
+        checkTrue(drNew1200k.isCompleteXml, "Desh Rupantor must be complete XML")
+        val drItems = repo.parseXml(drNew1200k.body, "দেশ রূপান্তর", "https://www.deshrupantor.com", "all", fixedNowMs)
+        checkEquals(100, drItems.size, "Desh Rupantor must parse all 100/100 items")
+    }
+
+    @Test
+    fun test61_phase41AtomLinkParsingOrderAndRelFiltering() {
+        val repo = NewsRepository()
+
+        // 5 & 6. The Verge Atom feed & attribute order variations (href before rel, rel before href, single/double quotes)
+        // 7. Strict rejection of enclosure, self, related, replies, via, non-HTML MIME, and image URLs
+        val atomXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+                <title>The Verge</title>
+                <link rel="self" type="application/atom+xml" href="https://www.theverge.com/rss/index.xml"/>
+                <updated>2025-11-06T17:30:00Z</updated>
+                
+                <!-- Entry 1: The Verge style (rel="alternate" type="text/html" href="...") preceded by self/enclosure -->
+                <entry>
+                    <title>The Verge Entry With Rel Before Href</title>
+                    <link rel="self" href="https://www.theverge.com/rss/entry-1.xml"/>
+                    <link rel="enclosure" type="image/jpeg" href="https://cdn.vox-cdn.com/thumbor/verge-1.jpg"/>
+                    <link rel="alternate" type="text/html" href="https://www.theverge.com/2025/11/6/24000001/verge-story-one"/>
+                    <published>2025-11-06T17:20:00Z</published>
+                    <summary>Summary 1</summary>
+                </entry>
+
+                <!-- Entry 2: Attribute order reversed (href before rel) + related/replies/via links before it -->
+                <entry>
+                    <title>Atom Entry With Href Before Rel And Related Links</title>
+                    <link href="https://www.theverge.com/related-story" rel="related" type="text/html"/>
+                    <link href="https://www.theverge.com/comments/2" rel="replies" type="text/html"/>
+                    <link href="https://source.example.com/via-post" rel="via" type="text/html"/>
+                    <link href="https://cdn.vox-cdn.com/audio/podcast.mp3" rel="enclosure" type="audio/mpeg"/>
+                    <link href='https://www.theverge.com/2025/11/6/24000002/verge-story-two' type='text/html' rel='alternate'/>
+                    <published>2025-11-06T17:10:00Z</published>
+                    <summary>Summary 2</summary>
+                </entry>
+
+                <!-- Entry 3: Multiple alternate links where first is an image URL and second is the real HTML article -->
+                <entry>
+                    <title>Atom Entry With Image Link And Valid HTML Link</title>
+                    <link href="https://cdn.vox-cdn.com/uploads/hero-banner.webp?w=1200" rel="alternate"/>
+                    <link href="/2025/11/6/24000003/relative-verge-story-three" rel="alternate" type="text/html"/>
+                    <published>2025-11-06T17:00:00Z</published>
+                    <summary>Summary 3</summary>
+                </entry>
+
+                <!-- Entry 4: Default omitted rel attribute (valid Atom default alternate) after enclosure/self/related -->
+                <entry>
+                    <title>Atom Entry With Omitted Rel Defaulting To Alternate</title>
+                    <link rel="self" href="https://www.theverge.com/api/entry-4.json"/>
+                    <link rel="enclosure" href="https://cdn.vox-cdn.com/photo.png"/>
+                    <link rel="related" href="https://www.theverge.com/related-4"/>
+                    <link href="https://www.theverge.com/2025/11/6/24000004/verge-story-four"/>
+                    <published>2025-11-06T16:50:00Z</published>
+                </entry>
+
+                <!-- Entry 5 (MUST BE SKIPPED): Only has self, enclosure, related, replies, via, and an image URL -->
+                <entry>
+                    <title>Invalid Entry With Only Non-Article Links</title>
+                    <link rel="self" href="https://www.theverge.com/rss/entry-5.xml"/>
+                    <link rel="enclosure" href="https://cdn.vox-cdn.com/image-5.jpg"/>
+                    <link rel="related" href="https://www.theverge.com/related-5"/>
+                    <link rel="replies" href="https://www.theverge.com/replies-5"/>
+                    <link rel="via" href="https://www.theverge.com/via-5"/>
+                    <link rel="alternate" href="https://cdn.vox-cdn.com/only-image.png"/>
+                    <published>2025-11-06T16:40:00Z</published>
+                </entry>
+            </feed>
+        """.trimIndent()
+
+        val parsed = repo.parseXml(
+            xml = atomXml,
+            defaultSource = "দ্য ভার্জ",
+            defaultSourceUrl = "https://www.theverge.com",
+            defaultCategoryId = "tech",
+            nowMs = fixedNowMs
+        )
+
+        checkEquals(4, parsed.size, "Exactly 4 valid Atom entries must be parsed and the 5th non-article entry skipped")
+        checkEquals(
+            "https://www.theverge.com/2025/11/6/24000001/verge-story-one",
+            parsed[0].link,
+            "Entry 1 must select rel=alternate HTML link"
+        )
+        checkEquals(
+            "https://www.theverge.com/2025/11/6/24000002/verge-story-two",
+            parsed[1].link,
+            "Entry 2 must select href-before-rel alternate link and ignore related/replies/via/enclosure"
+        )
+        checkEquals(
+            "https://www.theverge.com/2025/11/6/24000003/relative-verge-story-three",
+            parsed[2].link,
+            "Entry 3 must skip .webp image link and resolve relative HTML article link"
+        )
+        checkEquals(
+            "https://www.theverge.com/2025/11/6/24000004/verge-story-four",
+            parsed[3].link,
+            "Entry 4 must select omitted-rel link after rejecting self/enclosure/related"
+        )
+    }
+
+    @Test
+    fun test62_phase41PurbokoneEmptyPubDateAndBbcBanglaDatelessStableSorting() {
+        val repo = NewsRepository()
+        // Simulate current time as Nov 10, 2025 12:00:00 UTC while Purbokone's dated items are from Nov 7, 2025
+        val nov10NowMs = 1762776000000L // Mon, 10 Nov 2025 12:00:00 GMT
+
+        // 8. Purbokone fixture: 10 items where #1, #3, #7, #9 (indices 0, 2, 6, 8) have empty <pubDate></pubDate>,
+        // dated items are from Nov 07, 2025, and channel <lastBuildDate> is regenerated to Nov 10, 2025.
+        val purbokoneXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0">
+                <channel>
+                    <title>দৈনিক পূর্বকোণ</title>
+                    <link>https://dainikpurbokone.net</link>
+                    <lastBuildDate>Mon, 10 Nov 2025 11:58:00 +0000</lastBuildDate>
+                    <item>
+                        <title>চট্টগ্রাম বন্দরে নতুন কনটেইনার টার্মিনাল নির্মাণকাজের উদ্বোধন</title>
+                        <link>https://dainikpurbokone.net/news/1</link>
+                        <pubDate></pubDate>
+                    </item>
+                    <item>
+                        <title>কক্সবাজার সৈকতে পর্যটকদের নিরাপত্তায় ট্যুরিস্ট পুলিশের বিশেষ টহল</title>
+                        <link>https://dainikpurbokone.net/news/2</link>
+                        <pubDate>Fri, 07 Nov 2025 18:42:23 +0000</pubDate>
+                    </item>
+                    <item>
+                        <title>রাঙামাটির কাপ্তাই হ্রদে নৌযান চলাচলে নতুন নির্দেশনা জারি</title>
+                        <link>https://dainikpurbokone.net/news/3</link>
+                        <pubDate></pubDate>
+                    </item>
+                    <item>
+                        <title>বান্দরবানে পাহাড়ি কৃষি ও ফল চাষে আধুনিক প্রযুক্তির ব্যবহার বৃদ্ধি</title>
+                        <link>https://dainikpurbokone.net/news/4</link>
+                        <pubDate>Fri, 07 Nov 2025 18:02:55 +0000</pubDate>
+                    </item>
+                    <item>
+                        <title>খাগড়াছড়িতে মাধ্যমিক বিদ্যালয়গুলোর বার্ষিক ক্রীড়া প্রতিযোগিতা সম্পন্ন</title>
+                        <link>https://dainikpurbokone.net/news/5</link>
+                        <pubDate>Fri, 07 Nov 2025 16:40:28 +0000</pubDate>
+                    </item>
+                    <item>
+                        <title>কর্ণফুলী নদীর তীরে অবৈধ স্থাপনা উচ্ছেদে ভ্রাম্যমাণ আদালতের অভিযান</title>
+                        <link>https://dainikpurbokone.net/news/6</link>
+                        <pubDate>Fri, 07 Nov 2025 16:33:11 +0000</pubDate>
+                    </item>
+                    <item>
+                        <title>সীতাকুণ্ডে জাহাজভাঙা শিল্পে শ্রমিকদের স্বাস্থ্য সুরক্ষা নিশ্চিতের দাবি</title>
+                        <link>https://dainikpurbokone.net/news/7</link>
+                        <pubDate></pubDate>
+                    </item>
+                    <item>
+                        <title>আনোয়ারায় অর্থনৈতিক অঞ্চলে বিদেশি বিনিয়োগকারীদের নতুন কারখানা স্থাপন</title>
+                        <link>https://dainikpurbokone.net/news/8</link>
+                        <pubDate>Fri, 07 Nov 2025 15:44:33 +0000</pubDate>
+                    </item>
+                    <item>
+                        <title>পটিয়ায় গ্রামীণ সড়ক সংস্কার ও কালভার্ট নির্মাণে বরাদ্দ অনুমোদন</title>
+                        <link>https://dainikpurbokone.net/news/9</link>
+                        <pubDate></pubDate>
+                    </item>
+                    <item>
+                        <title>মিরসরাইয়ে শিল্পনগরীতে সৌরবিদ্যুৎ প্রকল্প চালু করার উদ্যোগ গ্রহণ</title>
+                        <link>https://dainikpurbokone.net/news/10</link>
+                        <pubDate>Fri, 07 Nov 2025 15:25:23 +0000</pubDate>
+                    </item>
+                </channel>
+            </rss>
+        """.trimIndent()
+
+        val purbokoneItems = repo.parseXml(
+            xml = purbokoneXml,
+            defaultSource = "দৈনিক পূর্বকোণ",
+            defaultSourceUrl = "https://dainikpurbokone.net",
+            defaultCategoryId = "bd",
+            nowMs = nov10NowMs
+        )
+        checkEquals(10, purbokoneItems.size, "All 10 Purbokone items must be parsed")
+
+        val datelessIndices = setOf(0, 2, 6, 8)
+        for (i in 0 until 10) {
+            val item = purbokoneItems[i]
+            checkEquals(i, item.feedOrderIndex, "feedOrderIndex must match 0..9 position")
+            if (i in datelessIndices) {
+                checkNull(item.time, "Empty pubDate item at index $i must keep verified time == null (never nowMs)")
+                checkNotNull(item.fallbackTime, "Empty pubDate item at index $i must receive a bounded fallbackTime")
+                checkTrue(item.isEstimatedTime, "Empty pubDate item at index $i must have isEstimatedTime == true")
+                checkTrue(
+                    item.fallbackTime!! < nov10NowMs - 2 * 24 * 3600 * 1000L,
+                    "Purbokone Nov 7 date-less item at index $i must NEVER be promoted to Nov 10 lastBuildDate/nowMs"
+                )
+            } else {
+                checkNotNull(item.time, "Valid pubDate item at index $i must have non-null verified time")
+                checkNull(item.fallbackTime, "Valid pubDate item at index $i must have fallbackTime == null")
+                checkFalse(item.isEstimatedTime, "Valid pubDate item at index $i must have isEstimatedTime == false")
+            }
+        }
+
+        // Verify original feed order (1..10) is strictly preserved when sorted by Latest News!
+        val latestPurbokone = repo.buildLatestNews(purbokoneItems, nov10NowMs)
+        checkEquals(
+            (1..10).map { "https://dainikpurbokone.net/news/$it" },
+            latestPurbokone.map { it.items.first().link },
+            "Purbokone 1..10 feed order must be strictly preserved in buildLatestNews without dumping date-less items to bottom"
+        )
+
+        // Verify a genuinely newer article from Nov 10 always ranks ABOVE Purbokone's Nov 7 items (including #1)
+        val freshNov10Item = NewsItem(
+            title = "আজকের সর্বশেষ জাতীয় ব্রেকিং সংবাদ ১০ নভেম্বর",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/bangladesh/fresh-nov10",
+            time = nov10NowMs - 5 * 60_000L
+        )
+        val combinedLatest = repo.buildLatestNews(purbokoneItems + freshNov10Item, nov10NowMs)
+        checkEquals(
+            "https://www.prothomalo.com/bangladesh/fresh-nov10",
+            combinedLatest.first().items.first().link,
+            "Fresh Nov 10 article must always rank above Purbokone's Nov 7 date-less item #1"
+        )
+
+        // 9. BBC Bangla fixture: 39 items (35 dated + 4 live-blog date-less items at indices 4, 12, 23, 38)
+        // Use distinct token sets per item so duplicate clustering keeps all 39 stories separate.
+        val bbcSyllables = listOf(
+            "কখগ", "ঘঙচ", "ছজঝ", "ঞটঠ", "ডঢণ", "তথদ", "ধনপ", "ফবভ", "মযর", "লশষ",
+            "সহড়", "ঢ়য়ক", "খগঘ", "ঙচছ", "জঝঞ", "টঠড", "ঢণত", "থদধ", "নপফ", "বভম",
+            "যরল", "শষস", "হড়ঢ়", "য়কখ", "গঘঙ", "চছজ", "ঝঞট", "ঠডঢ", "ণতথ", "দধন",
+            "পফব", "ভময", "রলশ", "ষসহ", "ড়ঢ়য়", "কগচ", "জটড", "তদপ", "বমর"
+        )
+        val bbcDatelessIndices = setOf(4, 12, 23, 38)
+        val bbcSb = StringBuilder()
+        bbcSb.append("""<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>বিবিসি বাংলা</title><link>https://www.bbc.com/bengali</link><lastBuildDate>Mon, 10 Nov 2025 11:50:00 GMT</lastBuildDate>""")
+        for (idx in 0 until 39) {
+            val itemNum = idx + 1
+            val s = bbcSyllables[idx]
+            val uniqueTitle = "শিরোনাম${s}এক অনুচ্ছেদ${s}দুই বিশ্লেষণ${s}তিন প্রতিবেদন${s}চার সংবাদ${s}পাঁচ"
+            if (idx in bbcDatelessIndices) {
+                bbcSb.append("""<item><title>$uniqueTitle</title><link>https://www.bbc.com/bengali/live/c000000$itemNum</link><description>সরাসরি সম্প্রচার $itemNum</description></item>""")
+            } else {
+                val minsOffset = itemNum * 10
+                val h = (11 - (minsOffset / 60)).coerceAtLeast(1).toString().padStart(2, '0')
+                val m = (59 - (minsOffset % 60)).coerceIn(0, 59).toString().padStart(2, '0')
+                bbcSb.append("""<item><title>$uniqueTitle</title><link>https://www.bbc.com/bengali/articles/c000000$itemNum</link><pubDate>Mon, 10 Nov 2025 $h:$m:00 GMT</pubDate><description>বিস্তারিত সংবাদ $itemNum</description></item>""")
+            }
+        }
+        bbcSb.append("</channel></rss>")
+
+        val bbcItems = repo.parseXml(
+            xml = bbcSb.toString(),
+            defaultSource = "বিবিসি বাংলা",
+            defaultSourceUrl = "https://www.bbc.com/bengali",
+            defaultCategoryId = "intl",
+            nowMs = nov10NowMs
+        )
+        checkEquals(39, bbcItems.size, "All 39 BBC Bangla items must be parsed")
+        checkEquals(35, bbcItems.count { it.time != null }, "35 BBC Bangla items must have verified time")
+        checkEquals(4, bbcItems.count { it.time == null && it.isEstimatedTime && it.fallbackTime != null }, "4 BBC Bangla live-blog items must have bounded fallbackTime")
+
+        val bbcLatest = repo.buildLatestNews(bbcItems, nov10NowMs)
+        checkEquals(
+            (1..39).map { num ->
+                if ((num - 1) in bbcDatelessIndices) "https://www.bbc.com/bengali/live/c000000$num"
+                else "https://www.bbc.com/bengali/articles/c000000$num"
+            },
+            bbcLatest.map { it.items.first().link },
+            "BBC Bangla 39 items must preserve exact 1..39 feed order without dumping live-blog items to the bottom"
+        )
+    }
+
+    @Test
+    fun test63_phase41DwBanglaPinnedStaleFilteringRegression() {
+        val repo = NewsRepository()
+        val dwXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <channel rdf:about="https://www.dw.com/bn">
+                    <title>ডয়চে ভেলে বাংলা</title>
+                    <link>https://www.dw.com/bn</link>
+                    <dc:date>2025-11-06T17:45:00Z</dc:date>
+                </channel>
+                <item rdf:about="https://www.dw.com/bn/pinned-old/a-1000">
+                    <title>ডয়চে ভেলে পুরোনো পিন করা ইউটিউব চ্যানেল প্রচারণা</title>
+                    <link>https://www.dw.com/bn/pinned-old/a-1000</link>
+                    <dc:date>2025-03-04T09:11:00Z</dc:date>
+                </item>
+                <item rdf:about="https://www.dw.com/bn/fresh-1/a-2001">
+                    <title>ইউরোপীয় ইউনিয়নের নতুন জলবায়ু ও বাণিজ্য নীতিমালা ঘোষণা</title>
+                    <link>https://www.dw.com/bn/fresh-1/a-2001</link>
+                    <dc:date>2025-11-06T17:30:00Z</dc:date>
+                </item>
+                <item rdf:about="https://www.dw.com/bn/fresh-2/a-2002">
+                    <title>জার্মানিতে উচ্চশিক্ষা ও গবেষণায় বাংলাদেশি শিক্ষার্থীদের নতুন সুযোগ</title>
+                    <link>https://www.dw.com/bn/fresh-2/a-2002</link>
+                    <dc:date>2025-11-06T16:15:00Z</dc:date>
+                </item>
+            </rdf:RDF>
+        """.trimIndent()
+
+        val parsed = repo.parseXml(
+            xml = dwXml,
+            defaultSource = "ডয়চে ভেলে বাংলা",
+            defaultSourceUrl = "https://www.dw.com/bn",
+            defaultCategoryId = "intl",
+            nowMs = fixedNowMs
+        )
+        checkEquals(3, parsed.size, "parseXml must extract all 3 RDF items initially")
+
+        val filtered = repo.filterPinnedStaleDirectItems(parsed, fixedNowMs)
+        checkEquals(2, filtered.size, "filterPinnedStaleDirectItems must remove the 8-month-old pinned item at index 0")
+        checkFalse(
+            filtered.any { it.link.contains("pinned-old") },
+            "Pinned stale item from March must be excluded"
+        )
+        checkEquals("https://www.dw.com/bn/fresh-1/a-2001", filtered[0].link, "First remaining DW item must be fresh-1")
+        checkEquals("https://www.dw.com/bn/fresh-2/a-2002", filtered[1].link, "Second remaining DW item must be fresh-2")
+    }
+
+    @Test
+    fun test64_phase41HtmlNamedAndNumericEntityDecodingSinglePassSafety() {
+        val repo = NewsRepository()
+
+        // 11a. All required named entities: &nbsp;, &ndash;, &mdash;, &zwnj;, &rsquo;, &lsquo;, &ldquo;, &rdquo;, &ntilde;
+        val rawEntities = "র&zwnj;্যাব&nbsp;অভিযান: &lsquo;বিশেষ&rsquo; &ldquo;প্রতিবেদন&rdquo; ২০২৫&ndash;২৬ &mdash; লা লিগায় নিইয়ো (&ntilde;) ও এস্পানিওল (&Ntilde;) &amp; ইউরো"
+        val decoded = repo.unescape(rawEntities)
+        checkEquals(
+            "র\u200C্যাব অভিযান: ‘বিশেষ’ “প্রতিবেদন” ২০২৫–২৬ — লা লিগায় নিইয়ো (ñ) ও এস্পানিওল (Ñ) & ইউরো",
+            decoded,
+            "All required named HTML entities (&zwnj;, &nbsp;, &lsquo;, &rsquo;, &ldquo;, &rdquo;, &ndash;, &mdash;, &ntilde;, &Ntilde;, &amp;) must decode accurately"
+        )
+
+        // 11b. Single-pass no-double-decoding verification
+        checkEquals(
+            "&nbsp;",
+            repo.unescape("&amp;nbsp;"),
+            "&amp;nbsp; must decode ONCE to literal '&nbsp;', never double-decoding to a space"
+        )
+        checkEquals(
+            "&lt;script&gt;",
+            repo.unescape("&amp;lt;script&amp;gt;"),
+            "&amp;lt;script&amp;gt; must decode ONCE to '&lt;script&gt;', never double-decoding to '<script>'"
+        )
+        checkEquals(
+            "&lt;",
+            repo.unescape("&#38;lt;"),
+            "&#38;lt; must decode ONCE to '&lt;', never double-decoding to '<'"
+        )
+        checkEquals(
+            "&rsquo;",
+            repo.unescape("&#x26;rsquo;"),
+            "&#x26;rsquo; must decode ONCE to '&rsquo;', never double-decoding to '’'"
+        )
+
+        // 11c. Malformed / out-of-range / surrogate entity inputs must never crash or corrupt text
+        val malformedInput = "পরীক্ষা &nbsp ও &#; এবং &#x; ও &#xGGGG; এবং &#999999999999; ও &#xD800; এবং &#0; ও &unknownentity; শেষ"
+        val safeDecoded = repo.unescape(malformedInput)
+        checkEquals(
+            malformedInput,
+            safeDecoded,
+            "Malformed or out-of-range entities must remain untouched without throwing or producing corrupt chars"
+        )
+
+        // 11d. End-to-end XML item parsing with entities in title and description
+        val entityXml = """
+            <rss version="2.0"><channel>
+                <item>
+                    <title>বাজেট ২০২৫&ndash;২৬: র&zwnj;্যাবের &lsquo;নিরাপত্তা&rsquo; &mdash; &ldquo;সফল&rdquo; নিইয়ো (&ntilde;) &amp;nbsp; পরীক্ষা</title>
+                    <link>https://www.deshrupantor.com/news/entity-test</link>
+                    <pubDate>Thu, 06 Nov 2025 16:00:00 +0600</pubDate>
+                    <description>সংক্ষিপ্ত&nbsp;বিবরণ &ndash; বিস্তারিত &mdash; &ldquo;তথ্য&rdquo;</description>
+                </item>
+            </channel></rss>
+        """.trimIndent()
+        val parsedItems = repo.parseXml(entityXml, "দেশ রূপান্তর", "https://www.deshrupantor.com", "all", fixedNowMs)
+        checkEquals(1, parsedItems.size, "Entity XML item must be parsed")
+        checkEquals(
+            "বাজেট ২০২৫–২৬: র\u200C্যাবের ‘নিরাপত্তা’ — “সফল” নিইয়ো (ñ) &nbsp; পরীক্ষা",
+            parsedItems[0].title,
+            "Parsed title must decode single-encoded entities while preserving &amp;nbsp; as literal &nbsp;"
+        )
+        checkEquals(
+            "সংক্ষিপ্ত বিবরণ – বিস্তারিত — “তথ্য”",
+            parsedItems[0].snippet,
+            "Parsed snippet must decode &nbsp;, &ndash;, &mdash;, &ldquo;, &rdquo;"
+        )
+    }
+
+    @Test
+    fun test65_phase41TruncatedAndMalformedXmlSafety() {
+        val repo = NewsRepository()
+
+        // 13a. Truncation mid-item at byte limit: partial final item must be dropped and isCompleteXml must be false
+        val fullXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0">
+                <channel>
+                    <title>পরীক্ষা ফিড</title>
+                    <item>
+                        <title>প্রথম সম্পূর্ণ সংবাদ শিরোনাম</title>
+                        <link>https://example.com/news/complete-1</link>
+                        <pubDate>Thu, 06 Nov 2025 16:30:00 GMT</pubDate>
+                        <description>প্রথম সম্পূর্ণ বিবরণ</description>
+                    </item>
+                    <item>
+                        <title>দ্বিতীয় সম্পূর্ণ সংবাদ শিরোনাম</title>
+                        <link>https://example.com/news/complete-2</link>
+                        <pubDate>Thu, 06 Nov 2025 16:20:00 GMT</pubDate>
+                        <description>দ্বিতীয় সম্পূর্ণ বিবরণ</description>
+                    </item>
+                    <item>
+                        <title>তৃতীয় অসম্পূর্ণ সংবাদ যা সীমা অতিক্রম করায় কেটে গেছে</title>
+                        <link>https://example.com/news/partial-3</link>
+                        <pubDate>Thu, 06 Nov 2025 16:10:00 GMT</pubDate>
+                        <description>এই আইটেমটি শেষ হওয়ার আগেই রেসপন্স বডি সীমা অতিক্রম করেছে এবং ক্লোজিং ট্যাগ নেই
+                </channel>
+            </rss>
+        """.trimIndent()
+
+        val rawBytes = fullXml.toByteArray(Charsets.UTF_8)
+        val secondItemCloseIdx = fullXml.indexOf("</item>", fullXml.indexOf("complete-2")) + "</item>".length
+        val thirdItemMidBytePos = fullXml.substring(0, secondItemCloseIdx + 140).toByteArray(Charsets.UTF_8).size
+
+        val truncatedRead = repo.readBoundedBytesWithDiagnostics(rawBytes, thirdItemMidBytePos)
+        checkTrue(truncatedRead.isTruncated, "Response exceeding maxBytes must set isTruncated = true")
+        checkFalse(truncatedRead.isCompleteXml, "Truncated response must set isCompleteXml = false")
+        checkTrue(truncatedRead.droppedPartialTrailingItem, "Trailing unclosed <item> at truncation boundary must set droppedPartialTrailingItem = true")
+        checkFalse(truncatedRead.body.contains("\uFFFD"), "Multi-byte UTF-8 boundary trimming must prevent replacement char \\uFFFD")
+
+        val parsedFromTruncated = repo.parseXml(truncatedRead.body, "পরীক্ষা", "https://example.com", "all", fixedNowMs)
+        checkEquals(2, parsedFromTruncated.size, "Only the 2 complete items before the truncation boundary may be parsed")
+        checkEquals("https://example.com/news/complete-1", parsedFromTruncated[0].link, "First complete item preserved")
+        checkEquals("https://example.com/news/complete-2", parsedFromTruncated[1].link, "Second complete item preserved")
+        checkFalse(
+            parsedFromTruncated.any { it.link.contains("partial-3") },
+            "Partial trailing item must NEVER be included in parsed output"
+        )
+
+        // 13b. Malformed unclosed <item> in the middle of XML followed by a valid <item>...</item>
+        val malformedMidStreamXml = """
+            <rss version="2.0"><channel>
+                <item>
+                    <title>ভাঙা আইটেম যার কোনো ক্লোজিং ট্যাগ নেই</title>
+                    <link>https://example.com/broken-unclosed</link>
+                <item>
+                    <title>পরবর্তী বৈধ সম্পূর্ণ সংবাদ</title>
+                    <link>https://example.com/valid-after-broken</link>
+                    <pubDate>Thu, 06 Nov 2025 16:00:00 GMT</pubDate>
+                </item>
+            </channel></rss>
+        """.trimIndent()
+        val parsedMidStream = repo.parseXml(malformedMidStreamXml, "পরীক্ষা", "https://example.com", "all", fixedNowMs)
+        checkEquals(1, parsedMidStream.size, "Malformed unclosed prefix must be stripped so the valid inner item parses cleanly")
+        checkEquals("পরবর্তী বৈধ সম্পূর্ণ সংবাদ", parsedMidStream[0].title, "Inner valid item title must not be polluted by unclosed item")
+        checkEquals("https://example.com/valid-after-broken", parsedMidStream[0].link, "Inner valid item link must be extracted")
+    }
+
     companion object {
         @JvmStatic
         fun main(args: Array<String>) {
@@ -3228,3 +3816,4 @@ class NewsFeedAlgorithmTest {
         }
     }
 }
+

@@ -63,8 +63,14 @@ data class NewsItem(
     val categoryId: String = "all",
     val related: List<NewsItem> = emptyList(),
     val snippet: String = "",
-    val imageUrl: String? = null
-)
+    val imageUrl: String? = null,
+    val fallbackTime: Long? = null,
+    val isEstimatedTime: Boolean = false,
+    val feedOrderIndex: Int = -1
+) {
+    val effectiveSortTime: Long?
+        get() = time ?: fallbackTime
+}
 
 data class Coverage(
     val items: List<NewsItem>
@@ -77,6 +83,9 @@ data class Coverage(
 
     val latest: Long?
         get() = items.mapNotNull { it.time }.maxOrNull()
+
+    val effectiveSortTime: Long?
+        get() = latest ?: items.mapNotNull { it.fallbackTime }.maxOrNull()
 }
 
 @Serializable

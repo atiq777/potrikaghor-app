@@ -315,6 +315,8 @@ class NewsRepository {
         const val PER_FEED_TIMEOUT_MS = 10_000L
         const val DIRECT_FEED_BATCH_DEADLINE_MS = 13_000L
         const val GOOGLE_FEED_TIMEOUT_MS = 10_000L
+        const val DIRECT_FEED_MAX_RESPONSE_BYTES = 1_200_000
+        const val GOOGLE_FEED_MAX_RESPONSE_BYTES = 500_000
         const val COVERAGE_CACHE_TTL_MS = 3 * 60 * 1000L
         const val HOME_FEED_CACHE_TTL_MS = 3 * 60 * 1000L
         const val MAX_HOME_FEED_CACHE_ENTRIES = 24
@@ -1573,9 +1575,17 @@ class NewsRepository {
                     logDiag("DIRECT_FEED_FAIL | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\" | HTTP ${res.code}")
                     return@executeCancellableCall emptyList()
                 }
-                val xml = readBoundedBody(res, 350_000)
+                val readResult = readBoundedBodyWithDiagnostics(res, DIRECT_FEED_MAX_RESPONSE_BYTES)
+                if (readResult.isTruncated || !readResult.isCompleteXml) {
+                    logDiag(
+                        "DIRECT_FEED_TRUNCATED_OR_PARTIAL | source=\"${spec.sourceBn}\" | url=\"${spec.feedUrl}\" | " +
+                            "bytesRead=${readResult.bytesRead} | maxBytes=$DIRECT_FEED_MAX_RESPONSE_BYTES | " +
+                            "isTruncated=${readResult.isTruncated} | isCompleteXml=${readResult.isCompleteXml} | " +
+                            "droppedPartialTrailingItem=${readResult.droppedPartialTrailingItem}"
+                    )
+                }
                 val parsed = parseXml(
-                    xml = xml,
+                    xml = readResult.body,
                     defaultSource = spec.sourceBn,
                     defaultSourceUrl = spec.baseUrl,
                     defaultCategoryId = spec.defaultCategory
@@ -1583,6 +1593,7 @@ class NewsRepository {
                 val withImgCount = parsed.count { !it.imageUrl.isNullOrBlank() }
                 logDiag(
                     "DIRECT_FEED_OK | source=\"${spec.sourceBn}\" | totalItems=${parsed.size} | " +
+                        "bytesRead=${readResult.bytesRead} | isCompleteXml=${readResult.isCompleteXml} | " +
                         "itemsWithRssImage=$withImgCount | sampleImage=\"${parsed.firstOrNull { !it.imageUrl.isNullOrBlank() }?.imageUrl ?: "NONE"}\""
                 )
                 parsed
@@ -1625,7 +1636,7 @@ class NewsRepository {
 
         return executeCancellableCall(client.newCall(request)) { response ->
             if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
-            val body = readBoundedBody(response, 500_000)
+            val body = readBoundedBody(response, GOOGLE_FEED_MAX_RESPONSE_BYTES)
             parseXml(body)
         }
     }
@@ -1762,9 +1773,14 @@ class NewsRepository {
         directItems: List<NewsItem>,
         googleItems: List<NewsItem>
     ): List<NewsItem> {
-        // Group direct items by source and interleave them round-robin by recency so all sources appear evenly
+        // Group direct items by source and interleave them round-robin by recency so all sources appear evenly.
+        // Uses effectiveSortTime (verified item time or bounded fallbackTime) and preserves original feedOrderIndex.
         val directBySource = directItems
-            .sortedByDescending { it.time ?: 0L }
+            .sortedWith(
+                compareByDescending<NewsItem> { it.effectiveSortTime ?: Long.MIN_VALUE }
+                    .thenByDescending { it.time != null }
+                    .thenBy { if (it.feedOrderIndex >= 0) it.feedOrderIndex else Int.MAX_VALUE }
+            )
             .groupBy { it.source }
             .values
             .map { it.iterator() }
@@ -1815,19 +1831,52 @@ class NewsRepository {
 
     /**
      * Parses both RSS 2.0 (<item>) and Atom (<entry>) XML feeds in a namespace-tolerant manner.
+     * - Safely excludes any trailing truncated/unclosed <item> or <entry>.
+     * - Preserves verified item timestamps in [NewsItem.time] (never substituting `now` for missing dates).
+     * - Assigns [NewsItem.feedOrderIndex] and computes bounded neighbor/channel [NewsItem.fallbackTime]
+     *   with [NewsItem.isEstimatedTime] = true for date-less items so feed order is preserved without
+     *   either dropping date-less items to 0L or promoting old items to the top.
      */
     fun parseXml(
         xml: String,
         defaultSource: String = "",
         defaultSourceUrl: String = "",
-        defaultCategoryId: String = "all"
+        defaultCategoryId: String = "all",
+        nowMs: Long = System.currentTimeMillis()
     ): List<NewsItem> {
+        if (xml.isBlank()) return emptyList()
+        val (safeXml, _) = sanitizeTruncatedOrPartialXml(xml, isTruncated = !hasClosingRootXmlTag(xml))
+        if (safeXml.isBlank()) return emptyList()
+
+        val firstItemIdx = findFirstEntryOrItemIndex(safeXml)
+        val headerXml = if (firstItemIdx > 0) safeXml.substring(0, firstItemIdx) else ""
+        val channelDateStr = if (headerXml.isNotEmpty()) {
+            extractTagNamespaceAgnostic(headerXml, "lastBuildDate")
+                .ifEmpty { extractTagNamespaceAgnostic(headerXml, "pubDate") }
+                .ifEmpty { extractTagNamespaceAgnostic(headerXml, "updated") }
+        } else {
+            ""
+        }
+        val channelFallbackMs = parseDate(channelDateStr, nowMs)
+
         val out = mutableListOf<NewsItem>()
         val entryPattern = Pattern.compile("<(?:item|entry)(?:\\s[^>]*)?>(.*?)</(?:item|entry)>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
-        val matcher = entryPattern.matcher(xml)
+        val nestedOpenPattern = Pattern.compile("<(?:item|entry)(?:\\s[^>]*)?>", Pattern.CASE_INSENSITIVE)
+        val matcher = entryPattern.matcher(safeXml)
 
         while (matcher.find()) {
-            val block = matcher.group(1) ?: continue
+            var block = matcher.group(1) ?: continue
+            // If an earlier <item>/<entry> was malformed and lacked a closing tag before the next opening tag,
+            // strip the unclosed prefix so only the innermost complete item block is parsed.
+            val nestedMatcher = nestedOpenPattern.matcher(block)
+            var lastNestedEnd = -1
+            while (nestedMatcher.find()) {
+                lastNestedEnd = nestedMatcher.end()
+            }
+            if (lastNestedEnd in 1..block.length) {
+                block = block.substring(lastNestedEnd)
+            }
+
             var title = stripTags(extractTagNamespaceAgnostic(block, "title")).trim()
             val link = extractItemLink(block, defaultSourceUrl)
             val pub = extractTagNamespaceAgnostic(block, "pubDate")
@@ -1881,6 +1930,8 @@ class NewsRepository {
                 articleImageCache[link] = rssImage
             }
 
+            val parsedItemTime = parseDate(pub, nowMs)
+
             val related = mutableListOf<NewsItem>()
             if (link.contains("news.google.com")) {
                 val liPattern = Pattern.compile("<li[^>]*>(.*?)</li>", Pattern.DOTALL)
@@ -1908,7 +1959,7 @@ class NewsRepository {
                                     source = rs,
                                     sourceUrl = relSourceUrl,
                                     link = rLink,
-                                    time = parseDate(pub),
+                                    time = parsedItemTime,
                                     imageUrl = articleImageCache[rLink]
                                 )
                             )
@@ -1923,11 +1974,14 @@ class NewsRepository {
                 source = resolvedSource,
                 sourceUrl = sourceUrl,
                 link = link,
-                time = parseDate(pub),
+                time = parsedItemTime,
                 categoryId = categoryText,
                 related = related,
                 snippet = plainSnippet,
-                imageUrl = rssImage
+                imageUrl = rssImage,
+                fallbackTime = null,
+                isEstimatedTime = false,
+                feedOrderIndex = out.size
             )
 
             if (!rssImage.isNullOrBlank()) {
@@ -1950,46 +2004,235 @@ class NewsRepository {
 
             out.add(newsItem)
         }
-        return out
+
+        return assignEstimatedFallbackTimes(out, channelFallbackMs, nowMs)
     }
 
-    private fun extractItemLink(block: String, baseUrl: String): String {
-        // 1. Standard <link>https://...</link>
-        val rawLink = extractTagNamespaceAgnostic(block, "link").trim()
-        if (rawLink.startsWith("http://") || rawLink.startsWith("https://")) {
-            return rawLink
+    /**
+     * Assigns bounded [NewsItem.fallbackTime] and [NewsItem.isEstimatedTime] = true for items whose
+     * item-level [NewsItem.time] is null, while strictly keeping [NewsItem.time] == null:
+     * - Never uses `nowMs` when `pubDate` is empty or missing.
+     * - When sibling items in the same feed have valid timestamps (e.g. Purbokone or BBC Bangla),
+     *   bounds the estimated timestamp to the surrounding dated items in feed order so original
+     *   feed order is preserved AND old articles are never promoted to a regenerated channel `lastBuildDate`.
+     * - When no items in the feed have item-level dates at all, uses `channelFallbackMs - idx * 1000L`
+     *   as a separate estimated fallback date if available.
+     */
+    private fun assignEstimatedFallbackTimes(
+        items: List<NewsItem>,
+        channelFallbackMs: Long?,
+        nowMs: Long
+    ): List<NewsItem> {
+        if (items.isEmpty() || items.all { it.time != null }) return items
+
+        return items.mapIndexed { idx, item ->
+            if (item.time != null) return@mapIndexed item
+
+            var prevIdx = -1
+            var prevTime: Long? = null
+            for (p in (idx - 1) downTo 0) {
+                val t = items[p].time
+                if (t != null) {
+                    prevIdx = p
+                    prevTime = t
+                    break
+                }
+            }
+
+            var nextIdx = -1
+            var nextTime: Long? = null
+            for (n in (idx + 1) until items.size) {
+                val t = items[n].time
+                if (t != null) {
+                    nextIdx = n
+                    nextTime = t
+                    break
+                }
+            }
+
+            val estimatedMs: Long? = when {
+                prevTime != null && nextTime != null -> {
+                    val span = (nextIdx - prevIdx).coerceAtLeast(2)
+                    val step = (idx - prevIdx).coerceAtLeast(1)
+                    if (prevTime >= nextTime) {
+                        val diff = prevTime - nextTime
+                        if (diff >= span * 1_000L) {
+                            prevTime - (diff * step) / span
+                        } else {
+                            (prevTime - step * 1_000L).coerceAtLeast(nextTime)
+                        }
+                    } else {
+                        (minOf(prevTime, nextTime) - step * 1_000L).coerceAtLeast(1L)
+                    }
+                }
+                prevTime == null && nextTime != null -> {
+                    // Leading date-less item before the first dated item (e.g. Purbokone item #1):
+                    // Anchor just ahead of nextTime (+1s per step) so it stays ahead of item #2 in feed order
+                    // without jumping to a regenerated today's channel <lastBuildDate>.
+                    val stepsAhead = (nextIdx - idx).coerceAtLeast(1)
+                    val anchoredToNext = nextTime + stepsAhead * 1_000L
+                    val upperCap = if (channelFallbackMs != null && channelFallbackMs >= nextTime) {
+                        minOf(channelFallbackMs, nowMs + FUTURE_TIMESTAMP_TOLERANCE_MS)
+                    } else {
+                        maxOf(nextTime + stepsAhead * 1_000L, nowMs)
+                    }
+                    anchoredToNext.coerceAtMost(upperCap)
+                }
+                prevTime != null && nextTime == null -> {
+                    val stepsBehind = (idx - prevIdx).coerceAtLeast(1)
+                    (prevTime - stepsBehind * 1_000L).coerceAtLeast(1L)
+                }
+                channelFallbackMs != null -> {
+                    (channelFallbackMs - idx * 1_000L).coerceAtLeast(1L)
+                }
+                else -> null
+            }
+
+            if (estimatedMs != null) {
+                item.copy(
+                    fallbackTime = estimatedMs,
+                    isEstimatedTime = true
+                )
+            } else {
+                item
+            }
+        }
+    }
+
+    /**
+     * Extracts the valid HTML Article URL from an RSS `<item>` or Atom `<entry>` block:
+     * - Attribute-order independent parsing (`rel` before `href` or `href` before `rel`).
+     * - Prioritizes `rel="alternate"` HTML Article URLs (`text/html`, `application/xhtml+xml`, or untyped).
+     * - Strictly rejects `rel="self"`, `rel="enclosure"`, `rel="related"`, `rel="replies"`, `rel="via"`,
+     *   and any other non-alternate `rel` values.
+     * - Strictly rejects non-HTML MIME types (such as `image/`, `audio/`, `video/`, `application/atom+xml`).
+     * - Strictly rejects invalid URLs and image/media/feed asset URLs via [isValidArticleWebUrl].
+     */
+    internal fun extractItemLink(block: String, baseUrl: String): String {
+        // 1. Standard RSS <link>https://...</link> (only when tag has no non-alternate rel attribute)
+        val textLinkMat = Pattern.compile(
+            "<(?:[A-Za-z0-9_-]+:)?link\\b([^>]*)>(.*?)</(?:[A-Za-z0-9_-]+:)?link>",
+            Pattern.DOTALL or Pattern.CASE_INSENSITIVE
+        ).matcher(block)
+        while (textLinkMat.find()) {
+            val attrs = textLinkMat.group(1) ?: ""
+            val relAttr = extractAttr(attrs, "rel")?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            if (relAttr.isNotEmpty() && relAttr != "alternate") continue
+            val typeAttr = extractAttr(attrs, "type")?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            if (!isAllowedArticleLinkMimeType(typeAttr)) continue
+
+            val innerRaw = stripTags(unescape(textLinkMat.group(2) ?: "")).trim()
+            if (innerRaw.isNotEmpty()) {
+                val resolved = resolveRelativeUrl(innerRaw, baseUrl)
+                if (isValidArticleWebUrl(resolved)) {
+                    return resolved
+                }
+            }
         }
 
-        // 2. Atom <link rel="alternate" href="..." /> or <link href="..." />
-        val atomAltMat = Pattern.compile(
-            "<(?:[A-Za-z0-9_-]+:)?link\\b[^>]*rel=[\"']alternate[\"'][^>]*href=[\"']([^\"']+)[\"']",
+        // 2. Atom / self-closing / attribute-based <link ... href="..." ...>
+        val atomLinkMat = Pattern.compile(
+            "<(?:[A-Za-z0-9_-]+:)?link\\b([^>]*)/?>",
             Pattern.CASE_INSENSITIVE
         ).matcher(block)
-        if (atomAltMat.find()) {
-            val href = resolveRelativeUrl(unescape(atomAltMat.group(1) ?: ""), baseUrl)
-            if (href.startsWith("http")) return href
+
+        var bestExplicitHtmlAlternate: String? = null
+        var bestUntypedAlternate: String? = null
+        var bestExplicitHtmlDefaultRel: String? = null
+        var bestUntypedDefaultRel: String? = null
+
+        while (atomLinkMat.find()) {
+            val attrs = atomLinkMat.group(1) ?: continue
+            val rawHref = extractAttr(attrs, "href") ?: continue
+            val relAttr = extractAttr(attrs, "rel")?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            val typeAttr = extractAttr(attrs, "type")?.trim()?.lowercase(Locale.ROOT).orEmpty()
+
+            // Only rel="alternate" or omitted rel (Atom default) may ever be used as an article URL.
+            // Explicitly rejects self, enclosure, related, replies, via, edit, hub, etc.
+            if (relAttr.isNotEmpty() && relAttr != "alternate") continue
+            if (!isAllowedArticleLinkMimeType(typeAttr)) continue
+
+            val resolvedHref = resolveRelativeUrl(rawHref, baseUrl)
+            if (!isValidArticleWebUrl(resolvedHref)) continue
+
+            val isExplicitHtml = typeAttr.startsWith("text/html") || typeAttr.startsWith("application/xhtml+xml")
+            if (relAttr == "alternate") {
+                if (isExplicitHtml) {
+                    if (bestExplicitHtmlAlternate == null) bestExplicitHtmlAlternate = resolvedHref
+                } else if (bestUntypedAlternate == null) {
+                    bestUntypedAlternate = resolvedHref
+                }
+            } else {
+                if (isExplicitHtml) {
+                    if (bestExplicitHtmlDefaultRel == null) bestExplicitHtmlDefaultRel = resolvedHref
+                } else if (bestUntypedDefaultRel == null) {
+                    bestUntypedDefaultRel = resolvedHref
+                }
+            }
         }
 
-        val atomHrefMat = Pattern.compile(
-            "<(?:[A-Za-z0-9_-]+:)?link\\b[^>]*href=[\"']([^\"']+)[\"']",
-            Pattern.CASE_INSENSITIVE
+        bestExplicitHtmlAlternate?.let { return it }
+        bestUntypedAlternate?.let { return it }
+        bestExplicitHtmlDefaultRel?.let { return it }
+        bestUntypedDefaultRel?.let { return it }
+
+        // 3. Fallback to <guid> when it is a valid article web URL and not marked isPermaLink="false"
+        val guidMat = Pattern.compile(
+            "<(?:[A-Za-z0-9_-]+:)?guid\\b([^>]*)>(.*?)</(?:[A-Za-z0-9_-]+:)?guid>",
+            Pattern.DOTALL or Pattern.CASE_INSENSITIVE
         ).matcher(block)
-        while (atomHrefMat.find()) {
-            val tagFull = atomHrefMat.group(0) ?: ""
-            if (tagFull.contains("rel=\"self\"", ignoreCase = true) ||
-                tagFull.contains("rel='self'", ignoreCase = true)
-            ) continue
-            val href = resolveRelativeUrl(unescape(atomHrefMat.group(1) ?: ""), baseUrl)
-            if (href.startsWith("http")) return href
+        while (guidMat.find()) {
+            val attrs = guidMat.group(1) ?: ""
+            val isPermaLinkAttr = extractAttr(attrs, "isPermaLink")?.trim()?.lowercase(Locale.ROOT)
+            if (isPermaLinkAttr == "false") continue
+            val rawGuid = stripTags(unescape(guidMat.group(2) ?: "")).trim()
+            if (rawGuid.startsWith("http://") || rawGuid.startsWith("https://")) {
+                if (isValidArticleWebUrl(rawGuid)) {
+                    return rawGuid
+                }
+            }
         }
 
-        // 3. Fallback to <guid isPermaLink="true">https://...</guid>
-        val guid = extractTagNamespaceAgnostic(block, "guid").trim()
-        if (guid.startsWith("http://") || guid.startsWith("https://")) {
-            return guid
+        return ""
+    }
+
+    private fun isAllowedArticleLinkMimeType(typeAttrLower: String): Boolean {
+        if (typeAttrLower.isEmpty()) return true
+        return typeAttrLower.startsWith("text/html") ||
+            typeAttrLower.startsWith("application/xhtml+xml")
+    }
+
+    /**
+     * Validates that a candidate item link is a legitimate HTTP/HTTPS web article URL,
+     * rejecting malformed URLs, non-web schemes, and direct image/audio/video/feed file URLs.
+     */
+    internal fun isValidArticleWebUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val trimmed = url.trim()
+        if (!trimmed.startsWith("http://", ignoreCase = true) &&
+            !trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return false
         }
 
-        return if (rawLink.isNotEmpty()) resolveRelativeUrl(rawLink, baseUrl) else ""
+        val host = try {
+            URI(trimmed.replace(" ", "%20")).host?.lowercase(Locale.ROOT).orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        if (host.isEmpty() || !host.contains(".")) return false
+
+        val lower = trimmed.lowercase(Locale.ROOT)
+        val pathPart = lower.substringBefore("?").substringBefore("#")
+        val nonArticleExtensions = listOf(
+            ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".svg", ".ico", ".bmp", ".tiff",
+            ".mp3", ".mp4", ".m4a", ".ogg", ".wav", ".webm", ".mkv", ".avi", ".mov",
+            ".pdf", ".zip", ".xml", ".rss", ".atom", ".json"
+        )
+        if (nonArticleExtensions.any { pathPart.endsWith(it) }) {
+            return false
+        }
+        return true
     }
 
     private fun extractCategories(block: String): List<String> {
@@ -2480,12 +2723,149 @@ class NewsRepository {
         return null
     }
 
+    data class BoundedBodyReadResult(
+        val body: String,
+        val bytesRead: Int,
+        val isTruncated: Boolean,
+        val isCompleteXml: Boolean,
+        val droppedPartialTrailingItem: Boolean
+    )
+
     private fun readBoundedBody(response: okhttp3.Response, maxBytes: Int): String {
-        val source = response.body?.source() ?: return ""
-        source.request(maxBytes.toLong())
+        return readBoundedBodyWithDiagnostics(response, maxBytes).body
+    }
+
+    internal fun readBoundedBodyWithDiagnostics(
+        response: okhttp3.Response,
+        maxBytes: Int
+    ): BoundedBodyReadResult {
+        val safeMax = maxBytes.coerceAtLeast(1024)
+        val source = response.body?.source()
+            ?: return BoundedBodyReadResult(
+                body = "",
+                bytesRead = 0,
+                isTruncated = false,
+                isCompleteXml = false,
+                droppedPartialTrailingItem = false
+            )
+        source.request(safeMax.toLong() + 1L)
         val buffer = source.buffer.clone()
-        val size = buffer.size.coerceAtMost(maxBytes.toLong())
-        return buffer.readString(size, Charsets.UTF_8)
+        val isTruncated = buffer.size > safeMax.toLong()
+        val sizeToRead = buffer.size.coerceAtMost(safeMax.toLong()).toInt()
+        val rawBytes = buffer.readByteArray(sizeToRead.toLong())
+        return decodeBoundedXmlBytes(rawBytes, isTruncated)
+    }
+
+    internal fun readBoundedBytesWithDiagnostics(
+        rawBytes: ByteArray,
+        maxBytes: Int
+    ): BoundedBodyReadResult {
+        val safeMax = maxBytes.coerceAtLeast(64)
+        val isTruncated = rawBytes.size > safeMax
+        val slice = if (isTruncated) rawBytes.copyOfRange(0, safeMax) else rawBytes
+        return decodeBoundedXmlBytes(slice, isTruncated)
+    }
+
+    private fun decodeBoundedXmlBytes(
+        bytes: ByteArray,
+        isTruncated: Boolean
+    ): BoundedBodyReadResult {
+        if (bytes.isEmpty()) {
+            return BoundedBodyReadResult(
+                body = "",
+                bytesRead = 0,
+                isTruncated = isTruncated,
+                isCompleteXml = false,
+                droppedPartialTrailingItem = false
+            )
+        }
+        val validUtf8Len = if (isTruncated) trimIncompleteTrailingUtf8Bytes(bytes) else bytes.size
+        val decoded = String(bytes, 0, validUtf8Len, Charsets.UTF_8)
+        val hasRootClose = hasClosingRootXmlTag(decoded)
+        val isCompleteXml = !isTruncated && hasRootClose
+        val (sanitizedXml, droppedPartial) = sanitizeTruncatedOrPartialXml(decoded, isTruncated || !hasRootClose)
+        return BoundedBodyReadResult(
+            body = sanitizedXml,
+            bytesRead = bytes.size,
+            isTruncated = isTruncated,
+            isCompleteXml = isCompleteXml,
+            droppedPartialTrailingItem = droppedPartial
+        )
+    }
+
+    private fun trimIncompleteTrailingUtf8Bytes(bytes: ByteArray): Int {
+        val len = bytes.size
+        if (len == 0) return 0
+        var i = len - 1
+        var continuationCount = 0
+        while (i >= 0 && continuationCount < 3 && (bytes[i].toInt() and 0xC0) == 0x80) {
+            continuationCount++
+            i--
+        }
+        if (i < 0) return len
+        val lead = bytes[i].toInt() and 0xFF
+        val expectedSeqLen = when {
+            (lead and 0x80) == 0x00 -> 1
+            (lead and 0xE0) == 0xC0 -> 2
+            (lead and 0xF0) == 0xE0 -> 3
+            (lead and 0xF8) == 0xF0 -> 4
+            else -> 1
+        }
+        val actualSeqLen = continuationCount + 1
+        return if (actualSeqLen < expectedSeqLen) i else len
+    }
+
+    internal fun hasClosingRootXmlTag(xml: String): Boolean {
+        val tail = if (xml.length > 4096) xml.substring(xml.length - 4096) else xml
+        val lower = tail.lowercase(Locale.ROOT)
+        return lower.contains("</rss>") ||
+            lower.contains("</feed>") ||
+            lower.contains("</rdf:rdf>") ||
+            lower.contains("</rdf>")
+    }
+
+    private fun findFirstEntryOrItemIndex(xml: String): Int {
+        val m = Pattern.compile("<(?:item|entry)(?:\\s|>)", Pattern.CASE_INSENSITIVE).matcher(xml)
+        return if (m.find()) m.start() else -1
+    }
+
+    /**
+     * Ensures that if an XML response is truncated at the byte limit or lacks a closing root tag,
+     * any trailing unclosed `<item>` or `<entry>` fragment after the last complete `</item>` or
+     * `</entry>` is stripped so partial items are never parsed as valid items.
+     */
+    internal fun sanitizeTruncatedOrPartialXml(
+        xml: String,
+        isTruncated: Boolean
+    ): Pair<String, Boolean> {
+        if (xml.isEmpty()) return "" to false
+        val lastCloseItem = xml.lastIndexOf("</item>", ignoreCase = true)
+        val lastCloseEntry = xml.lastIndexOf("</entry>", ignoreCase = true)
+
+        val lastCompleteEnd = when {
+            lastCloseItem >= 0 && lastCloseItem >= lastCloseEntry -> lastCloseItem + "</item>".length
+            lastCloseEntry >= 0 -> lastCloseEntry + "</entry>".length
+            else -> -1
+        }
+
+        if (lastCompleteEnd == -1) {
+            val hasOpenItem = findFirstEntryOrItemIndex(xml) >= 0
+            return if (hasOpenItem) "" to true else xml to false
+        }
+
+        val tailAfterLastClose = xml.substring(lastCompleteEnd)
+        val hasTrailingUnclosedItem = Pattern.compile(
+            "<(?:item|entry)(?:\\s|>|$)",
+            Pattern.CASE_INSENSITIVE
+        ).matcher(tailAfterLastClose).find()
+
+        if (hasTrailingUnclosedItem) {
+            return xml.substring(0, lastCompleteEnd) to true
+        }
+        if (isTruncated) {
+            return xml.substring(0, lastCompleteEnd) to false
+        }
+        return xml to false
     }
 
     fun resolveRelativeUrl(candidate: String, baseUrl: String): String {
@@ -2622,23 +3002,145 @@ class NewsRepository {
 
     private fun stripTags(s: String): String = s.replace(Regex("<[^>]*>"), "")
 
-    private fun unescape(raw: String): String {
-        var s = raw.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) {
-            it.groupValues[1]
+    /**
+     * Single-pass Android & JVM-safe XML/HTML entity unescaper:
+     * - Unwraps `<![CDATA[...]]>` blocks.
+     * - Decodes numeric decimal (`&#123;`) and hex (`&#x1F4F0;`) entities with strict Unicode
+     *   codepoint validation (rejecting surrogates and out-of-range codepoints).
+     * - Decodes named HTML/XML entities (`&nbsp;`, `&ndash;`, `&mdash;`, `&zwnj;`, `&rsquo;`,
+     *   `&lsquo;`, `&ldquo;`, `&rdquo;`, `&ntilde;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&amp;`, etc.)
+     *   in a single left-to-right pass so double-decoding (e.g. `&amp;nbsp;` or `&#38;lt;`) never occurs.
+     */
+    internal fun unescape(raw: String): String {
+        if (raw.isEmpty()) return ""
+        val cdataUnwrapped = if (raw.contains("<![CDATA[")) {
+            raw.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) {
+                it.groupValues[1]
+            }
+        } else {
+            raw
         }
-        s = s.replace(Regex("&#(x?)([0-9a-fA-F]+);")) { m ->
-            val isHex = m.groupValues[1].equals("x", ignoreCase = true)
-            val code = m.groupValues[2].toIntOrNull(if (isHex) 16 else 10)
-            if (code != null) code.toChar().toString() else m.value
+        if (cdataUnwrapped.indexOf('&') == -1) {
+            return cdataUnwrapped.trim()
         }
-        return s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#039;", "'")
-            .replace("&#038;", "&")
-            .replace("&amp;", "&")
-            .trim()
+        return decodeEntitiesSinglePass(cdataUnwrapped).trim()
+    }
+
+    private fun decodeEntitiesSinglePass(s: String): String {
+        val len = s.length
+        val sb = StringBuilder(len)
+        var i = 0
+        while (i < len) {
+            val ch = s[i]
+            if (ch == '&') {
+                val maxEnd = minOf(len, i + 14)
+                var semi = -1
+                var k = i + 1
+                while (k < maxEnd) {
+                    val c = s[k]
+                    if (c == ';') {
+                        semi = k
+                        break
+                    }
+                    if (c == '&' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '<' || c == '>') {
+                        break
+                    }
+                    k++
+                }
+                if (semi != -1 && semi > i + 1) {
+                    val entityBody = s.substring(i + 1, semi)
+                    val resolved = resolveSingleXmlOrHtmlEntity(entityBody)
+                    if (resolved != null) {
+                        sb.append(resolved)
+                        i = semi + 1
+                        continue
+                    }
+                }
+            }
+            sb.append(ch)
+            i++
+        }
+        return sb.toString()
+    }
+
+    private fun resolveSingleXmlOrHtmlEntity(entity: String): String? {
+        if (entity.isEmpty()) return null
+        if (entity[0] == '#') {
+            if (entity.length < 2) return null
+            val codePoint = try {
+                if (entity.length > 2 && (entity[1] == 'x' || entity[1] == 'X')) {
+                    entity.substring(2).toInt(16)
+                } else {
+                    entity.substring(1).toInt(10)
+                }
+            } catch (_: NumberFormatException) {
+                return null
+            }
+            if (codePoint == 160) return " "
+            if (codePoint in 0xD800..0xDFFF) return null
+            if (codePoint !in 1..0x10FFFF) return null
+            if (codePoint < 32 && codePoint != 9 && codePoint != 10 && codePoint != 13) return null
+            return try {
+                String(Character.toChars(codePoint))
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
+
+        // Case-sensitive check for entities where uppercase/lowercase differ (e.g. Ntilde vs ntilde)
+        when (entity) {
+            "Ntilde" -> return "Ñ"
+            "ntilde" -> return "ñ"
+            "Eacute" -> return "É"
+            "eacute" -> return "é"
+            "Aacute" -> return "Á"
+            "aacute" -> return "á"
+            "Iacute" -> return "Í"
+            "iacute" -> return "í"
+            "Oacute" -> return "Ó"
+            "oacute" -> return "ó"
+            "Uacute" -> return "Ú"
+            "uacute" -> return "ú"
+            "Uuml" -> return "Ü"
+            "uuml" -> return "ü"
+            "Ouml" -> return "Ö"
+            "ouml" -> return "ö"
+            "Ccedil" -> return "Ç"
+            "ccedil" -> return "ç"
+        }
+
+        return when (entity.lowercase(Locale.ROOT)) {
+            "nbsp" -> " "
+            "ndash" -> "–"
+            "mdash" -> "—"
+            "zwnj" -> "\u200C"
+            "zwj" -> "\u200D"
+            "rsquo" -> "’"
+            "lsquo" -> "‘"
+            "ldquo" -> "“"
+            "rdquo" -> "”"
+            "ntilde" -> "ñ"
+            "amp" -> "&"
+            "lt" -> "<"
+            "gt" -> ">"
+            "quot" -> "\""
+            "apos" -> "'"
+            "hellip" -> "…"
+            "bull" -> "•"
+            "copy" -> "©"
+            "reg" -> "®"
+            "trade" -> "™"
+            "laquo" -> "«"
+            "raquo" -> "»"
+            "euro" -> "€"
+            "pound" -> "£"
+            "yen" -> "¥"
+            "deg" -> "°"
+            "plusmn" -> "±"
+            "times" -> "×"
+            "divide" -> "÷"
+            else -> null
+        }
     }
 
     fun coverageCacheKey(intl: Boolean, filterQuery: String = ""): String {
@@ -3267,6 +3769,8 @@ class NewsRepository {
             // timestamped report first so Coverage.headline is always the latest report.
             val sortedCandidates = g.items.sortedWith(
                 compareByDescending<NewsItem> { it.time ?: Long.MIN_VALUE }
+                    .thenByDescending { it.effectiveSortTime ?: Long.MIN_VALUE }
+                    .thenBy { if (it.feedOrderIndex >= 0) it.feedOrderIndex else Int.MAX_VALUE }
                     .thenByDescending { !it.imageUrl.isNullOrBlank() }
                     .thenByDescending { it.sourceUrl.isNotEmpty() }
             )
@@ -3306,6 +3810,8 @@ class NewsRepository {
             if (uniq.isNotEmpty()) {
                 val orderedByNewest = uniq.sortedWith(
                     compareByDescending<NewsItem> { it.time ?: Long.MIN_VALUE }
+                        .thenByDescending { it.effectiveSortTime ?: Long.MIN_VALUE }
+                        .thenBy { if (it.feedOrderIndex >= 0) it.feedOrderIndex else Int.MAX_VALUE }
                         .thenByDescending { !it.imageUrl.isNullOrBlank() }
                         .thenByDescending { it.sourceUrl.isNotEmpty() }
                 )
@@ -3369,10 +3875,21 @@ class NewsRepository {
     ): List<Coverage> {
         val clusters = clusterItemsIntoCoverage(all)
         val withTime = clusters
-            .filter { (it.latest ?: 0L) > 0L }
-            .sortedByDescending { it.latest ?: 0L }
+            .filter { (it.effectiveSortTime ?: 0L) > 0L }
+            .sortedWith(
+                compareByDescending<Coverage> { it.effectiveSortTime ?: 0L }
+                    .thenByDescending { it.latest != null }
+                    .thenBy { cov ->
+                        val idx = cov.items.firstOrNull()?.feedOrderIndex ?: -1
+                        if (idx >= 0) idx else Int.MAX_VALUE
+                    }
+            )
         val withoutTime = clusters
-            .filter { (it.latest ?: 0L) <= 0L }
+            .filter { (it.effectiveSortTime ?: 0L) <= 0L }
+            .sortedBy { cov ->
+                val idx = cov.items.firstOrNull()?.feedOrderIndex ?: -1
+                if (idx >= 0) idx else Int.MAX_VALUE
+            }
 
         val diversifiedWithTime = applyZeroDropSourceDiversity(withTime, maxConsecutive = 2)
         return diversifiedWithTime + withoutTime
@@ -3431,7 +3948,7 @@ class NewsRepository {
             }
         val favoriteTieBreaker = if (hasFavorite) 2.0 else 0.0
 
-        val latestMs = cov.latest
+        val latestMs = cov.effectiveSortTime
         val ageHours = if (latestMs != null && latestMs > 0L) {
             ((nowMs - latestMs).coerceAtLeast(0L).toDouble() / 3_600_000.0).coerceAtLeast(0.25)
         } else {
@@ -3463,7 +3980,12 @@ class NewsRepository {
             compareByDescending<Coverage> { cov ->
                 computeTopStoryScore(cov, favCanonicalIds, favoriteUrls, nowMs)
             }.thenByDescending { cov ->
-                cov.latest ?: 0L
+                cov.effectiveSortTime ?: 0L
+            }.thenByDescending { cov ->
+                cov.latest != null
+            }.thenBy { cov ->
+                val idx = cov.items.firstOrNull()?.feedOrderIndex ?: -1
+                if (idx >= 0) idx else Int.MAX_VALUE
             }
         )
     }
