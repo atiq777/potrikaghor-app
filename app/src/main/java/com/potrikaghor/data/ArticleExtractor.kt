@@ -1511,11 +1511,15 @@ class ArticleExtractor {
                         lastValidAttrEnd = skipAsciiWhitespace(s, p)
                     }
                 } else {
-                    // Boolean attribute (e.g. disabled, itemscope) only if followed by '>', '/', '=', or another ASCII attr
+                    // Boolean attribute (e.g. disabled, itemscope) is valid when it is followed by the end of
+                    // the tag, '/', or another attribute name (e.g. <ul itemscope itemtype="...">).
                     p = afterName
-                    if (p == len || s[p] == '>' || s[p] == '/') {
+                    if (p >= len || s[p] == '>' || s[p] == '/') {
                         attrCount++
                         lastValidAttrEnd = p
+                    } else if (isAsciiAttrStart(s[p])) {
+                        attrCount++
+                        lastValidAttrEnd = attrNameEnd
                     } else {
                         break
                     }

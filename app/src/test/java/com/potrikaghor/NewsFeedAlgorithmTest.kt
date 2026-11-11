@@ -1936,7 +1936,8 @@ class NewsFeedAlgorithmTest {
             "test62_phase41PurbokoneEmptyPubDateAndBbcBanglaDatelessStableSorting" to ::test62_phase41PurbokoneEmptyPubDateAndBbcBanglaDatelessStableSorting,
             "test63_phase41DwBanglaPinnedStaleFilteringRegression" to ::test63_phase41DwBanglaPinnedStaleFilteringRegression,
             "test64_phase41HtmlNamedAndNumericEntityDecodingSinglePassSafety" to ::test64_phase41HtmlNamedAndNumericEntityDecodingSinglePassSafety,
-            "test65_phase41TruncatedAndMalformedXmlSafety" to ::test65_phase41TruncatedAndMalformedXmlSafety
+            "test65_phase41TruncatedAndMalformedXmlSafety" to ::test65_phase41TruncatedAndMalformedXmlSafety,
+            "test66_cleanReaderBooleanAttributeTagsDoNotLeakAsText" to ::test66_cleanReaderBooleanAttributeTagsDoNotLeakAsText
         )
         for ((name, block) in tests) {
             block()
@@ -3805,6 +3806,31 @@ class NewsFeedAlgorithmTest {
         checkEquals(1, parsedMidStream.size, "Malformed unclosed prefix must be stripped so the valid inner item parses cleanly")
         checkEquals("পরবর্তী বৈধ সম্পূর্ণ সংবাদ", parsedMidStream[0].title, "Inner valid item title must not be polluted by unclosed item")
         checkEquals("https://example.com/valid-after-broken", parsedMidStream[0].link, "Inner valid item link must be extracted")
+    }
+
+    @Test
+    fun test66_cleanReaderBooleanAttributeTagsDoNotLeakAsText() {
+        val extractor = ArticleExtractor()
+        // Schema.org breadcrumb markup (as used by Bangla Tribune) has a value-less attribute (itemscope)
+        // followed by another attribute. The tags must be recognised and removed, not printed as text.
+        val html = """
+            <ul itemscope
+                itemtype="http://schema.org/BreadcrumbList"
+            >
+            <li itemscope itemtype="http://schema.org/ListItem">হোম</li>
+            <li itemscope
+                itemtype="http://schema.org/ListItem" >আইন ও অপরাধ</li>
+            </ul>
+            <p>রাজধানীতে অপরাধীরা কৃত্রিম বুদ্ধিমত্তা ব্যবহার করছে, এ নিয়ে পুলিশের সক্ষমতা আলোচনায় এসেছে।</p>
+            <p data-ad itemprop="articleBody">বিশেষজ্ঞরা বলছেন, প্রযুক্তিগত দক্ষতা বাড়ানো ছাড়া এ ঝুঁকি মোকাবিলা কঠিন হবে।</p>
+        """.trimIndent()
+        val joined = extractor.extractCleanParagraphs(html).joinToString("\n")
+        checkFalse(joined.contains("itemscope"), "Boolean attribute itemscope must not leak into clean reader text")
+        checkFalse(joined.contains("itemtype"), "Attribute itemtype must not leak into clean reader text")
+        checkFalse(joined.contains("schema.org"), "Schema.org attribute values must not leak into clean reader text")
+        checkFalse(joined.contains("<"), "No raw HTML tag characters may remain in clean reader text")
+        checkTrue(joined.contains("কৃত্রিম বুদ্ধিমত্তা"), "First real paragraph must be kept")
+        checkTrue(joined.contains("প্রযুক্তিগত দক্ষতা"), "Paragraph whose tag has a boolean attribute must be kept")
     }
 
     companion object {

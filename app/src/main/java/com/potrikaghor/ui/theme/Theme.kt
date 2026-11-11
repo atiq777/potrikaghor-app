@@ -1,5 +1,8 @@
 package com.potrikaghor.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -7,11 +10,15 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 
 @Composable
 fun PotrikaghorTheme(
@@ -169,9 +176,28 @@ fun PotrikaghorTheme(
         )
     )
 
+    // Keep the status bar icons (clock, battery %, network) readable on top of the real
+    // background: dark icons on light surfaces, light icons on dark surfaces.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        val useDarkStatusBarIcons = colorScheme.surface.luminance() > 0.5f
+        SideEffect {
+            val window = view.context.findHostActivity()?.window
+            if (window != null) {
+                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = useDarkStatusBarIcons
+            }
+        }
+    }
+
     MaterialTheme(
         colorScheme = colorScheme,
         typography = typography,
         content = content
     )
+}
+
+private tailrec fun Context.findHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findHostActivity()
+    else -> null
 }
