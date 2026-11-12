@@ -468,9 +468,8 @@ fun SettingsScreen(
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isTestingNotification) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
+                                com.potrikaghor.ui.components.PotrikaGhorLoader(
+                                    size = 20.dp
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("ব্রেকিং নিউজ খোঁজা হচ্ছে...")

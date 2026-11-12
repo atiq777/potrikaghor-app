@@ -4,6 +4,7 @@ import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -35,9 +36,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Article
@@ -91,8 +94,10 @@ import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.theme.AmoledCard
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.theme.InkColor
+import androidx.compose.ui.platform.testTag
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Consistent, subtle motion tokens across PotrikaGhor.
@@ -986,105 +991,135 @@ fun SkeletonCard(modifier: Modifier = Modifier) {
 }
 
 /**
- * Reusable PotrikaGhor Branded Breathing Loading Indicator.
+ * Unified PotrikaGhor Branded Loader ('প' letter animation).
  *
- * - Uses the official PotrikaGhor logo ([R.drawable.potrikaghor_logo]).
- * - Breathing animation:
- *   - Scale: 0.94f -> 1.06f -> 0.94f
- *   - Alpha: 0.65f -> 1.0f -> 0.65f
- *   - Cycle: 1200ms ([MotionTokens.BREATHING_MS]) with [FastOutSlowInEasing]
- *   - Subtle coral halo glow around the logo without altering logo colors
- * - Respects [rememberReducedMotion]: when Reduced Motion is active, infinite animations
- *   are disabled and the logo & loading label remain calm and static.
+ * Animates the Bengali 'প' (Potrika) letter using [Animatable] and [infiniteRepeatable] with:
+ * 1. Floating (vertical offset: -6dp <-> +6dp, scaled proportionally for compact sizes)
+ * 2. Fading (alpha: 0.48f <-> 1.0f)
+ * 3. Breathing (scale / puff-slim: 0.88f <-> 1.12f)
+ *
+ * Respects [rememberReducedMotion] for accessibility.
  */
 @Composable
-fun BrandedLoadingIndicator(
-    message: String = "লোড হচ্ছে...",
-    subtitle: String? = null,
-    logoSize: Dp = 74.dp,
-    modifier: Modifier = Modifier
+fun PotrikaGhorLoader(
+    modifier: Modifier = Modifier,
+    size: Dp = 74.dp,
+    message: String = "",
+    subtitle: String? = null
 ) {
     val reducedMotion = rememberReducedMotion()
     val brandCoral = Color(0xFFF04E37)
+    val brandTeal = Color(0xFF1D5455)
+    val isCompact = size <= 28.dp && message.isBlank() && subtitle.isNullOrBlank()
+    val maxFloatDp = if (isCompact) 2.2f else 6.0f
 
-    val logoScale: Float
-    val logoAlpha: Float
-    val glowAlpha: Float
-    val textAlpha: Float
+    val floatOffset = remember { Animatable(0f) }
+    val fadeAlpha = remember { Animatable(1f) }
+    val breathScale = remember { Animatable(1f) }
 
-    if (reducedMotion) {
-        logoScale = 1.0f
-        logoAlpha = 1.0f
-        glowAlpha = 0.08f
-        textAlpha = 1.0f
-    } else {
-        val infiniteTransition = rememberInfiniteTransition(label = "potrikaghorBreathingLoader")
-        val animatedScale by infiniteTransition.animateFloat(
-            initialValue = 0.94f,
-            targetValue = 1.06f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = MotionTokens.BREATHING_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "logoBreathingScale"
-        )
-        val animatedAlpha by infiniteTransition.animateFloat(
-            initialValue = 0.65f,
-            targetValue = 1.0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = MotionTokens.BREATHING_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "logoBreathingAlpha"
-        )
-        val animatedGlow by infiniteTransition.animateFloat(
-            initialValue = 0.05f,
-            targetValue = 0.14f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = MotionTokens.BREATHING_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "logoCoralGlowAlpha"
-        )
-        val animatedTextAlpha by infiniteTransition.animateFloat(
-            initialValue = 0.72f,
-            targetValue = 1.0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = MotionTokens.BREATHING_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "loadingTextAlpha"
-        )
-        logoScale = animatedScale
-        logoAlpha = animatedAlpha
-        glowAlpha = animatedGlow
-        textAlpha = animatedTextAlpha
+    LaunchedEffect(reducedMotion, maxFloatDp) {
+        if (reducedMotion) {
+            floatOffset.snapTo(0f)
+            fadeAlpha.snapTo(1f)
+            breathScale.snapTo(1f)
+        } else {
+            launch {
+                floatOffset.snapTo(-maxFloatDp)
+                floatOffset.animateTo(
+                    targetValue = maxFloatDp,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = MotionTokens.BREATHING_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        repeatMode = RepeatMode.Reverse
+                    )
+                )
+            }
+            launch {
+                fadeAlpha.snapTo(0.48f)
+                fadeAlpha.animateTo(
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = MotionTokens.BREATHING_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        repeatMode = RepeatMode.Reverse
+                    )
+                )
+            }
+            launch {
+                breathScale.snapTo(0.88f)
+                breathScale.animateTo(
+                    targetValue = 1.12f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = MotionTokens.BREATHING_MS,
+                            easing = FastOutSlowInEasing
+                        ),
+                        repeatMode = RepeatMode.Reverse
+                    )
+                )
+            }
+        }
+    }
+
+    val currentOffsetDp = floatOffset.value
+    val currentAlpha = fadeAlpha.value
+    val currentScale = breathScale.value
+    val glowAlpha = if (reducedMotion) 0.08f else (0.05f + (currentAlpha - 0.48f) * 0.18f).coerceIn(0.04f, 0.16f)
+    val textAlpha = if (reducedMotion) 1.0f else (0.72f + (currentAlpha - 0.48f) * 0.53f).coerceIn(0.70f, 1.0f)
+    val glyphFontSize = with(LocalDensity.current) { (size * 0.56f).toSp() }
+
+    if (isCompact) {
+        Box(
+            modifier = modifier
+                .size(size)
+                .testTag("potrikaghor_loader"),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .size(size)
+                    .offset(y = currentOffsetDp.dp)
+                    .graphicsLayer {
+                        scaleX = currentScale
+                        scaleY = currentScale
+                        alpha = currentAlpha
+                    },
+                shape = CircleShape,
+                color = brandTeal,
+                border = BorderStroke(1.dp, brandCoral.copy(alpha = 0.75f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "প",
+                        color = brandCoral,
+                        fontSize = glyphFontSize,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        return
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .padding(horizontal = 24.dp, vertical = 20.dp)
+            .testTag("potrikaghor_loader"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .size(logoSize + 28.dp)
+                .size(size + 28.dp)
                 .drawBehind {
-                    val radius = size.minDimension * 0.52f
+                    val radius = this.size.minDimension * 0.52f
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
@@ -1101,18 +1136,34 @@ fun BrandedLoadingIndicator(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.potrikaghor_logo),
-                contentDescription = "পত্রিকাঘর লোড হচ্ছে",
-                contentScale = ContentScale.Fit,
+            Surface(
                 modifier = Modifier
-                    .size(logoSize)
+                    .size(size)
+                    .offset(y = currentOffsetDp.dp)
                     .graphicsLayer {
-                        scaleX = logoScale
-                        scaleY = logoScale
-                        alpha = logoAlpha
-                    }
-            )
+                        scaleX = currentScale
+                        scaleY = currentScale
+                        alpha = currentAlpha
+                    },
+                shape = RoundedCornerShape(percent = 28),
+                color = brandTeal,
+                border = BorderStroke(1.5.dp, brandCoral.copy(alpha = 0.65f)),
+                shadowElevation = 4.dp
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "প",
+                        color = brandCoral,
+                        fontSize = glyphFontSize,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
 
         if (message.isNotBlank()) {
@@ -1147,6 +1198,25 @@ fun BrandedLoadingIndicator(
             )
         }
     }
+}
+
+/**
+ * Reusable PotrikaGhor Branded Breathing Loading Indicator.
+ * Delegates to [PotrikaGhorLoader] for a unified branded loading experience across all screens.
+ */
+@Composable
+fun BrandedLoadingIndicator(
+    message: String = "লোড হচ্ছে...",
+    subtitle: String? = null,
+    logoSize: Dp = 74.dp,
+    modifier: Modifier = Modifier
+) {
+    PotrikaGhorLoader(
+        modifier = modifier,
+        size = logoSize,
+        message = message,
+        subtitle = subtitle
+    )
 }
 
 
