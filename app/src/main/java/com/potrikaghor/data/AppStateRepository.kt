@@ -142,7 +142,9 @@ class AppStateRepository(
 
         val homeCats = try {
             val raw = prefs.getString("home_categories_json", null)
-            val saved = if (!raw.isNullOrEmpty()) json.decodeFromString<List<HomeCategoryPref>>(raw) else DefaultHomeCategories
+            val savedRaw = if (!raw.isNullOrEmpty()) json.decodeFromString<List<HomeCategoryPref>>(raw) else DefaultHomeCategories
+            // The "local" (স্থানীয়) home tab was removed. Drop it from older saved lists and keep the order contiguous.
+            val saved = savedRaw.filter { it.id != "local" }.sortedBy { it.order }.mapIndexed { idx, c -> c.copy(order = idx) }
             val existingIds = saved.map { it.id }.toSet()
             val missing = DefaultHomeCategories.filter { it.id !in existingIds }
             if (missing.isEmpty()) {
@@ -760,9 +762,12 @@ class AppStateRepository(
             } ?: emptyList()
             val fixes = element["fixes"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content } ?: emptyMap()
             val hidden = element["hidden"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
-            val homeCats = element["home_categories"]?.jsonArray?.map {
+            val homeCats = (element["home_categories"]?.jsonArray?.map {
                 json.decodeFromJsonElement(HomeCategoryPref.serializer(), it)
-            } ?: DefaultHomeCategories
+            } ?: DefaultHomeCategories)
+                .filter { it.id != "local" }
+                .sortedBy { it.order }
+                .mapIndexed { idx, c -> c.copy(order = idx) }
 
             val settings = element["settings"]?.jsonObject
             val themeInt = settings?.get("theme")?.jsonPrimitive?.intOrNull ?: 2

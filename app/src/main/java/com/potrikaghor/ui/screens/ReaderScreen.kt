@@ -79,6 +79,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -1150,13 +1153,26 @@ fun ReaderScreen(
                         listOf("সংবাদটির মূল অংশ বিশ্লেষণ করা হচ্ছে...")
                     }
 
+                    // The summary card sits on the reader background. On a dark reader (AMOLED) the old
+                    // tinted container + onPrimaryContainer text produced dark text on a dark card.
+                    val summaryBehindColor = if (isCleanReaderMode) readerBgColor else MaterialTheme.colorScheme.background
+                    val summaryOnDark = summaryBehindColor.luminance() < 0.5f
+                    val summaryContainerColor = if (summaryOnDark) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f).compositeOver(summaryBehindColor)
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                    }
+                    val summaryTitleColor = if (summaryOnDark) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                    val summaryBodyColor = if (summaryOnDark) Color(0xFFF0F0F0) else MaterialTheme.colorScheme.onPrimaryContainer
+                    val summaryAccentColor = if (summaryOnDark) lerp(MaterialTheme.colorScheme.primary, Color.White, 0.45f) else MaterialTheme.colorScheme.primary
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+                            containerColor = summaryContainerColor
                         )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -1169,7 +1185,7 @@ fun ReaderScreen(
                                     Icon(
                                         Icons.Filled.AutoAwesome,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = summaryAccentColor,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -1177,11 +1193,11 @@ fun ReaderScreen(
                                         text = "সংক্ষেপে পড়ুন (মূল বক্তব্য)",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = summaryTitleColor
                                     )
                                 }
                                 TextButton(onClick = { showAiSummary = false }) {
-                                    Text("লুকান")
+                                    Text("লুকান", color = summaryAccentColor)
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
@@ -1190,12 +1206,12 @@ fun ReaderScreen(
                                     Text(
                                         text = "• ",
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        color = summaryAccentColor
                                     )
                                     Text(
                                         text = bullet,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = summaryBodyColor
                                     )
                                 }
                             }

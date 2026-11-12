@@ -142,16 +142,15 @@ data class HomeCategoryPref(
 val DefaultHomeCategories = listOf(
     HomeCategoryPref("top", "আজকের গুরুত্বপূর্ণ", "", true, 0),
     HomeCategoryPref("bd", "বাংলাদেশ", "বাংলাদেশ", true, 1),
-    HomeCategoryPref("local", "স্থানীয়", "জেলা সংবাদ বাংলাদেশ", true, 2),
-    HomeCategoryPref("intl", "আন্তর্জাতিক", "আন্তর্জাতিক", true, 3),
-    HomeCategoryPref("tech", "প্রযুক্তি", "প্রযুক্তি", true, 4),
-    HomeCategoryPref("science", "বিজ্ঞান", "বিজ্ঞান", true, 5),
-    HomeCategoryPref("biz", "ব্যবসা/অর্থনীতি", "অর্থনীতি", true, 6),
-    HomeCategoryPref("jobs", "চাকরি", "চাকরি", true, 7),
-    HomeCategoryPref("sports", "খেলাধুলা", "খেলাধুলা", true, 8),
-    HomeCategoryPref("ent", "বিনোদন", "বিনোদন", true, 9),
-    HomeCategoryPref("health", "স্বাস্থ্য", "স্বাস্থ্য", true, 10),
-    HomeCategoryPref("edu", "শিক্ষা", "শিক্ষা", true, 11)
+    HomeCategoryPref("intl", "আন্তর্জাতিক", "আন্তর্জাতিক", true, 2),
+    HomeCategoryPref("tech", "প্রযুক্তি", "প্রযুক্তি", true, 3),
+    HomeCategoryPref("science", "বিজ্ঞান", "বিজ্ঞান", true, 4),
+    HomeCategoryPref("biz", "ব্যবসা/অর্থনীতি", "অর্থনীতি", true, 5),
+    HomeCategoryPref("jobs", "চাকরি", "চাকরি", true, 6),
+    HomeCategoryPref("sports", "খেলাধুলা", "খেলাধুলা", true, 7),
+    HomeCategoryPref("ent", "বিনোদন", "বিনোদন", true, 8),
+    HomeCategoryPref("health", "স্বাস্থ্য", "স্বাস্থ্য", true, 9),
+    HomeCategoryPref("edu", "শিক্ষা", "শিক্ষা", true, 10)
 )
 
 @Serializable

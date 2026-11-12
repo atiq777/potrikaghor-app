@@ -5,6 +5,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -68,6 +74,123 @@ import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.util.BengaliUtils
 import kotlinx.coroutines.launch
 
+private val SearchDivisions = listOf("ঢাকা", "চট্টগ্রাম", "রাজশাহী", "খুলনা", "বরিশাল", "সিলেট", "রংপুর", "ময়মনসিংহ")
+
+private val SearchPopularDistricts = listOf("কুমিল্লা", "গাজীপুর", "নারায়ণগঞ্জ", "বগুড়া", "কক্সবাজার", "যশোর")
+
+private val SearchAllDistricts: List<Pair<String, List<String>>> = listOf(
+    "ঢাকা বিভাগ" to listOf("ঢাকা", "গাজীপুর", "কিশোরগঞ্জ", "মানিকগঞ্জ", "মুন্সিগঞ্জ", "নারায়ণগঞ্জ", "নরসিংদী", "টাঙ্গাইল", "ফরিদপুর", "গোপালগঞ্জ", "মাদারীপুর", "রাজবাড়ী", "শরীয়তপুর"),
+    "চট্টগ্রাম বিভাগ" to listOf("চট্টগ্রাম", "কক্সবাজার", "কুমিল্লা", "ব্রাহ্মণবাড়িয়া", "চাঁদপুর", "ফেনী", "লক্ষ্মীপুর", "নোয়াখালী", "খাগড়াছড়ি", "রাঙামাটি", "বান্দরবান"),
+    "রাজশাহী বিভাগ" to listOf("রাজশাহী", "বগুড়া", "জয়পুরহাট", "নওগাঁ", "নাটোর", "চাঁপাইনবাবগঞ্জ", "পাবনা", "সিরাজগঞ্জ"),
+    "খুলনা বিভাগ" to listOf("খুলনা", "বাগেরহাট", "চুয়াডাঙ্গা", "যশোর", "ঝিনাইদহ", "কুষ্টিয়া", "মাগুরা", "মেহেরপুর", "নড়াইল", "সাতক্ষীরা"),
+    "বরিশাল বিভাগ" to listOf("বরিশাল", "বরগুনা", "ভোলা", "ঝালকাঠি", "পটুয়াখালী", "পিরোজপুর"),
+    "সিলেট বিভাগ" to listOf("সিলেট", "হবিগঞ্জ", "মৌলভীবাজার", "সুনামগঞ্জ"),
+    "রংপুর বিভাগ" to listOf("রংপুর", "দিনাজপুর", "গাইবান্ধা", "কুড়িগ্রাম", "লালমনিরহাট", "নীলফামারী", "পঞ্চগড়", "ঠাকুরগাঁও"),
+    "ময়মনসিংহ বিভাগ" to listOf("ময়মনসিংহ", "জামালপুর", "নেত্রকোণা", "শেরপুর")
+)
+
+@Composable
+private fun SearchSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 4.dp)
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchPlaceChips(
+    label: String,
+    places: List<String>,
+    query: String,
+    onPick: (String) -> Unit,
+    trailingLabel: String? = null,
+    onTrailingClick: (() -> Unit)? = null
+) {
+    SearchSectionLabel(label)
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        places.forEach { place ->
+            val isSelected = query == place
+            FilterChip(
+                selected = isSelected,
+                onClick = { onPick(place) },
+                label = { Text(place, fontSize = 12.sp) },
+                shape = RoundedCornerShape(14.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                border = null
+            )
+        }
+        if (trailingLabel != null && onTrailingClick != null) {
+            FilterChip(
+                selected = false,
+                onClick = onTrailingClick,
+                label = { Text(trailingLabel, fontSize = 12.sp) },
+                shape = RoundedCornerShape(14.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ),
+                border = null
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AllDistrictsDialog(
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("বন্ধ করুন") }
+        },
+        title = { Text("সব জেলা") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                SearchAllDistricts.forEach { (division, districts) ->
+                    Text(
+                        text = division,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        districts.forEach { district ->
+                            FilterChip(
+                                selected = false,
+                                onClick = { onPick(district) },
+                                label = { Text(district, fontSize = 12.sp) },
+                                shape = RoundedCornerShape(14.dp),
+                                border = null
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
 private enum class SearchViewState {
     LOADING,
     EMPTY,
@@ -89,6 +212,7 @@ fun SearchScreen(
     var results by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var hasSearched by remember { mutableStateOf(false) }
+    var showAllDistricts by remember { mutableStateOf(false) }
 
     fun doSearch(text: String) {
         if (text.trim().isEmpty()) return
@@ -171,6 +295,7 @@ fun SearchScreen(
             )
 
             // Quick Topic Suggestion Chips
+            SearchSectionLabel("বিষয়")
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
@@ -214,6 +339,38 @@ fun SearchScreen(
                         border = null
                     )
                 }
+            }
+
+            // Place shortcuts: divisions and popular districts. Any other place can be typed in the search box.
+            SearchPlaceChips(
+                label = "বিভাগ",
+                places = SearchDivisions,
+                query = query,
+                onPick = { place ->
+                    query = place
+                    doSearch(place)
+                }
+            )
+            SearchPlaceChips(
+                label = "জেলা",
+                places = SearchPopularDistricts,
+                query = query,
+                onPick = { place ->
+                    query = place
+                    doSearch(place)
+                },
+                trailingLabel = "সব জেলা ›",
+                onTrailingClick = { showAllDistricts = true }
+            )
+            if (showAllDistricts) {
+                AllDistrictsDialog(
+                    onDismiss = { showAllDistricts = false },
+                    onPick = { place ->
+                        showAllDistricts = false
+                        query = place
+                        doSearch(place)
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -263,6 +420,16 @@ fun SearchScreen(
                         LazyColumn(
                             contentPadding = PaddingValues(bottom = 24.dp)
                         ) {
+                            if (hasSearched && results.isNotEmpty()) {
+                                item(key = "search_results_header") {
+                                    Text(
+                                        text = "‘$query’ নিয়ে খবর",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
                             itemsIndexed(
                                 items = results,
                                 key = { idx, item -> "search_${idx}_${item.link.ifBlank { item.title }}" }
