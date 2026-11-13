@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.DirectoryRepository
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
 import com.potrikaghor.ui.components.EmptyState
@@ -84,22 +85,74 @@ fun MyPapersScreen(
     val appState by appRepo.state.collectAsState()
     val reducedMotion = rememberReducedMotion()
     var selectedCat by remember { mutableStateOf("all") }
+    var selectedDivision by remember { mutableStateOf("all") }
+    var selectedDistrict by remember { mutableStateOf("all") }
     var searchQuery by remember { mutableStateOf("") }
 
     val allList = appRepo.allPapers
-    val filteredList = remember(allList, selectedCat, searchQuery, appState.onlyShowFavorites) {
-        allList.filter { p ->
+    val directoryEntries = remember { DirectoryRepository.getAllEntries() }
+    val divisionByUrl = remember(directoryEntries) {
+        directoryEntries.associate { it.websiteUrl to it.division }
+    }
+    val districtByUrl = remember(directoryEntries) {
+        directoryEntries.associate { it.websiteUrl to it.district }
+    }
+
+    val combinedList = remember(allList, directoryEntries, appState.onlyShowFavorites, appState.hiddenPapers, appState.urlFixes) {
+        val customPapers = allList.filter { it.custom }
+        val mappedDirectory = directoryEntries
+            .filter { !appState.hiddenPapers.contains(it.websiteUrl) }
+            .map { dir ->
+                val normalizedCat = when (dir.primaryCategory) {
+                    "bu" -> "biz"
+                    "on" -> "online"
+                    "te" -> "tech"
+                    "ed" -> "edu"
+                    "sp" -> "sports"
+                    "jo" -> "jobs"
+                    "ko" -> "kol"
+                    "lo" -> "local"
+                    "ma" -> "mag"
+                    "bl" -> "blog"
+                    "in" -> "intl"
+                    else -> dir.primaryCategory
+                }
+                Paper(
+                    cat = normalizedCat,
+                    bn = dir.newspaperName,
+                    en = dir.newspaperName,
+                    url = dir.websiteUrl,
+                    custom = false,
+                    fix = appState.urlFixes[dir.websiteUrl]
+                )
+            }
+        val merged = customPapers + mappedDirectory
+        if (appState.onlyShowFavorites) merged.filter { appState.favs.contains(it.url) } else merged
+    }
+
+    val filteredList = remember(combinedList, selectedCat, selectedDivision, selectedDistrict, searchQuery, appState.favs) {
+        combinedList.filter { p ->
             val matchCat = when (selectedCat) {
                 "all" -> true
                 "mine" -> p.custom
                 "fav" -> appState.favs.contains(p.url)
                 else -> p.cat == selectedCat
             }
+            val matchDiv = if (selectedCat != "local" || selectedDivision == "all") {
+                true
+            } else {
+                divisionByUrl[p.url] == selectedDivision
+            }
+            val matchDist = if (selectedCat != "local" || selectedDistrict == "all") {
+                true
+            } else {
+                districtByUrl[p.url] == selectedDistrict
+            }
             val matchQuery = if (searchQuery.trim().isEmpty()) true else {
                 val q = searchQuery.trim().lowercase()
                 p.bn.lowercase().contains(q) || p.en.lowercase().contains(q) || p.url.lowercase().contains(q)
             }
-            matchCat && matchQuery
+            matchCat && matchDiv && matchDist && matchQuery
         }
     }
 
@@ -247,7 +300,13 @@ fun MyPapersScreen(
 
                     FilterChip(
                         selected = isSelected,
-                        onClick = { selectedCat = id },
+                        onClick = {
+                            selectedCat = id
+                            if (id != "local") {
+                                selectedDivision = "all"
+                                selectedDistrict = "all"
+                            }
+                        },
                         interactionSource = chipInteraction,
                         modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
                         label = {
@@ -266,6 +325,65 @@ fun MyPapersScreen(
                         shape = RoundedCornerShape(16.dp),
                         border = null
                     )
+                }
+            }
+
+            // Division & District Filter Rows (shown when Local category is selected)
+            if (selectedCat == "local") {
+                val divisions = listOf(
+                    "all" to "সব বিভাগ",
+                    "Dhaka" to "ঢাকা",
+                    "Chittagong" to "চট্টগ্রাম",
+                    "Rajshahi" to "রাজশাহী",
+                    "Khulna" to "খুলনা",
+                    "Barisal" to "বরিশাল",
+                    "Sylhet" to "সিলেট",
+                    "Rangpur" to "রংপুর",
+                    "Mymensingh" to "ময়মনসিংহ"
+                )
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    items(divisions, key = { it.first }) { (divId, divLabel) ->
+                        FilterChip(
+                            selected = selectedDivision == divId,
+                            onClick = {
+                                selectedDivision = divId
+                                selectedDistrict = "all"
+                            },
+                            label = { Text(divLabel, fontSize = 11.5.sp) },
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                    }
+                }
+
+                val availableDistricts = remember(directoryEntries, selectedDivision) {
+                    directoryEntries
+                        .asSequence()
+                        .filter { !it.district.isNullOrBlank() && (selectedDivision == "all" || it.division == selectedDivision) }
+                        .mapNotNull { it.district }
+                        .distinct()
+                        .sortedBy { DISTRICT_LABELS_BN[it] ?: it }
+                        .toList()
+                }
+                if (availableDistricts.isNotEmpty()) {
+                    val districtChips = remember(availableDistricts) {
+                        listOf("all" to "সব জেলা") + availableDistricts.map { it to (DISTRICT_LABELS_BN[it] ?: it) }
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        items(districtChips, key = { it.first }) { (distId, distLabel) ->
+                            FilterChip(
+                                selected = selectedDistrict == distId,
+                                onClick = { selectedDistrict = distId },
+                                label = { Text(distLabel, fontSize = 11.5.sp) },
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -320,6 +438,8 @@ fun MyPapersScreen(
                             actionLabel = "সব দেখুন",
                             onAction = {
                                 selectedCat = "all"
+                                selectedDivision = "all"
+                                selectedDistrict = "all"
                                 searchQuery = ""
                                 appRepo.setOnlyShowFavorites(false)
                             }
@@ -567,3 +687,60 @@ fun MyPaperGridItem(
         }
     }
 }
+
+private val DISTRICT_LABELS_BN = mapOf(
+    "Bagerhat" to "বাগেরহাট",
+    "Bandarban" to "বান্দরবান",
+    "Barisal" to "বরিশাল",
+    "Bhola" to "ভোলা",
+    "Bogra" to "বগুড়া",
+    "Brahmanbaria" to "ব্রাহ্মণবাড়িয়া",
+    "Chandpur" to "চাঁদপুর",
+    "Chapainawabganj" to "চাঁপাইনবাবগঞ্জ",
+    "Chittagong" to "চট্টগ্রাম",
+    "Chuadanga" to "চুয়াডাঙ্গা",
+    "Comilla" to "কুমিল্লা",
+    "Cox's Bazar" to "কক্সবাজার",
+    "Dhaka" to "ঢাকা",
+    "Dinajpur" to "দিনাজপুর",
+    "Feni" to "ফেনী",
+    "Gaibandha" to "গাইবান্ধা",
+    "Gazipur" to "গাজীপুর",
+    "Gopalganj" to "গোপালগঞ্জ",
+    "Habiganj" to "হবিগঞ্জ",
+    "Jamalpur" to "জামালপুর",
+    "Jessore" to "যশোর",
+    "Jhenaidah" to "ঝিনাইদহ",
+    "Khulna" to "খুলনা",
+    "Kishoreganj" to "কিশোরগঞ্জ",
+    "Kurigram" to "কুড়িগ্রাম",
+    "Kushtia" to "কুষ্টিয়া",
+    "Lakshmipur" to "লক্ষ্মীপুর",
+    "Lalmonirhat" to "লালমনিরহাট",
+    "Magura" to "মাগুরা",
+    "Meherpur" to "মেহেরপুর",
+    "Moulvibazar" to "মৌলভীবাজার",
+    "Munshiganj" to "মুন্সিগঞ্জ",
+    "Mymensingh" to "ময়মনসিংহ",
+    "Naogaon" to "নওগাঁ",
+    "Narail" to "নড়াইল",
+    "Narayanganj" to "নারায়ণগঞ্জ",
+    "Narsingdi" to "নরসিংদী",
+    "Natore" to "নাটোর",
+    "Netrokona" to "নেত্রকোণা",
+    "Nilphamari" to "নীলফামারী",
+    "Pabna" to "পাবনা",
+    "Panchagarh" to "পঞ্চগড়",
+    "Patuakhali" to "পটুয়াখালী",
+    "Pirojpur" to "পিরোজপুর",
+    "Rajshahi" to "রাজশাহী",
+    "Rangamati" to "রাঙ্গামাটি",
+    "Rangpur" to "রংপুর",
+    "Satkhira" to "সাতক্ষীরা",
+    "Shariatpur" to "শরীয়তপুর",
+    "Sherpur" to "শেরপুর",
+    "Sirajganj" to "সিরাজগঞ্জ",
+    "Sunamganj" to "সুনামগঞ্জ",
+    "Sylhet" to "সিলেট",
+    "Tangail" to "টাঙ্গাইল"
+)

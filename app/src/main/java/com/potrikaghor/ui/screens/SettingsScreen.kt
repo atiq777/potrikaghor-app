@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.StarRate
@@ -872,6 +873,25 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("রেটিং দিন", fontSize = 12.5.sp)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                val privacyUrl = "https://atiq777.github.io/potrikaghor-privacy/"
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(privacyUrl)))
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "লিংকটি খোলা যাচ্ছে না", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.Policy, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("প্রাইভেসি পলিসি (Privacy Policy)", fontSize = 12.5.sp)
                         }
                     }
                 }
