@@ -6,6 +6,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,7 +78,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -540,13 +541,17 @@ fun ReaderScreen(
         }
     }
 
-    // Dispose TTS cleanly on screen exit if it was ever lazily initialized
+    // Dispose TTS & stop WebView cleanly on screen exit
     DisposableEffect(Unit) {
         onDispose {
             liveDomExtractionJob?.cancel()
             delayedPageFinishedJob?.cancel()
             ttsPlaybackJob?.cancel()
             extractionCoordinator.reset()
+            try {
+                webViewRef?.stopLoading()
+            } catch (_: Exception) {}
+            webViewRef = null
             ttsLifecycle.onDispose {
                 try {
                     tts?.stop()
@@ -560,7 +565,7 @@ fun ReaderScreen(
     // Safety timeout for Google News redirection overlay
     LaunchedEffect(isRedirectingGoogleNews) {
         if (isRedirectingGoogleNews) {
-            delay(6500L)
+            delay(5500L)
             isRedirectingGoogleNews = false
         }
     }
@@ -596,6 +601,7 @@ fun ReaderScreen(
             isExtracting = true
             currentWebUrl = initialUrl
             isRedirectingGoogleNews = initialUrl.contains("news.google.com")
+            webViewRef?.loadUrl(initialUrl)
         }
     }
 
@@ -1297,6 +1303,33 @@ fun ReaderScreen(
                                         }
                                     }
 
+                                    override fun onPageCommitVisible(view: WebView?, url: String?) {
+                                        super.onPageCommitVisible(view, url)
+                                        val committedUrl = (url ?: view?.url ?: "").trim()
+                                        if (committedUrl.isNotEmpty() && !committedUrl.contains("news.google.com")) {
+                                            if (currentWebUrl != committedUrl) {
+                                                currentWebUrl = committedUrl
+                                            }
+                                            if (isRedirectingGoogleNews) {
+                                                isRedirectingGoogleNews = false
+                                            }
+                                        }
+                                    }
+
+                                    override fun onReceivedError(
+                                        view: WebView?,
+                                        request: WebResourceRequest?,
+                                        error: WebResourceError?
+                                    ) {
+                                        super.onReceivedError(view, request, error)
+                                        if (request?.isForMainFrame == true) {
+                                            isRedirectingGoogleNews = false
+                                            if (cleanArticle == null) {
+                                                isExtracting = false
+                                            }
+                                        }
+                                    }
+
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                         val resolvedUrl = (url ?: currentWebUrl).trim()
@@ -1336,18 +1369,24 @@ fun ReaderScreen(
                                             )
                                         }
 
-                                        // Inject night mode or ad hiding if enabled
+                                        // Inject night mode or safe ad hiding if enabled
                                         if (appState.readerNight) {
                                             view?.evaluateJavascript(
-                                                "document.documentElement.style.filter = 'invert(1) hue-rotate(180deg)';" +
-                                                    "document.body.style.backgroundColor = '#121212';",
+                                                "(function() {" +
+                                                    "if (document.documentElement) document.documentElement.style.filter = 'invert(1) hue-rotate(180deg)';" +
+                                                    "if (document.body) document.body.style.backgroundColor = '#121212';" +
+                                                    "})();",
                                                 null
                                             )
                                         }
                                         if (appState.hideAds) {
                                             view?.evaluateJavascript(
-                                                "const selectors = ['[class*=\"ad-\"]', '[id*=\"ad-\"]', '.adsbygoogle', '.floating-ad', '#header-ad'];" +
-                                                    "selectors.forEach(s => document.querySelectorAll(s).forEach(e => e.style.display = 'none'));",
+                                                "(function() {" +
+                                                    "var selectors = ['.adsbygoogle', 'ins.adsbygoogle', '.floating-ad', '#header-ad', '[id^=\"google_ads_iframe\"]', 'iframe[src*=\"doubleclick.net\"]', 'iframe[src*=\"googlesyndication.com\"]'];" +
+                                                    "selectors.forEach(function(s) {" +
+                                                    "  document.querySelectorAll(s).forEach(function(e) { e.style.display = 'none'; });" +
+                                                    "});" +
+                                                    "})();",
                                                 null
                                             )
                                         }
@@ -1357,17 +1396,21 @@ fun ReaderScreen(
                                 loadUrl(initialUrl)
                             }
                         },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .alpha(if (isCleanReaderMode || isRedirectingGoogleNews) 0f else 1f)
+                        modifier = Modifier.fillMaxSize()
                     )
 
                     // Friendly redirect overlay while Google News resolves the target newspaper page
                     if (!isCleanReaderMode && isRedirectingGoogleNews) {
+                        val redirectOverlayInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(MaterialTheme.colorScheme.background)
+                                .clickable(
+                                    interactionSource = redirectOverlayInteraction,
+                                    indication = null,
+                                    onClick = {}
+                                )
                                 .padding(24.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1385,10 +1428,16 @@ fun ReaderScreen(
 
                     // CLEAN READER MODE OVERLAY
                     if (isCleanReaderMode) {
+                        val cleanOverlayInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(readerBgColor)
+                                .clickable(
+                                    interactionSource = cleanOverlayInteraction,
+                                    indication = null,
+                                    onClick = {}
+                                )
                         ) {
                             if (isExtracting && (cleanArticle == null || currentWebUrl.contains("news.google.com"))) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1399,7 +1448,7 @@ fun ReaderScreen(
                                         logoSize = 74.dp
                                     )
                                 }
-                            } else if (cleanArticle != null) {
+                            } else if (cleanArticle != null && (cleanArticle!!.paragraphs.isNotEmpty() || cleanArticle!!.title.isNotBlank())) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -1533,6 +1582,45 @@ fun ReaderScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(30.dp))
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "ক্লিন রিডার মোডে লেখাটি সাজানো যায়নি",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = readerTextColor
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "এই পাতাটির পূর্ণাঙ্গ লেখা সরাসরি মূল ওয়েবসাইটে পড়তে পারেন।",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = readerTextColor.copy(alpha = 0.78f)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Button(
+                                        onClick = {
+                                            isCleanReaderMode = false
+                                            appRepo.setPreferCleanReader(false)
+                                        }
+                                    ) {
+                                        Text("মূল ওয়েবসাইটে পড়ুন")
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            isExtracting = true
+                                            extractLiveFromWebView(webViewRef, forceRefresh = true)
+                                        }
+                                    ) {
+                                        Text("আবার চেষ্টা করুন")
+                                    }
                                 }
                             }
                         }

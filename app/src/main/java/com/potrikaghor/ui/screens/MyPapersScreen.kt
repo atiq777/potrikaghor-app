@@ -4,6 +4,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,9 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewAgenda
@@ -73,6 +77,7 @@ import com.potrikaghor.ui.components.rememberReducedMotion
 import com.potrikaghor.ui.components.subtleClickable
 import com.potrikaghor.ui.theme.FlagRed
 import com.potrikaghor.ui.util.BengaliUtils
+import java.net.URI
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,8 +103,14 @@ fun MyPapersScreen(
         directoryEntries.associate { it.websiteUrl to it.district }
     }
 
-    val combinedList = remember(allList, directoryEntries, appState.onlyShowFavorites, appState.hiddenPapers, appState.urlFixes) {
+    val allDirectoryAndCustom = remember(allList, directoryEntries, appState.hiddenPapers, appState.urlFixes) {
         val customPapers = allList.filter { it.custom }
+        val builtInByNormalizedUrl = PapersData.builtInPapers.associateBy { normalizeLookupUrl(it.url) }
+        val builtInByUniqueHost = PapersData.builtInPapers
+            .groupBy { normalizeLookupHost(it.url) }
+            .filter { (host, list) -> host.isNotEmpty() && list.size == 1 }
+            .mapValues { it.value.first() }
+
         val mappedDirectory = directoryEntries
             .filter { !appState.hiddenPapers.contains(it.websiteUrl) }
             .map { dir ->
@@ -117,17 +128,36 @@ fun MyPapersScreen(
                     "in" -> "intl"
                     else -> dir.primaryCategory
                 }
+                val builtInMatch = builtInByNormalizedUrl[normalizeLookupUrl(dir.websiteUrl)]
+                    ?: builtInByUniqueHost[normalizeLookupHost(dir.websiteUrl)]
                 Paper(
                     cat = normalizedCat,
-                    bn = dir.newspaperName,
+                    bn = builtInMatch?.bn ?: dir.newspaperName,
                     en = dir.newspaperName,
                     url = dir.websiteUrl,
                     custom = false,
                     fix = appState.urlFixes[dir.websiteUrl]
                 )
             }
-        val merged = customPapers + mappedDirectory
-        if (appState.onlyShowFavorites) merged.filter { appState.favs.contains(it.url) } else merged
+        customPapers + mappedDirectory
+    }
+
+    val allPapersByUrl = remember(allDirectoryAndCustom) {
+        allDirectoryAndCustom.associateBy { it.url }
+    }
+
+    val recentPapers = remember(appState.recents, allPapersByUrl) {
+        appState.recents
+            .mapNotNull { recentUrl -> allPapersByUrl[recentUrl] ?: appRepo.paperFor(recentUrl) }
+            .distinctBy { it.url }
+    }
+
+    val combinedList = remember(allDirectoryAndCustom, appState.onlyShowFavorites, appState.favs) {
+        if (appState.onlyShowFavorites) {
+            allDirectoryAndCustom.filter { appState.favs.contains(it.url) }
+        } else {
+            allDirectoryAndCustom
+        }
     }
 
     val filteredList = remember(combinedList, selectedCat, selectedDivision, selectedDistrict, searchQuery, appState.favs) {
@@ -149,8 +179,12 @@ fun MyPapersScreen(
                 districtByUrl[p.url] == selectedDistrict
             }
             val matchQuery = if (searchQuery.trim().isEmpty()) true else {
-                val q = searchQuery.trim().lowercase()
-                p.bn.lowercase().contains(q) || p.en.lowercase().contains(q) || p.url.lowercase().contains(q)
+                matchesBilingualPaperSearch(
+                    paper = p,
+                    query = searchQuery,
+                    division = divisionByUrl[p.url],
+                    district = districtByUrl[p.url]
+                )
             }
             matchCat && matchDiv && matchDist && matchQuery
         }
@@ -254,7 +288,7 @@ fun MyPapersScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 4.dp),
-                placeholder = { Text("পত্রিকার নাম বা লিংক খুঁজুন...", fontSize = 13.5.sp) },
+                placeholder = { Text("পত্রিকার নাম (বাংলা/English) বা লিংক খুঁজুন...", fontSize = 13.5.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -266,6 +300,72 @@ fun MyPapersScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp)
             )
+
+            // Recently Read Row ("সম্প্রতি পড়া")
+            if (recentPapers.isNotEmpty() && searchQuery.isBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp, bottom = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "সম্প্রতি পড়া",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(recentPapers, key = { "recent_${it.url}" }) { recentPaper ->
+                            Surface(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .widthIn(max = 190.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .subtleClickable(pressedScale = 0.97f) {
+                                        appRepo.addRecent(recentPaper.url)
+                                        onOpenReader(recentPaper, recentPaper.openUrl)
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    PaperAvatar(paper = recentPaper, size = 26.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = recentPaper.bn,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Category Chips Row
             val availableCategories = listOf(
@@ -457,7 +557,10 @@ fun MyPapersScreen(
                                     paper = paper,
                                     isFav = appState.favs.contains(paper.url),
                                     onToggleFav = { appRepo.toggleFav(paper.url) },
-                                    onOpen = { onOpenReader(paper, paper.openUrl) },
+                                    onOpen = {
+                                        appRepo.addRecent(paper.url)
+                                        onOpenReader(paper, paper.openUrl)
+                                    },
                                     onFixUrl = { onFixUrl(paper) }
                                 )
                             }
@@ -472,7 +575,10 @@ fun MyPapersScreen(
                                     paper = paper,
                                     isFav = appState.favs.contains(paper.url),
                                     onToggleFav = { appRepo.toggleFav(paper.url) },
-                                    onOpen = { onOpenReader(paper, paper.openUrl) },
+                                    onOpen = {
+                                        appRepo.addRecent(paper.url)
+                                        onOpenReader(paper, paper.openUrl)
+                                    },
                                     onFixUrl = { onFixUrl(paper) },
                                     onToggleHide = { appRepo.toggleHidePaper(paper.url) }
                                 )
@@ -744,3 +850,223 @@ private val DISTRICT_LABELS_BN = mapOf(
     "Sylhet" to "সিলেট",
     "Tangail" to "টাঙ্গাইল"
 )
+
+private val DIVISION_LABELS_BN = mapOf(
+    "Dhaka" to "ঢাকা",
+    "Chittagong" to "চট্টগ্রাম",
+    "Rajshahi" to "রাজশাহী",
+    "Khulna" to "খুলনা",
+    "Barisal" to "বরিশাল",
+    "Sylhet" to "সিলেট",
+    "Rangpur" to "রংপুর",
+    "Mymensingh" to "ময়মনসিংহ"
+)
+
+private fun normalizeLookupUrl(url: String): String =
+    url.trim().trimEnd('/').lowercase()
+        .replace("http://", "https://")
+        .replace("://www.", "://")
+
+private fun normalizeLookupHost(url: String): String = try {
+    URI(url.trim()).host?.lowercase()?.removePrefix("www.") ?: ""
+} catch (_: Exception) {
+    ""
+}
+
+private fun hasBengaliChars(text: String): Boolean =
+    text.any { it in '\u0980'..'\u09FF' }
+
+private fun matchesBilingualPaperSearch(
+    paper: Paper,
+    query: String,
+    division: String?,
+    district: String?
+): Boolean {
+    val q = query.trim().lowercase()
+    if (q.isEmpty()) return true
+
+    val bnLower = paper.bn.lowercase()
+    val enLower = paper.en.lowercase()
+    val urlLower = paper.url.lowercase()
+    val fixLower = (paper.fix ?: "").lowercase()
+    val divLower = (division ?: "").lowercase()
+    val distLower = (district ?: "").lowercase()
+    val divBnLower = (division?.let { DIVISION_LABELS_BN[it] } ?: "").lowercase()
+    val distBnLower = (district?.let { DISTRICT_LABELS_BN[it] } ?: "").lowercase()
+
+    if (bnLower.contains(q) ||
+        enLower.contains(q) ||
+        urlLower.contains(q) ||
+        fixLower.contains(q) ||
+        divLower.contains(q) ||
+        distLower.contains(q) ||
+        divBnLower.contains(q) ||
+        distBnLower.contains(q)
+    ) {
+        return true
+    }
+
+    if (hasBengaliChars(q)) {
+        val collapsedTarget = (enLower + " " + urlLower + " " + divLower + " " + distLower)
+            .replace(Regex("[^a-z0-9]"), "")
+        val latinCandidates = buildBengaliToLatinCandidates(q)
+        for (candidate in latinCandidates) {
+            if (candidate.isBlank()) continue
+            if (enLower.contains(candidate) ||
+                urlLower.contains(candidate) ||
+                divLower.contains(candidate) ||
+                distLower.contains(candidate)
+            ) {
+                return true
+            }
+            val collapsedCandidate = candidate.replace(Regex("[^a-z0-9]"), "")
+            if (collapsedCandidate.length >= 2 && collapsedTarget.contains(collapsedCandidate)) {
+                return true
+            }
+        }
+    } else {
+        val collapsedEnQuery = q.replace(Regex("[^a-z0-9]"), "")
+        if (collapsedEnQuery.length >= 2) {
+            val collapsedTarget = (enLower + " " + urlLower).replace(Regex("[^a-z0-9]"), "")
+            if (collapsedTarget.contains(collapsedEnQuery)) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
+private val BENGALI_WORD_TRANSLITERATIONS = listOf(
+    "প্রথম আলো" to listOf("prothom alo", "prothomalo"),
+    "কালের কণ্ঠ" to listOf("kaler kantho", "kalerkantho"),
+    "বাংলাদেশ প্রতিদিন" to listOf("bangladesh pratidin", "bd-pratidin"),
+    "নয়া দিগন্ত" to listOf("naya diganta", "nayadiganta"),
+    "নয়া দিগন্ত" to listOf("naya diganta", "nayadiganta"),
+    "আমাদের সময়" to listOf("amader shomoy", "amadershomoy"),
+    "আমাদের সময়" to listOf("amader shomoy", "amadershomoy"),
+    "যায়যায়দিন" to listOf("jaijaidin", "jai jai din"),
+    "যায়যায়দিন" to listOf("jaijaidin", "jai jai din"),
+    "ভোরের কাগজ" to listOf("bhorer kagoj", "vorerkagoj"),
+    "দেশ রূপান্তর" to listOf("desh rupantor"),
+    "আজকের পত্রিকা" to listOf("ajker patrika"),
+    "মানবজমিন" to listOf("manob zamin", "manab zamin", "mzamin"),
+    "দৈনিক" to listOf("dainik", "daily"),
+    "প্রথম" to listOf("prothom"),
+    "আলো" to listOf("alo"),
+    "যুগান্তর" to listOf("jugantor"),
+    "ইত্তেফাক" to listOf("ittefaq"),
+    "সমকাল" to listOf("samakal"),
+    "ইনকিলাব" to listOf("inqilab"),
+    "জনকণ্ঠ" to listOf("janakantha"),
+    "কালবেলা" to listOf("kalbela"),
+    "সংবাদ" to listOf("sangbad", "sambad"),
+    "খবর" to listOf("khabor", "khobor"),
+    "বার্তা" to listOf("barta"),
+    "প্রতিদিন" to listOf("pratidin", "protidin"),
+    "পত্রিকা" to listOf("patrika"),
+    "সময়" to listOf("shomoy", "somoy"),
+    "সময়" to listOf("shomoy", "somoy"),
+    "আমাদের" to listOf("amader"),
+    "আজকের" to listOf("ajker"),
+    "বাংলাদেশ" to listOf("bangladesh"),
+    "বাংলা" to listOf("bangla"),
+    "দেশ" to listOf("desh"),
+    "নিউজ" to listOf("news"),
+    "টাইমস" to listOf("times"),
+    "পোস্ট" to listOf("post"),
+    "ডেইলি" to listOf("daily"),
+    "স্টার" to listOf("star"),
+    "ট্রিবিউন" to listOf("tribune"),
+    "টিভি" to listOf("tv"),
+    "বিডি" to listOf("bd"),
+    "২৪" to listOf("24"),
+    "ঢাকা" to listOf("dhaka"),
+    "চট্টগ্রাম" to listOf("chittagong", "chattogram"),
+    "রাজশাহী" to listOf("rajshahi"),
+    "খুলনা" to listOf("khulna"),
+    "বরিশাল" to listOf("barisal", "barishal"),
+    "সিলেট" to listOf("sylhet"),
+    "রংপুর" to listOf("rangpur"),
+    "ময়মনসিংহ" to listOf("mymensingh"),
+    "ময়মনসিংহ" to listOf("mymensingh"),
+    "কুমিল্লা" to listOf("comilla", "cumilla"),
+    "কক্সবাজার" to listOf("cox's bazar", "coxsbazar"),
+    "যশোর" to listOf("jessore", "jashore"),
+    "বগুড়া" to listOf("bogra", "bogura"),
+    "বগুড়া" to listOf("bogra", "bogura")
+)
+
+private fun buildBengaliToLatinCandidates(bnQuery: String): List<String> {
+    val results = linkedSetOf<String>()
+    var primary = bnQuery
+    var secondary = bnQuery
+    for ((bn, enVariants) in BENGALI_WORD_TRANSLITERATIONS) {
+        if (primary.contains(bn)) {
+            primary = primary.replace(bn, enVariants.first())
+            secondary = secondary.replace(bn, enVariants.last())
+        }
+    }
+    results.add(transliterateRemainingBengali(primary).trim())
+    results.add(transliterateRemainingBengali(secondary).trim())
+    results.add(transliterateRemainingBengali(bnQuery).trim())
+    return results.filter { it.isNotBlank() }
+}
+
+private fun transliterateRemainingBengali(input: String): String {
+    val normalized = input
+        .replace("\u09AF\u09BC", "y")
+        .replace("\u09A1\u09BC", "r")
+        .replace("\u09A2\u09BC", "r")
+    val sb = StringBuilder(normalized.length * 2)
+    for (ch in normalized) {
+        val mapped = when (ch) {
+            'অ' -> "o"
+            'আ', 'া' -> "a"
+            'ই', 'ঈ', 'ি', 'ী' -> "i"
+            'উ', 'ঊ', 'ু', 'ূ' -> "u"
+            'ঋ', 'ৃ' -> "ri"
+            'এ', 'ে' -> "e"
+            'ঐ', 'ৈ' -> "oi"
+            'ও', 'ো' -> "o"
+            'ঔ', 'ৌ' -> "ou"
+            'ক', 'খ' -> if (ch == 'ক') "k" else "kh"
+            'গ', 'ঘ' -> if (ch == 'গ') "g" else "gh"
+            'ঙ', 'ং' -> "ng"
+            'চ' -> "ch"
+            'ছ' -> "chh"
+            'জ', 'য' -> "j"
+            'ঝ' -> "jh"
+            'ঞ' -> "n"
+            'ট', 'ত', 'ৎ' -> "t"
+            'ঠ', 'থ' -> "th"
+            'ড', 'দ' -> "d"
+            'ঢ', 'ধ' -> "dh"
+            'ন', 'ণ' -> "n"
+            'প' -> "p"
+            'ফ' -> "f"
+            'ব', 'ভ' -> if (ch == 'ব') "b" else "bh"
+            'ম' -> "m"
+            '\u09DF' -> "y"
+            'র', '\u09DC', '\u09DD' -> "r"
+            'ল' -> "l"
+            'শ', 'ষ' -> "sh"
+            'স' -> "s"
+            'হ' -> "h"
+            '০' -> "0"
+            '১' -> "1"
+            '২' -> "2"
+            '৩' -> "3"
+            '৪' -> "4"
+            '৫' -> "5"
+            '৬' -> "6"
+            '৭' -> "7"
+            '৮' -> "8"
+            '৯' -> "9"
+            '্', 'ঁ', '়' -> ""
+            else -> ch.toString()
+        }
+        sb.append(mapped)
+    }
+    return sb.toString().replace(Regex("\\s+"), " ")
+}
