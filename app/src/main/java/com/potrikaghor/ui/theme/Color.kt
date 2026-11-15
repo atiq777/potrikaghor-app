@@ -8,8 +8,12 @@ val FlagRed = Color(0xFFE04332)
 val BrandGreen = Color(0xFF0E6B4A)
 val SalmonPink = Color(0xFFFF6E6E) // User's requested AMOLED pink/salmon accent
 
+val BrandTeal = Color(0xFF1A5051)
+val BrandCoral = Color(0xFFFE5941)
+val BrandCream = Color(0xFFFDF2E2)
+
 val AccentColors = listOf(
-    Color(0xFFD83E2E), // লাল (ডিফল্ট)
+    BrandTeal,         // ডিপ টিল (ডিফল্ট)
     Color(0xFF0F6B94), // নীল
     Color(0xFF6A3FB5), // বেগুনি
     Color(0xFFD9622B), // কমলা
@@ -28,6 +32,6 @@ val SepiaTextSecondary = Color(0xFF6B5B43)
 
 // AMOLED palette
 val AmoledBackground = Color(0xFF000000)
-val AmoledSurface = Color(0xFF101314)
-val AmoledCard = Color(0xFF171C1E)
-val AmoledBorder = Color(0xFF283134)
+val AmoledSurface = Color(0xFF0E1717)
+val AmoledCard = Color(0xFF12201F)
+val AmoledBorder = Color(0xFF1F3332)

@@ -12,12 +12,15 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 
 @Composable
@@ -36,41 +39,60 @@ fun PotrikaghorTheme(
     }
 
     val primaryAccent = AccentColors.getOrElse(accentIndex) { AccentColors[0] }
+    val darkPrimary = brightenAccentForDark(primaryAccent)
+    val darkOnPrimary = if (darkPrimary.luminance() > 0.36f) Color(0xFF0B1415) else Color.White
+    val lightAccentContainer = if (primaryAccent == BrandTeal) {
+        Color(0xFFDCEBE9)
+    } else {
+        lerp(primaryAccent, Color.White, 0.84f)
+    }
 
     val colorScheme: ColorScheme = if (isDark) {
         if (themeStyle == "amoled") {
             darkColorScheme(
-                primary = primaryAccent,
-                onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.2f),
+                primary = darkPrimary,
+                onPrimary = darkOnPrimary,
+                primaryContainer = darkPrimary.copy(alpha = 0.2f),
                 onPrimaryContainer = Color.White,
-                secondary = BrandGreen,
-                onSecondary = Color.White,
+                secondary = darkPrimary,
+                onSecondary = darkOnPrimary,
+                secondaryContainer = darkPrimary.copy(alpha = 0.18f),
+                onSecondaryContainer = Color(0xFFF2F6F5),
+                tertiary = Color(0xFFFF7A66),
+                onTertiary = Color(0xFF2A0A04),
+                tertiaryContainer = Color(0xFF4A1A12),
+                onTertiaryContainer = Color(0xFFFFD9D2),
                 background = AmoledBackground,
-                onBackground = Color(0xFFF3F6F7),
+                onBackground = Color(0xFFF2F6F5),
                 surface = AmoledSurface,
-                onSurface = Color(0xFFF3F6F7),
+                onSurface = Color(0xFFF2F6F5),
                 surfaceVariant = AmoledCard,
-                onSurfaceVariant = Color(0xFFA0AEB1),
+                onSurfaceVariant = Color(0xFF9DB1AF),
                 outline = AmoledBorder,
                 outlineVariant = AmoledBorder
             )
         } else {
             darkColorScheme(
-                primary = primaryAccent,
-                onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.25f),
+                primary = darkPrimary,
+                onPrimary = darkOnPrimary,
+                primaryContainer = darkPrimary.copy(alpha = 0.25f),
                 onPrimaryContainer = Color.White,
-                secondary = BrandGreen,
-                onSecondary = Color.White,
-                background = Color(0xFF0E1112),
-                onBackground = Color(0xFFEFF3F4),
-                surface = Color(0xFF161B1D),
-                onSurface = Color(0xFFEFF3F4),
-                surfaceVariant = Color(0xFF1E2528),
-                onSurfaceVariant = Color(0xFFA2AFB2),
-                outline = Color(0xFF333E42),
-                outlineVariant = Color(0xFF283135)
+                secondary = darkPrimary,
+                onSecondary = darkOnPrimary,
+                secondaryContainer = darkPrimary.copy(alpha = 0.18f),
+                onSecondaryContainer = Color(0xFFF2F6F5),
+                tertiary = Color(0xFFFF7A66),
+                onTertiary = Color(0xFF2A0A04),
+                tertiaryContainer = Color(0xFF4A1A12),
+                onTertiaryContainer = Color(0xFFFFD9D2),
+                background = Color(0xFF0B1415),
+                onBackground = Color(0xFFF2F6F5),
+                surface = Color(0xFF12201F),
+                onSurface = Color(0xFFF2F6F5),
+                surfaceVariant = Color(0xFF172A29),
+                onSurfaceVariant = Color(0xFF9DB1AF),
+                outline = Color(0xFF1F3332),
+                outlineVariant = Color(0xFF1A2B2A)
             )
         }
     } else {
@@ -92,24 +114,28 @@ fun PotrikaghorTheme(
                 outlineVariant = Color(0xFFDDD0B3)
             )
         } else {
-            // Warm Editorial Paper Light Theme
+            // Warm Cream + Deep Teal + Coral Light Theme
             lightColorScheme(
                 primary = primaryAccent,
                 onPrimary = Color.White,
-                primaryContainer = primaryAccent.copy(alpha = 0.14f),
-                onPrimaryContainer = InkColor,
-                secondary = BrandGreen,
+                primaryContainer = lightAccentContainer,
+                onPrimaryContainer = primaryAccent,
+                secondary = primaryAccent,
                 onSecondary = Color.White,
-                secondaryContainer = BrandGreen.copy(alpha = 0.14f),
-                onSecondaryContainer = BrandGreen,
-                background = PaperColor,
-                onBackground = InkColor,
-                surface = Color(0xFFFFFDF9),
-                onSurface = InkColor,
-                surfaceVariant = Color(0xFFEBE5D8),
-                onSurfaceVariant = Color(0xFF565E60),
-                outline = Color(0xFFB5ADA0),
-                outlineVariant = Color(0xFFDAD2C5)
+                secondaryContainer = lightAccentContainer,
+                onSecondaryContainer = primaryAccent,
+                tertiary = BrandCoral,
+                onTertiary = Color.White,
+                tertiaryContainer = Color(0xFFFFE0DA),
+                onTertiaryContainer = Color(0xFF7A2315),
+                background = Color(0xFFFBF4E8),
+                onBackground = Color(0xFF1B1F1E),
+                surface = Color(0xFFFFFCF6),
+                onSurface = Color(0xFF1B1F1E),
+                surfaceVariant = Color(0xFFF0E6D3),
+                onSurfaceVariant = Color(0xFF5F6B6A),
+                outline = Color(0xFFEADFCB),
+                outlineVariant = Color(0xFFEADFCB)
             )
         }
     }
@@ -194,6 +220,15 @@ fun PotrikaghorTheme(
         typography = typography,
         content = content
     )
+}
+
+private fun brightenAccentForDark(accent: Color): Color {
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(accent.toArgb(), hsl)
+    if (hsl[2] < 0.54f) {
+        hsl[2] = 0.54f
+    }
+    return Color(ColorUtils.HSLToColor(hsl))
 }
 
 private tailrec fun Context.findHostActivity(): Activity? = when (this) {

@@ -1642,7 +1642,7 @@ fun LeadStoryCard(
                 Spacer(modifier = Modifier.weight(1f))
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = FlagRed.copy(alpha = 0.14f)
+                    color = MaterialTheme.colorScheme.tertiaryContainer
                 ) {
                     Text(
                         text = badgeLabel,
@@ -1651,7 +1651,7 @@ fun LeadStoryCard(
                             fontSize = 10.sp,
                             lineHeight = 13.sp
                         ),
-                        color = FlagRed,
+                        color = MaterialTheme.colorScheme.tertiary,
                         fontWeight = FontWeight.Bold
                     )
                 }
