@@ -62,7 +62,8 @@ data class AppSettings(
     val mutedKeywords: List<String> = emptyList(),
     val dataSaverMode: Boolean = false,
     val preferCleanReader: Boolean = true,
-    val homeFeedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES
+    val homeFeedMode: HomeFeedMode = HomeFeedMode.TOP_STORIES,
+    val searchHistory: List<String> = emptyList()
 )
 
 class AppStateRepository(
@@ -212,6 +213,13 @@ class AppStateRepository(
             emptyList()
         }
 
+        val searchHistory = try {
+            val raw = prefs.getString("search_history_json", null)
+            if (!raw.isNullOrEmpty()) json.decodeFromString<List<String>>(raw) else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
         synchronized(stateLock) {
             readArticlesLookupSet = readArticles.toHashSet()
             _state.value = AppSettings(
@@ -242,7 +250,8 @@ class AppStateRepository(
                 mutedKeywords = mutedKeywords,
                 dataSaverMode = dataSaverMode,
                 preferCleanReader = preferCleanReader,
-                homeFeedMode = homeFeedMode
+                homeFeedMode = homeFeedMode,
+                searchHistory = searchHistory
             )
         }
         _isReady.value = true
@@ -812,7 +821,8 @@ class AppStateRepository(
                     articleLineHeight = articleLineHeight,
                     readingDensity = density,
                     readArticles = cur.readArticles,
-                    readHistory = cur.readHistory
+                    readHistory = cur.readHistory,
+                    searchHistory = cur.searchHistory
                 )
             }
 
@@ -1075,6 +1085,64 @@ class AppStateRepository(
         }
     }
 
+    fun addSearchQuery(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) return
+        val changed = synchronized(stateLock) {
+            val cur = _state.value.searchHistory
+            if (cur.firstOrNull() == clean) {
+                false
+            } else {
+                val mutable = cur.toMutableList()
+                mutable.removeAll { it.equals(clean, ignoreCase = true) }
+                mutable.add(0, clean)
+                val limited = mutable.take(15)
+                _state.value = _state.value.copy(searchHistory = limited)
+                true
+            }
+        }
+        if (changed) {
+            launchAsyncPersistence { snapshot ->
+                prefs.edit().putString("search_history_json", json.encodeToString(snapshot.searchHistory)).apply()
+            }
+        }
+    }
+
+    fun removeSearchQuery(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) return
+        val changed = synchronized(stateLock) {
+            val mutable = _state.value.searchHistory.toMutableList()
+            if (mutable.removeAll { it.equals(clean, ignoreCase = true) }) {
+                _state.value = _state.value.copy(searchHistory = mutable)
+                true
+            } else {
+                false
+            }
+        }
+        if (changed) {
+            launchAsyncPersistence { snapshot ->
+                prefs.edit().putString("search_history_json", json.encodeToString(snapshot.searchHistory)).apply()
+            }
+        }
+    }
+
+    fun clearSearchHistory() {
+        val changed = synchronized(stateLock) {
+            if (_state.value.searchHistory.isEmpty()) {
+                false
+            } else {
+                _state.value = _state.value.copy(searchHistory = emptyList())
+                true
+            }
+        }
+        if (changed) {
+            launchAsyncPersistence {
+                prefs.edit().remove("search_history_json").apply()
+            }
+        }
+    }
+
     fun clearUserData() {
         synchronized(stateLock) {
             readArticlesLookupSet = emptySet()
@@ -1084,7 +1152,8 @@ class AppStateRepository(
                 bookmarks = emptyList(),
                 readArticles = emptyList(),
                 readHistory = emptyList(),
-                mutedKeywords = emptyList()
+                mutedKeywords = emptyList(),
+                searchHistory = emptyList()
             )
         }
         launchAsyncPersistence {
@@ -1095,6 +1164,7 @@ class AppStateRepository(
                 .remove("read_articles_json")
                 .remove("read_history_json")
                 .remove("muted_keywords_json")
+                .remove("search_history_json")
                 .apply()
         }
     }

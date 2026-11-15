@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReport.install(applicationContext)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.light(
                 Color.TRANSPARENT,
@@ -97,6 +98,7 @@ class MainActivity : ComponentActivity() {
                     notificationTarget = notifTarget,
                     onConsumeNotificationTarget = { pendingNotificationScreen.value = null }
                 )
+                CrashReportDialogHost()
             }
         }
     }

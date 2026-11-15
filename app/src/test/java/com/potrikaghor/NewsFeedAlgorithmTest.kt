@@ -3833,6 +3833,62 @@ class NewsFeedAlgorithmTest {
         checkTrue(joined.contains("প্রযুক্তিগত দক্ষতা"), "Paragraph whose tag has a boolean attribute must be kept")
     }
 
+    @Test
+    fun test67_localSearchHistoryPersistenceDeduplicationCapAndClear() = runBlocking {
+        val fakePrefs = InMemorySharedPreferences()
+        val repo = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+
+        checkTrue(repo.state.value.searchHistory.isEmpty(), "Search history must start empty")
+
+        // Blank / whitespace queries must be ignored
+        repo.addSearchQuery("   ")
+        checkTrue(repo.state.value.searchHistory.isEmpty(), "Blank query must not be saved")
+
+        // Add queries (including trimming and case-insensitive deduplication)
+        repo.addSearchQuery("  ক্রিকেট  ")
+        repo.addSearchQuery("বাজেট")
+        repo.addSearchQuery("Tech News")
+        repo.addSearchQuery("tech news") // promotes to front without duplicating
+        checkEquals(
+            listOf("tech news", "বাজেট", "ক্রিকেট"),
+            repo.state.value.searchHistory,
+            "Queries must be trimmed, deduplicated case-insensitively, and ordered most-recent first"
+        )
+
+        // Add enough queries to exceed the 15-item cap
+        for (i in 1..15) {
+            repo.addSearchQuery("Query $i")
+        }
+        checkEquals(15, repo.state.value.searchHistory.size, "Search history must cap at 15 entries")
+        checkEquals("Query 15", repo.state.value.searchHistory.first(), "Most recent query must be at index 0")
+
+        // Wait for async persistence and reload into a fresh repository
+        repo.awaitPendingPersistence()
+        val reloaded = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+        checkEquals(
+            repo.state.value.searchHistory,
+            reloaded.state.value.searchHistory,
+            "Reloaded repository must restore persisted search history"
+        )
+
+        // Remove single query
+        reloaded.removeSearchQuery("query 14")
+        checkFalse(
+            reloaded.state.value.searchHistory.any { it.equals("Query 14", ignoreCase = true) },
+            "Removed query must disappear from searchHistory"
+        )
+        reloaded.awaitPendingPersistence()
+        val afterRemoveReloaded = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+        checkEquals(14, afterRemoveReloaded.state.value.searchHistory.size, "Single-item removal must persist")
+
+        // Clear all history
+        afterRemoveReloaded.clearSearchHistory()
+        checkTrue(afterRemoveReloaded.state.value.searchHistory.isEmpty(), "clearSearchHistory must empty the list")
+        afterRemoveReloaded.awaitPendingPersistence()
+        val afterClearReloaded = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
+        checkTrue(afterClearReloaded.state.value.searchHistory.isEmpty(), "Cleared search history must persist")
+    }
+
     companion object {
         @JvmStatic
         fun main(args: Array<String>) {

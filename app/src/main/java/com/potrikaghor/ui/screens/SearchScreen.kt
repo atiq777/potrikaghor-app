@@ -1,15 +1,26 @@
 package com.potrikaghor.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +44,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +60,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,9 +70,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
@@ -207,20 +228,57 @@ fun SearchScreen(
 ) {
     val scope = rememberCoroutineScope()
     val reducedMotion = rememberReducedMotion()
+    val appState by appRepo.state.collectAsState()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFieldInteraction = remember { MutableInteractionSource() }
+
     var query by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("all") }
     var results by remember { mutableStateOf<List<NewsItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var hasSearched by remember { mutableStateOf(false) }
     var showAllDistricts by remember { mutableStateOf(false) }
+    var isSearchSuggestionsOpen by remember { mutableStateOf(false) }
 
-    fun doSearch(text: String) {
-        if (text.trim().isEmpty()) return
+    val filteredHistory = remember(appState.searchHistory, query) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            appState.searchHistory.take(8)
+        } else {
+            appState.searchHistory
+                .filter { it.contains(trimmed, ignoreCase = true) && !it.equals(trimmed, ignoreCase = true) }
+                .take(8)
+        }
+    }
+
+    LaunchedEffect(searchFieldInteraction) {
+        searchFieldInteraction.interactions.collect { interaction ->
+            if (interaction is PressInteraction.Release) {
+                isSearchSuggestionsOpen = true
+            }
+        }
+    }
+
+    BackHandler(enabled = isSearchSuggestionsOpen) {
+        isSearchSuggestionsOpen = false
+        focusManager.clearFocus()
+    }
+
+    fun doSearch(text: String, saveToHistory: Boolean = false) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        if (saveToHistory) {
+            appRepo.addSearchQuery(trimmed)
+            isSearchSuggestionsOpen = false
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
         scope.launch {
             isSearching = true
             hasSearched = true
             try {
-                val q = if (selectedCategory != "all") "$text $selectedCategory" else text
+                val q = if (selectedCategory != "all") "$trimmed $selectedCategory" else trimmed
                 results = newsRepo.fetchNews(query = q)
             } catch (_: Exception) {
                 results = emptyList()
@@ -270,20 +328,32 @@ fun SearchScreen(
                 value = query,
                 onValueChange = {
                     query = it
-                    if (it.length >= 3) doSearch(it)
+                    isSearchSuggestionsOpen = true
+                    if (it.length >= 3) doSearch(it, saveToHistory = false)
                 },
+                interactionSource = searchFieldInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            isSearchSuggestionsOpen = true
+                        }
+                    }
+                    .testTag("search_input"),
                 placeholder = { Text("কীওয়ার্ড বা পত্রিকার নাম দিয়ে খুঁজুন...", fontSize = 13.5.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = {
-                            query = ""
-                            results = emptyList()
-                            hasSearched = false
-                        }) {
+                        IconButton(
+                            onClick = {
+                                query = ""
+                                results = emptyList()
+                                hasSearched = false
+                                isSearchSuggestionsOpen = true
+                            },
+                            modifier = Modifier.testTag("search_clear_button")
+                        ) {
                             Icon(Icons.Filled.Clear, contentDescription = "মুছুন")
                         }
                     }
@@ -291,8 +361,119 @@ fun SearchScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { doSearch(query) })
+                keyboardActions = KeyboardActions(onSearch = { doSearch(query, saveToHistory = true) })
             )
+
+            AnimatedVisibility(
+                visible = isSearchSuggestionsOpen && filteredHistory.isNotEmpty(),
+                enter = fadeIn(tween(if (reducedMotion) 0 else MotionTokens.FAST_MS)) +
+                    expandVertically(tween(if (reducedMotion) 0 else MotionTokens.NORMAL_MS)),
+                exit = fadeOut(tween(if (reducedMotion) 0 else MotionTokens.FAST_MS)) +
+                    shrinkVertically(tween(if (reducedMotion) 0 else MotionTokens.FAST_MS))
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .testTag("search_history_dropdown"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "সাম্প্রতিক অনুসন্ধান",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    appRepo.clearSearchHistory()
+                                    isSearchSuggestionsOpen = false
+                                },
+                                modifier = Modifier.testTag("clear_search_history_button")
+                            ) {
+                                Text("সব মুছুন", fontSize = 12.sp)
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            filteredHistory.forEachIndexed { idx, historyItem ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .clickable {
+                                            query = historyItem
+                                            doSearch(historyItem, saveToHistory = true)
+                                        }
+                                        .testTag("search_history_item_$idx")
+                                        .padding(start = 14.dp, end = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.History,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = historyItem,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { appRepo.removeSearchQuery(historyItem) },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .testTag("remove_search_history_item_$idx")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "ইতিহাস থেকে মুছুন",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                if (idx < filteredHistory.lastIndex) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                        modifier = Modifier.padding(horizontal = 14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Quick Topic Suggestion Chips
             SearchSectionLabel("বিষয়")
@@ -324,7 +505,7 @@ fun SearchScreen(
                         selected = isTopicSelected,
                         onClick = {
                             query = topic
-                            doSearch(topic)
+                            doSearch(topic, saveToHistory = true)
                         },
                         interactionSource = chipInteraction,
                         modifier = Modifier.pressScaleEffect(chipInteraction, pressedScale = 0.95f),
@@ -348,7 +529,7 @@ fun SearchScreen(
                 query = query,
                 onPick = { place ->
                     query = place
-                    doSearch(place)
+                    doSearch(place, saveToHistory = true)
                 }
             )
             SearchPlaceChips(
@@ -357,7 +538,7 @@ fun SearchScreen(
                 query = query,
                 onPick = { place ->
                     query = place
-                    doSearch(place)
+                    doSearch(place, saveToHistory = true)
                 },
                 trailingLabel = "সব জেলা ›",
                 onTrailingClick = { showAllDistricts = true }
@@ -368,7 +549,7 @@ fun SearchScreen(
                     onPick = { place ->
                         showAllDistricts = false
                         query = place
-                        doSearch(place)
+                        doSearch(place, saveToHistory = true)
                     }
                 )
             }
@@ -451,6 +632,10 @@ fun SearchScreen(
                                             .padding(horizontal = 14.dp, vertical = 4.dp)
                                             .clip(RoundedCornerShape(12.dp))
                                             .subtleClickable(pressedScale = 0.985f) {
+                                                if (query.isNotBlank()) {
+                                                    appRepo.addSearchQuery(query)
+                                                }
+                                                isSearchSuggestionsOpen = false
                                                 onOpenReader(paper, item.link, item.title)
                                             },
                                         shape = RoundedCornerShape(12.dp),
