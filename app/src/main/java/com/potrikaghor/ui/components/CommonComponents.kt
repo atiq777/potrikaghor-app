@@ -1009,7 +1009,6 @@ fun PotrikaGhorLoader(
 ) {
     val reducedMotion = rememberReducedMotion()
     val brandCoral = Color(0xFFF04E37)
-    val brandTeal = Color(0xFF1D5455)
     val isCompact = size <= 28.dp && message.isBlank() && subtitle.isNullOrBlank()
     val maxFloatDp = if (isCompact) 2.2f else 6.0f
 
@@ -1070,7 +1069,6 @@ fun PotrikaGhorLoader(
     val currentScale = breathScale.value
     val glowAlpha = if (reducedMotion) 0.08f else (0.05f + (currentAlpha - 0.48f) * 0.18f).coerceIn(0.04f, 0.16f)
     val textAlpha = if (reducedMotion) 1.0f else (0.72f + (currentAlpha - 0.48f) * 0.53f).coerceIn(0.70f, 1.0f)
-    val glyphFontSize = with(LocalDensity.current) { (size * 0.56f).toSp() }
 
     if (isCompact) {
         Box(
@@ -1079,7 +1077,10 @@ fun PotrikaGhorLoader(
                 .testTag("potrikaghor_loader"),
             contentAlignment = Alignment.Center
         ) {
-            Surface(
+            Image(
+                painter = painterResource(id = R.drawable.potrikaghor_logo),
+                contentDescription = "পত্রিকাঘর লোড হচ্ছে",
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .size(size)
                     .offset(y = currentOffsetDp.dp)
@@ -1087,22 +1088,8 @@ fun PotrikaGhorLoader(
                         scaleX = currentScale
                         scaleY = currentScale
                         alpha = currentAlpha
-                    },
-                shape = CircleShape,
-                color = brandTeal,
-                border = BorderStroke(1.dp, brandCoral.copy(alpha = 0.75f))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "প",
-                        color = brandCoral,
-                        fontSize = glyphFontSize,
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
+                    }
+            )
         }
         return
     }
@@ -1136,7 +1123,10 @@ fun PotrikaGhorLoader(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Surface(
+            Image(
+                painter = painterResource(id = R.drawable.potrikaghor_logo),
+                contentDescription = "পত্রিকাঘর লোড হচ্ছে",
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .size(size)
                     .offset(y = currentOffsetDp.dp)
@@ -1144,26 +1134,8 @@ fun PotrikaGhorLoader(
                         scaleX = currentScale
                         scaleY = currentScale
                         alpha = currentAlpha
-                    },
-                shape = RoundedCornerShape(percent = 28),
-                color = brandTeal,
-                border = BorderStroke(1.5.dp, brandCoral.copy(alpha = 0.65f)),
-                shadowElevation = 4.dp
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "প",
-                        color = brandCoral,
-                        fontSize = glyphFontSize,
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
+                    }
+            )
         }
 
         if (message.isNotBlank()) {
