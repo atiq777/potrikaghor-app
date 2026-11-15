@@ -1,0 +1,137 @@
+TASK FOR AI STUDIO — FIX 5: collapse coverage cards (Coverage screen). Apply exactly these 5 edits in ONE file. Do NOT change anything else. Do NOT refactor. Do NOT commit or push.
+
+Rules:
+- For each EDIT, find the FIND text (it occurs exactly once in the file) and replace it with the REPLACE text, character for character.
+- If a FIND text is not found exactly once, STOP and tell me which one, with the nearest matching text. Do not guess.
+- After all edits, compile and run the unit tests (gradle :app:testDebugUnitTest). No new tests are added; expected total is still 66 passing. Report test count, pass/fail, and any compile error with file and line.
+
+What this does: in CoverageDetailCard, a coverage with more than 2 papers starts collapsed: the lead headline plus a row of up to 5 paper avatars (and +N). A "সব শিরোনাম ⌄" row expands it to the full list; "বন্ধ করুন ⌃" collapses it again. Coverages with 1 or 2 papers look exactly as before.
+
+FILE: app/src/{f}
+
+==================== EDIT 1 ====================
+----- FIND (exact) -----
+import androidx.compose.foundation.layout.Arrangement
+
+----- REPLACE WITH (exact) -----
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+
+
+==================== EDIT 2 ====================
+----- FIND (exact) -----
+import androidx.compose.material.icons.filled.Hub
+
+----- REPLACE WITH (exact) -----
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+
+
+==================== EDIT 3 ====================
+----- FIND (exact) -----
+fun CoverageDetailCard(
+    coverage: Coverage,
+    appRepo: AppStateRepository,
+    readArticles: List<String> = emptyList(),
+    onOpenReader: (Paper, String, String) -> Unit
+) {
+    Card(
+----- REPLACE WITH (exact) -----
+fun CoverageDetailCard(
+    coverage: Coverage,
+    appRepo: AppStateRepository,
+    readArticles: List<String> = emptyList(),
+    onOpenReader: (Paper, String, String) -> Unit
+) {
+    // Cards with more than 2 papers start collapsed: lead headline + paper avatars. Tap to show all headlines.
+    val collapsible = coverage.items.size > 2
+    var expanded by remember(coverage.items.firstOrNull()?.link) { mutableStateOf(false) }
+    val visibleItems = if (!collapsible || expanded) coverage.items else coverage.items.take(1)
+    Card(
+
+==================== EDIT 4 ====================
+----- FIND (exact) -----
+            Spacer(modifier = Modifier.height(8.dp))
+
+            coverage.items.forEachIndexed { idx, itm ->
+----- REPLACE WITH (exact) -----
+            Spacer(modifier = Modifier.height(8.dp))
+
+            visibleItems.forEachIndexed { idx, itm ->
+
+==================== EDIT 5 ====================
+----- FIND (exact) -----
+                if (idx < coverage.items.size - 1) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+                }
+            }
+        }
+    }
+}
+----- REPLACE WITH (exact) -----
+                if (idx < visibleItems.size - 1) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+                }
+            }
+
+            if (collapsible) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!expanded) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy((-6).dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            coverage.items.take(5).forEach { coveredItem ->
+                                val avatarPaper = appRepo.allPapers.firstOrNull {
+                                    it.bn == coveredItem.source || it.en == coveredItem.source
+                                } ?: Paper(coveredItem.source, "", coveredItem.link, "online")
+                                PaperAvatar(paper = avatarPaper, size = 24.dp)
+                            }
+                            if (coverage.items.size > 5) {
+                                Text(
+                                    text = "  +${BengaliUtils.bnDigits(coverage.items.size - 5)}",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (expanded) "বন্ধ করুন" else "সব শিরোনাম",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+==================== END ====================

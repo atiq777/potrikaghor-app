@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -576,6 +579,10 @@ fun CoverageDetailCard(
     readArticles: List<String> = emptyList(),
     onOpenReader: (Paper, String, String) -> Unit
 ) {
+    // Cards with more than 2 papers start collapsed: lead headline + paper avatars. Tap to show all headlines.
+    val collapsible = coverage.items.size > 2
+    var expanded by remember(coverage.items.firstOrNull()?.link) { mutableStateOf(false) }
+    val visibleItems = if (!collapsible || expanded) coverage.items else coverage.items.take(1)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -620,7 +627,7 @@ fun CoverageDetailCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            coverage.items.forEachIndexed { idx, itm ->
+            visibleItems.forEachIndexed { idx, itm ->
                 val paper = appRepo.allPapers.firstOrNull { it.bn == itm.source || it.en == itm.source }
                     ?: Paper(itm.source, "", itm.link, "online")
                 val isRead = remember(readArticles, itm.link, itm.title) {
@@ -679,8 +686,64 @@ fun CoverageDetailCard(
                     }
                 }
 
-                if (idx < coverage.items.size - 1) {
+                if (idx < visibleItems.size - 1) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+                }
+            }
+
+            if (collapsible) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!expanded) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy((-6).dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            coverage.items.take(5).forEach { coveredItem ->
+                                val avatarPaper = appRepo.allPapers.firstOrNull {
+                                    it.bn == coveredItem.source || it.en == coveredItem.source
+                                } ?: Paper(coveredItem.source, "", coveredItem.link, "online")
+                                PaperAvatar(paper = avatarPaper, size = 24.dp)
+                            }
+                            if (coverage.items.size > 5) {
+                                Text(
+                                    text = "  +${BengaliUtils.bnDigits(coverage.items.size - 5)}",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (expanded) "বন্ধ করুন" else "সব শিরোনাম",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
