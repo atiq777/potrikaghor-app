@@ -37,7 +37,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.BlocklistRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.model.Paper
@@ -78,6 +80,7 @@ class MainActivity : ComponentActivity() {
             java.io.File(applicationContext.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm").mkdirs()
         } catch (_: Exception) {}
         appRepo = AppStateRepository(applicationContext)
+        BlocklistRepository.loadAtStart(applicationContext, newsRepo.client)
         AdMobConfig.initializeMobileAdsIfNeeded(applicationContext)
         BreakingNewsNotifier.ensureChannel(applicationContext)
         handleNotificationIntent(intent)
@@ -99,6 +102,7 @@ class MainActivity : ComponentActivity() {
                     onConsumeNotificationTarget = { pendingNotificationScreen.value = null }
                 )
                 CrashReportDialogHost()
+                FirstLaunchDisclaimerHost()
             }
         }
     }
@@ -112,12 +116,14 @@ class MainActivity : ComponentActivity() {
     private fun handleNotificationIntent(intent: Intent?) {
         val url = intent?.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_URL)
         if (!url.isNullOrEmpty()) {
+            intent.removeExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_URL)
+            if (BlocklistRepository.isBlockedUrl(url)) return
             val source = intent.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_SOURCE) ?: "সংবাদ"
             val title = intent.getStringExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_TITLE) ?: ""
             val paper = appRepo.allPapers.firstOrNull { it.bn == source || it.en == source }
                 ?: Paper(source, "", url, "online")
+            if (BlocklistRepository.isBlockedUrl(paper.openUrl) || BlocklistRepository.isBlockedUrl(paper.url)) return
             pendingNotificationScreen.value = Screen.Reader(paper, url, title)
-            intent.removeExtra(BreakingNewsNotifier.EXTRA_NOTIFICATION_URL)
         }
     }
 }
@@ -157,10 +163,25 @@ fun PotrikaghorApp(
     var showAddPaperDialog by remember { mutableStateOf(false) }
     var paperToFixUrl by remember { mutableStateOf<Paper?>(null) }
 
+    fun openReaderChecked(paper: Paper, url: String, title: String = "") {
+        if (BlocklistRepository.isBlockedUrl(url) ||
+            BlocklistRepository.isBlockedUrl(paper.openUrl) ||
+            BlocklistRepository.isBlockedUrl(paper.url)
+        ) {
+            Toast.makeText(context, "এই উৎসটি বর্তমানে উপলব্ধ নয়", Toast.LENGTH_SHORT).show()
+            return
+        }
+        currentScreen = Screen.Reader(paper, url, title)
+    }
+
     // Open Reader when a breaking news notification is tapped
     LaunchedEffect(notificationTarget) {
         if (notificationTarget != null) {
-            currentScreen = notificationTarget
+            openReaderChecked(
+                paper = notificationTarget.paper,
+                url = notificationTarget.url,
+                title = notificationTarget.articleTitle
+            )
             onConsumeNotificationTarget()
         }
     }
@@ -245,7 +266,7 @@ fun PotrikaghorApp(
                     newsRepo = newsRepo,
                     onBack = { currentScreen = Screen.Main },
                     onOpenReader = { paper, url, title ->
-                        currentScreen = Screen.Reader(paper, url, title)
+                        openReaderChecked(paper, url, title)
                     }
                 )
             }
@@ -297,7 +318,7 @@ fun PotrikaghorApp(
                                 0 -> PersonalHomeScreen(
                                     appRepo = appRepo,
                                     newsRepo = newsRepo,
-                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) },
+                                    onOpenReader = { paper, url, title -> openReaderChecked(paper, url, title) },
                                     onOpenSearch = { currentScreen = Screen.Search },
                                     onOpenSettings = { selectedTab = 4 },
                                     onOpenCoverage = { selectedTab = 1 }
@@ -305,17 +326,17 @@ fun PotrikaghorApp(
                                 1 -> CoverageScreen(
                                     appRepo = appRepo,
                                     newsRepo = newsRepo,
-                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
+                                    onOpenReader = { paper, url, title -> openReaderChecked(paper, url, title) }
                                 )
                                 2 -> MyPapersScreen(
                                     appRepo = appRepo,
-                                    onOpenReader = { paper, url -> currentScreen = Screen.Reader(paper, url) },
+                                    onOpenReader = { paper, url -> openReaderChecked(paper, url) },
                                     onAddPaper = { showAddPaperDialog = true },
                                     onFixUrl = { paperToFixUrl = it }
                                 )
                                 3 -> BookmarksScreen(
                                     appRepo = appRepo,
-                                    onOpenReader = { paper, url, title -> currentScreen = Screen.Reader(paper, url, title) }
+                                    onOpenReader = { paper, url, title -> openReaderChecked(paper, url, title) }
                                 )
                                 4 -> SettingsScreen(
                                     appRepo = appRepo,

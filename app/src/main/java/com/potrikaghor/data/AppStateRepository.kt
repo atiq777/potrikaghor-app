@@ -291,7 +291,10 @@ class AppStateRepository(
             val customs = cur.customPapers.map { p ->
                 p.copy(hidden = cur.hiddenPapers.contains(p.url))
             }
-            val combined = customs + fixedBuiltIns
+            val combined = (customs + fixedBuiltIns).filter { paper ->
+                !BlocklistRepository.isBlockedUrl(paper.url) &&
+                    !BlocklistRepository.isBlockedUrl(paper.openUrl)
+            }
             return if (cur.onlyShowFavorites) {
                 combined.filter { cur.favs.contains(it.url) }
             } else {
@@ -300,13 +303,17 @@ class AppStateRepository(
         }
 
     fun paperFor(url: String): Paper? {
+        if (BlocklistRepository.isBlockedUrl(url)) return null
         val cur = _state.value
-        cur.customPapers.firstOrNull { it.url == url }?.let { return it }
+        cur.customPapers.firstOrNull { it.url == url }?.let { custom ->
+            return if (BlocklistRepository.isBlockedUrl(custom.openUrl)) null else custom
+        }
         val b = PapersData.builtInPaperFor(url) ?: return null
         val f = cur.urlFixes[b.url]
         val isHidden = cur.hiddenPapers.contains(b.url)
         val fixed = if (f != null) b.copy(fix = f) else b
-        return fixed.copy(hidden = isHidden)
+        val resolved = fixed.copy(hidden = isHidden)
+        return if (BlocklistRepository.isBlockedUrl(resolved.openUrl)) null else resolved
     }
 
     fun isFav(url: String): Boolean = _state.value.favs.contains(url)

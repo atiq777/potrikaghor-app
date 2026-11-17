@@ -97,6 +97,7 @@ import coil.compose.AsyncImage
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.ArticleExtractionCoordinator
 import com.potrikaghor.data.ArticleExtractor
+import com.potrikaghor.data.BlocklistRepository
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.model.Bookmark
 import com.potrikaghor.model.Paper
@@ -186,6 +187,55 @@ fun ReaderScreen(
     appRepo: AppStateRepository,
     onBack: () -> Unit
 ) {
+    val blockedHosts by BlocklistRepository.blockedHostsFlow.collectAsState()
+    val isBlockedEntry = remember(initialUrl, paper.url, paper.fix, blockedHosts) {
+        BlocklistRepository.isBlockedUrl(initialUrl) ||
+            BlocklistRepository.isBlockedUrl(paper.openUrl) ||
+            BlocklistRepository.isBlockedUrl(paper.url)
+    }
+    if (isBlockedEntry) {
+        BackHandler { onBack() }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = paper.bn.ifBlank { "পত্রিকাঘর" },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "এই উৎসটি বর্তমানে উপলব্ধ নয়",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(onClick = onBack) {
+                        Text("ফিরে যান")
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appState by appRepo.state.collectAsState()

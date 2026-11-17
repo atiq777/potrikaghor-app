@@ -405,9 +405,11 @@ fun PersonalHomeScreen(
                 // If processed memory cache is empty on cold start or category switch, hydrate from disk cache
                 // on background threads (never on Main Thread) before network fetch completes.
                 if (newsItems.isEmpty()) {
-                    val fallbackRaw = newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
-                        appRepo.getCachedFeed(cacheKey)
-                    }
+                    val fallbackRaw = newsRepo.filterBlockedNewsItems(
+                        newsRepo.getMemoryCachedCategoryFeed(cacheKey).ifEmpty {
+                            appRepo.getCachedFeed(cacheKey)
+                        }
+                    )
                     if (fallbackRaw.isNotEmpty() && currentRequestVersion == requestVersion && loadedCategoryKey == cacheKey) {
                         val fallbackBuilt = newsRepo.buildHomeFeedCoverageOnDefault(
                             items = fallbackRaw,

@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.potrikaghor.data.AppStateRepository
+import com.potrikaghor.data.BlocklistRepository
 import com.potrikaghor.data.DirectoryRepository
 import com.potrikaghor.data.PapersData
 import com.potrikaghor.model.Paper
@@ -94,8 +95,9 @@ fun MyPapersScreen(
     var selectedDistrict by remember { mutableStateOf("all") }
     var searchQuery by remember { mutableStateOf("") }
 
+    val blockedHosts by BlocklistRepository.blockedHostsFlow.collectAsState()
     val allList = appRepo.allPapers
-    val directoryEntries = remember { DirectoryRepository.getAllEntries() }
+    val directoryEntries = remember(blockedHosts) { DirectoryRepository.getAllEntries() }
     val divisionByUrl = remember(directoryEntries) {
         directoryEntries.associate { it.websiteUrl to it.division }
     }
@@ -103,7 +105,7 @@ fun MyPapersScreen(
         directoryEntries.associate { it.websiteUrl to it.district }
     }
 
-    val allDirectoryAndCustom = remember(allList, directoryEntries, appState.hiddenPapers, appState.urlFixes) {
+    val allDirectoryAndCustom = remember(allList, directoryEntries, appState.hiddenPapers, appState.urlFixes, blockedHosts) {
         val customPapers = allList.filter { it.custom }
         val builtInByNormalizedUrl = PapersData.builtInPapers.associateBy { normalizeLookupUrl(it.url) }
         val builtInByUniqueHost = PapersData.builtInPapers

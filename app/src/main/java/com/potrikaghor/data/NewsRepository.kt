@@ -718,11 +718,64 @@ class NewsRepository {
         }
     }
 
+    private fun isNewsItemBlocked(item: NewsItem): Boolean {
+        if (BlocklistRepository.isBlockedUrl(item.link)) return true
+        if (item.sourceUrl.isNotBlank() && BlocklistRepository.isBlockedUrl(item.sourceUrl)) return true
+        val canonical = canonicalPublisherId(item.source, item.sourceUrl)
+        if (!canonical.startsWith("raw:") && BlocklistRepository.isBlockedHost(canonical)) return true
+        return false
+    }
+
+    internal fun filterBlockedNewsItems(items: List<NewsItem>): List<NewsItem> {
+        if (BlocklistRepository.currentBlockedHosts().isEmpty()) return items
+        return items.mapNotNull { item ->
+            if (isNewsItemBlocked(item)) {
+                null
+            } else if (item.related.isEmpty()) {
+                item
+            } else {
+                val allowedRelated = item.related.filterNot { isNewsItemBlocked(it) }
+                if (allowedRelated.size == item.related.size) item else item.copy(related = allowedRelated)
+            }
+        }
+    }
+
+    private fun filterCachedHomeFeed(cached: CachedHomeFeedResult?): CachedHomeFeedResult? {
+        if (cached == null || BlocklistRepository.currentBlockedHosts().isEmpty()) return cached
+        val filteredItems = filterBlockedNewsItems(cached.newsItems)
+        val filteredCoverage = cached.coverageList.mapNotNull { cov ->
+            val allowed = filterBlockedNewsItems(cov.items)
+            if (allowed.isEmpty()) null
+            else if (allowed.size == cov.items.size) cov
+            else Coverage(allowed)
+        }
+        return cached.copy(newsItems = filteredItems, coverageList = filteredCoverage)
+    }
+
+    private fun filterCachedCoverage(cached: CachedCoverageResult?): CachedCoverageResult? {
+        if (cached == null || BlocklistRepository.currentBlockedHosts().isEmpty()) return cached
+        val filteredCoverage = cached.coverageList.mapNotNull { cov ->
+            val allowed = filterBlockedNewsItems(cov.items)
+            if (allowed.isEmpty()) null
+            else if (allowed.size == cov.items.size) cov
+            else Coverage(allowed)
+        }
+        val many = filteredCoverage.filter { it.count >= 3 }
+        val few = filteredCoverage.filter { it.count == 2 }
+        return cached.copy(
+            coverageList = filteredCoverage,
+            manyCoverage = many,
+            fewCoverage = few,
+            originalItems = filterBlockedNewsItems(cached.originalItems)
+        )
+    }
+
     fun getMemoryCachedCategoryFeed(categoryId: String): List<NewsItem> {
         val normKey = normalizeHomeCategoryKey(categoryId)
-        return categoryFeedMemoryCache[normKey]
+        val raw = categoryFeedMemoryCache[normKey]
             ?: homeFeedStateHolder.getRawCategoryItems(normKey)?.first
             ?: emptyList()
+        return filterBlockedNewsItems(raw)
     }
 
     fun putMemoryCachedCategoryFeed(categoryId: String, items: List<NewsItem>) {
@@ -808,7 +861,7 @@ class NewsRepository {
         favoriteUrls: Set<String> = emptySet()
     ): CachedHomeFeedResult? {
         val key = homeFeedCacheKey(categoryKey, localRegionId, feedMode, favoriteUrls)
-        return homeFeedStateHolder.getProcessedResult(key)
+        return filterCachedHomeFeed(homeFeedStateHolder.getProcessedResult(key))
     }
 
     fun isHomeFeedCacheFresh(
@@ -901,7 +954,7 @@ class NewsRepository {
         val key = homeFeedCacheKey(normCat, "", feedMode, favoriteUrls)
 
         if (!forceRefresh) {
-            val cached = homeFeedStateHolder.getProcessedResult(key)
+            val cached = filterCachedHomeFeed(homeFeedStateHolder.getProcessedResult(key))
             if (cached != null && !cached.isExpired(nowMs, ttlMs)) {
                 return@withContext cached
             }
@@ -910,7 +963,7 @@ class NewsRepository {
         val requestMapKey = if (forceRefresh) "$key|force" else key
         val shared: SharedInFlightRequest<CachedHomeFeedResult> = synchronized(inFlightLock) {
             if (!forceRefresh) {
-                val cached = homeFeedStateHolder.getProcessedResult(key)
+                val cached = filterCachedHomeFeed(homeFeedStateHolder.getProcessedResult(key))
                 if (cached != null && !cached.isExpired(nowMs, ttlMs)) {
                     return@withContext cached
                 }
@@ -1001,7 +1054,7 @@ class NewsRepository {
             rawPair.first.isNotEmpty() &&
             (nowMs - rawPair.second) <= ttlMs
 
-        val (items, effectiveFetchedAtMs) = if (hasFreshRaw && rawPair != null) {
+        val (rawItems, effectiveFetchedAtMs) = if (hasFreshRaw && rawPair != null) {
             rawPair.first to rawPair.second
         } else {
             homeFeedFetchExecutionCounter.incrementAndGet()
@@ -1015,6 +1068,7 @@ class NewsRepository {
             }
             fetched to nowMs
         }
+        val items = filterBlockedNewsItems(rawItems)
 
         val builtCoverage = buildHomeFeedCoverageOnDefault(
             items = items,
@@ -1353,7 +1407,9 @@ class NewsRepository {
             throw Exception("No news items fetched")
         }
 
-        val finalItems = if (combined.isNotEmpty()) combined else directItems
+        val finalItems = filterBlockedNewsItems(
+            if (combined.isNotEmpty()) combined else directItems
+        )
         logFeedSummaryDiagnostics(q, finalItems)
         finalItems
     }
@@ -3155,7 +3211,8 @@ class NewsRepository {
      */
     fun getCachedCoverageResult(intl: Boolean, filterQuery: String = ""): CachedCoverageResult? {
         val key = coverageCacheKey(intl, filterQuery)
-        return coverageMemoryCache[key] ?: coverageStateHolder.getLastSuccessfulResult(key)
+        val cached = coverageMemoryCache[key] ?: coverageStateHolder.getLastSuccessfulResult(key)
+        return filterCachedCoverage(cached)
     }
 
     fun isCoverageCacheFresh(
@@ -3295,7 +3352,7 @@ class NewsRepository {
             }
         }
 
-        val allItems = deferreds.awaitAll().flatten()
+        val allItems = filterBlockedNewsItems(deferreds.awaitAll().flatten())
         if (allItems.isEmpty()) throw java.io.IOException("No news items fetched")
 
         val (builtCoverage, many, few) = withContext(Dispatchers.Default) {
@@ -3732,9 +3789,10 @@ class NewsRepository {
     }
 
     private fun clusterItemsIntoCoverage(all: List<NewsItem>): List<Coverage> {
+        val allowed = filterBlockedNewsItems(all)
         val groups = mutableListOf<Group>()
 
-        for (n in all) {
+        for (n in allowed) {
             var hit: Group? = null
             for (g in groups) {
                 val anchor = g.items.firstOrNull()

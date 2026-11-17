@@ -7343,15 +7343,25 @@ object DirectoryRepository {
 
     private val entriesById = allDirectoryEntries.associateBy { it.directoryId }
     
-    fun getEntryById(id: String): DirectoryEntryEntity? = entriesById[id]
-    
-    fun getAllEntries(): List<DirectoryEntryEntity> = allDirectoryEntries
-    
-    fun getEntriesByDivision(division: String): List<DirectoryEntryEntity> {
-        return allDirectoryEntries.filter { it.division == division }
+    fun getEntryById(id: String): DirectoryEntryEntity? {
+        val entry = entriesById[id] ?: return null
+        return if (BlocklistRepository.isBlockedUrl(entry.websiteUrl)) null else entry
     }
-    
+
+    fun getAllEntries(): List<DirectoryEntryEntity> {
+        if (BlocklistRepository.currentBlockedHosts().isEmpty()) return allDirectoryEntries
+        return allDirectoryEntries.filterNot { BlocklistRepository.isBlockedUrl(it.websiteUrl) }
+    }
+
+    fun getEntriesByDivision(division: String): List<DirectoryEntryEntity> {
+        return allDirectoryEntries.filter {
+            it.division == division && !BlocklistRepository.isBlockedUrl(it.websiteUrl)
+        }
+    }
+
     fun getEntriesByDistrict(district: String): List<DirectoryEntryEntity> {
-        return allDirectoryEntries.filter { it.district == district }
+        return allDirectoryEntries.filter {
+            it.district == district && !BlocklistRepository.isBlockedUrl(it.websiteUrl)
+        }
     }
 }

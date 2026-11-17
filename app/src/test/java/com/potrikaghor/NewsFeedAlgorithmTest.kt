@@ -8,6 +8,7 @@ import com.potrikaghor.data.CachedCoverageResult
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.data.DirectRssFeedSpec
 import com.potrikaghor.data.NewsRepository
+import com.potrikaghor.data.isBlockedHost
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
@@ -3887,6 +3888,32 @@ class NewsFeedAlgorithmTest {
         afterRemoveReloaded.awaitPendingPersistence()
         val afterClearReloaded = AppStateRepository(prefs = fakePrefs, ioDispatcher = Dispatchers.IO)
         checkTrue(afterClearReloaded.state.value.searchHistory.isEmpty(), "Cleared search history must persist")
+    }
+
+    @Test
+    fun test68_blocklistHostMatchingAndEdgeCases() {
+        val blocked = setOf("example.com", "news.com", "www.portal.org")
+
+        // 1. Exact match (case-insensitive)
+        checkTrue(isBlockedHost("example.com", blocked), "Exact host match must be blocked")
+        checkTrue(isBlockedHost("EXAMPLE.COM", blocked), "Case-insensitive exact host match must be blocked")
+
+        // 2. Leading www. prefix on host and/or entry
+        checkTrue(isBlockedHost("www.example.com", blocked), "Leading www. host must match example.com")
+        checkTrue(isBlockedHost("portal.org", blocked), "portal.org must match blocked entry www.portal.org")
+        checkTrue(isBlockedHost("WWW.Portal.ORG", blocked), "Case-insensitive www. host must match www.portal.org")
+
+        // 3. Subdomain match
+        checkTrue(isBlockedHost("bn.example.com", blocked), "Direct subdomain must be blocked")
+        checkTrue(isBlockedHost("www.m.news.com", blocked), "Nested subdomain with www. must be blocked")
+
+        // 4. Different domain merely containing the blocked text must NOT be blocked
+        checkFalse(isBlockedHost("mynews.com", blocked), "Different domain mynews.com must NOT be blocked by news.com")
+        checkFalse(isBlockedHost("example.com.fake.org", blocked), "Host merely containing blocked domain as prefix must NOT be blocked")
+
+        // 5. Empty blocked set must never block anything
+        checkFalse(isBlockedHost("example.com", emptySet()), "Empty blocked set must not block any host")
+        checkFalse(isBlockedHost("", blocked), "Blank host must return false")
     }
 
     companion object {

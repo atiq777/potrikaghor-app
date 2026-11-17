@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -86,7 +88,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.testTag
 import com.potrikaghor.BuildConfig
+import com.potrikaghor.LegalLinks
 import com.potrikaghor.data.AppStateRepository
 import com.potrikaghor.data.BreakingNewsNotifier
 import com.potrikaghor.data.NewsRepository
@@ -892,6 +896,93 @@ fun SettingsScreen(
                             Icon(Icons.Filled.Policy, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("প্রাইভেসি পলিসি (Privacy Policy)", fontSize = 12.5.sp)
+                        }
+                    }
+                }
+            }
+
+            // 8. আইনি ও গোপনীয়তা (Legal & Privacy)
+            val showPrivacyLink = LegalLinks.isSet(LegalLinks.PRIVACY_URL)
+            val showTakedownLink = LegalLinks.isSet(LegalLinks.TAKEDOWN_URL)
+            val showSubmitLink = LegalLinks.isSet(LegalLinks.SUBMIT_PAPER_URL)
+
+            if (showPrivacyLink || showTakedownLink || showSubmitLink) {
+                item {
+                    SectionHeader("আইনি ও গোপনীয়তা")
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            var renderedBefore = false
+
+                            if (showPrivacyLink) {
+                                renderedBefore = true
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { LegalLinks.openBrowserUrl(context, LegalLinks.PRIVACY_URL) }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("legal_privacy_row"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Policy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column {
+                                        Text("গোপনীয়তা নীতি", fontWeight = FontWeight.Bold)
+                                        Text("তথ্য ব্যবহার ও গোপনীয়তার বিবরণ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+
+                            if (showTakedownLink) {
+                                if (renderedBefore) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                                }
+                                renderedBefore = true
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { LegalLinks.openBrowserUrl(context, LegalLinks.TAKEDOWN_URL) }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("legal_takedown_row"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column {
+                                        Text("কপিরাইট ও অপসারণ", fontWeight = FontWeight.Bold)
+                                        Text("স্বত্ব সংক্রান্ত তথ্য ও অপসারণের অনুরোধ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+
+                            if (showSubmitLink) {
+                                if (renderedBefore) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { LegalLinks.openMailtoUrl(context, LegalLinks.SUBMIT_PAPER_URL) }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("legal_submit_paper_row"),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column {
+                                        Text("পত্রিকা জমা দিন", fontWeight = FontWeight.Bold)
+                                        Text("ইমেইলে নতুন পত্রিকার তথ্য পাঠান", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
