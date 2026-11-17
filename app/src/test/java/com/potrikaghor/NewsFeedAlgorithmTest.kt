@@ -9,6 +9,7 @@ import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.data.DirectRssFeedSpec
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.data.isBlockedHost
+import com.potrikaghor.data.isMachineDataParagraph
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
@@ -3914,6 +3915,112 @@ class NewsFeedAlgorithmTest {
         // 5. Empty blocked set must never block anything
         checkFalse(isBlockedHost("example.com", emptySet()), "Empty blocked set must not block any host")
         checkFalse(isBlockedHost("", blocked), "Blank host must return false")
+    }
+
+    @Test
+    fun test69_machineDataParagraphDetectionAndNormalBengaliPreservation() {
+        // 1. Deshrupantor JSON sample (contains \uXXXX, \/, and multiple JSON key/value pairs)
+        val deshrupantorSample =
+            """title":"\u09a8\u09be\u09b6...","url":"https:\/\/www.deshrupantor.com\/735775\/...","meta_key":"","meta_description":"\u09a6\u09c7\u09b6..."""
+        checkTrue(isMachineDataParagraph(deshrupantorSample), "Deshrupantor JSON payload must be flagged as machine data")
+
+        // 2. Bangla Tribune style sample with \uXXXX escapes
+        val banglaTribuneSample = """title":"\u0985\u09aa\u09b0\u09be\u09a7 \u09a6\u09ae\u09a8\u09c7 \u09aa\u09c1\u09b2\u09bf\u09b6""""
+        checkTrue(isMachineDataParagraph(banglaTribuneSample), "Bangla Tribune unicode-escaped JSON must be flagged as machine data")
+
+        // 3. Plain JSON object/array starting with { or [ and containing ":
+        val jsonObjectSample = """{"id":123,"headline":"Sample headline"}"""
+        val jsonArraySample = """[{"key":"value"}]"""
+        checkTrue(isMachineDataParagraph(jsonObjectSample), "JSON object starting with { must be flagged as machine data")
+        checkTrue(isMachineDataParagraph(jsonArraySample), "JSON array starting with [ must be flagged as machine data")
+
+        // 4. Multiple ASCII key-value pairs without leading brace
+        val kvSample = """"title":"Hello World","meta_description":"Another field""""
+        checkTrue(isMachineDataParagraph(kvSample), "Multiple quoted ASCII key/value pairs must be flagged as machine data")
+
+        // 5. Normal Bengali news paragraph with quoted speech and colon must NEVER be dropped
+        val normalSpeechBn =
+            """সংবাদ সম্মেলনে উপদেষ্টা বললেন, “আমরা দ্রুতই বাজার পরিস্থিতি নিয়ন্ত্রণে আনতে কাজ করছি।” সময়: বিকাল ৪টা।"""
+        checkFalse(isMachineDataParagraph(normalSpeechBn), "Normal Bengali speech with quotes and colon must be kept")
+
+        val asciiQuoteSpeechBn =
+            """তিনি সাংবাদিকদের বললেন, "আগামী সপ্তাহেই নতুন নীতিমালা প্রকাশ করা হবে।" তারিখ: ১৭ নভেম্বর।"""
+        checkFalse(isMachineDataParagraph(asciiQuoteSpeechBn), "Bengali prose with ASCII quotes and colon must be kept")
+
+        // 6. Bengali paragraph containing a normal URL must NEVER be dropped
+        val urlParagraphBn =
+            "বিস্তারিত পড়তে ভিজিট করুন https://www.deshrupantor.com/735770/article-title এবং মন্তব্য জানান।"
+        checkFalse(isMachineDataParagraph(urlParagraphBn), "Bengali paragraph containing a normal https URL must be kept")
+
+        // 7. Empty / blank string
+        checkFalse(isMachineDataParagraph(""), "Empty string must return false")
+        checkFalse(isMachineDataParagraph("   "), "Whitespace-only string must return false")
+    }
+
+    @Test
+    fun test70_cleanReaderStripsTemplateHiddenCdataAndDropsMachineJson() {
+        val extractor = ArticleExtractor()
+
+        val htmlWithHiddenAndCdata = """
+            <html>
+            <head><title>টেস্ট সংবাদ</title></head>
+            <body>
+                <script>window.__DATA__ = {"title":"\u09a8\u09be\u09b6","url":"https:\/\/example.com\/1"};</script>
+                <noscript>Please enable JS {"title":"no-js","url":"https:\/\/example.com\/2"}</noscript>
+                <template><div class="tpl">{"title":"\u0985\u09aa\u09b0","url":"https:\/\/example.com\/3"}</div></template>
+                <div hidden><p>{"title":"\u09a8\u09be\u09b6\u0995\u09a4\u09be","url":"https:\/\/example.com\/hidden"}</p></div>
+                <div style="display: none"><p>{"meta_key":"","meta_description":"\u09a6\u09c7\u09b6"}</p></div>
+                <span style="visibility:hidden">লুকানো লেখা যা রিডারে দেখানো উচিত নয়</span>
+                <!-- {"title":"comment_leak","url":"https:\/\/example.com\/comment"} -->
+                <![CDATA[ {"title":"cdata_leak","url":"https:\/\/example.com\/cdata"} ]]>
+                <article>
+                    <p>রাজধানীতে আজ সকালে আন্তর্জাতিক চলচ্চিত্র উৎসবের উদ্বোধন হয়েছে যেখানে দেশি-বিদেশি নির্মাতারা অংশ নিয়েছেন।</p>
+                    <p>আয়োজকরা বললেন, “তরুণ নির্মাতাদের জন্য এটি একটি বড় সুযোগ সৃষ্টি করবে।” সময়: সকাল ১০টা।</p>
+                </article>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val parsed = extractor.parseHtml(
+            html = htmlWithHiddenAndCdata,
+            url = "https://www.deshrupantor.com/735770/test",
+            fallbackTitle = "উৎসব উদ্বোধন",
+            source = "দেশ রূপান্তর"
+        )
+        checkEquals(2, parsed.paragraphs.size, "Only the 2 real visible paragraphs must survive")
+        checkFalse(parsed.plainText.contains("meta_description"), "Hidden/script JSON must never leak into CleanArticle")
+        checkFalse(parsed.plainText.contains("cdata_leak"), "CDATA block must never leak into CleanArticle")
+        checkFalse(parsed.plainText.contains("লুকানো লেখা"), "visibility:hidden span must never leak into CleanArticle")
+
+        // When all paragraphs are raw JSON / machine data, fallback keeps PLACEHOLDER_WEBVIEW unchanged
+        val jsonOnlyHtml = """
+            <html><body><article>
+                <p>title":"\u09a8\u09be\u09b6...","url":"https:\/\/www.deshrupantor.com\/735775\/...","meta_key":"","meta_description":"\u09a6\u09c7\u09b6...</p>
+            </article></body></html>
+        """.trimIndent()
+        val fallbackParsed = extractor.parseHtml(
+            html = jsonOnlyHtml,
+            url = "https://www.deshrupantor.com/735775/test",
+            fallbackTitle = "শিরোনাম",
+            source = "দেশ রূপান্তর"
+        )
+        checkTrue(
+            fallbackParsed.paragraphs.contains(ArticleExtractor.PLACEHOLDER_WEBVIEW),
+            "Dropping all machine-data paragraphs must preserve the existing PLACEHOLDER_WEBVIEW fallback"
+        )
+        checkFalse(extractor.hasSubstantiveContent(fallbackParsed), "JSON-only fallback must not be considered substantive")
+
+        // Also verify parseLiveDomJson rejects machine-data-only paragraphs
+        val liveDomJson = """
+            {"title":"শিরোনাম","image":"","url":"https://www.deshrupantor.com/735775/test","paragraphs":["title\":\"\\u09a8\\u09be\\u09b6\",\"url\":\"https:\\/\\/www.deshrupantor.com\\/735775\""]}
+        """.trimIndent()
+        val liveParsed = extractor.parseLiveDomJson(
+            rawJsResult = liveDomJson,
+            url = "https://www.deshrupantor.com/735775/test",
+            fallbackTitle = "শিরোনাম",
+            source = "দেশ রূপান্তর"
+        )
+        checkTrue(liveParsed == null, "parseLiveDomJson must return null when only machine data paragraphs exist")
     }
 
     companion object {

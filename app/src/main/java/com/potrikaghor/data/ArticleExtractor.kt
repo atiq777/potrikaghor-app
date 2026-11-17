@@ -25,6 +25,48 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
+private val MACHINE_UNICODE_ESCAPE_REGEX = Regex("""\\u[0-9a-fA-F]{4}""")
+private val MACHINE_JSON_ASCII_KV_REGEX = Regex(""""[A-Za-z0-9_.-]{1,64}"\s*:\s*"""")
+private val MACHINE_JSON_QUOTE_COLON_QUOTE_REGEX = Regex(""""\s*:\s*"""")
+private val MACHINE_JSON_QUOTE_COLON_REGEX = Regex(""""\s*:""")
+
+/**
+ * Pure helper to detect raw machine/JSON data paragraphs (e.g. embedded hydration payloads)
+ * while never dropping normal Bengali prose containing quotes, colons, or URLs.
+ */
+fun isMachineDataParagraph(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return false
+
+    // 1. Contains 2 or more \uXXXX escape sequences
+    if (MACHINE_UNICODE_ESCAPE_REGEX.findAll(trimmed).take(2).count() >= 2) {
+        return true
+    }
+
+    // 2. Contains 2 or more escaped slashes written as \/
+    val firstSlash = trimmed.indexOf("\\/")
+    if (firstSlash != -1 && trimmed.indexOf("\\/", firstSlash + 2) != -1) {
+        return true
+    }
+
+    // 3. Matches a JSON key/value shape: a quoted ASCII key followed by ":"
+    //    together with at least one more quote-colon-quote pair
+    if (MACHINE_JSON_ASCII_KV_REGEX.containsMatchIn(trimmed) &&
+        MACHINE_JSON_QUOTE_COLON_QUOTE_REGEX.findAll(trimmed).take(2).count() >= 2
+    ) {
+        return true
+    }
+
+    // 4. Starts with { or [ and contains ":
+    if ((trimmed.startsWith('{') || trimmed.startsWith('[')) &&
+        MACHINE_JSON_QUOTE_COLON_REGEX.containsMatchIn(trimmed)
+    ) {
+        return true
+    }
+
+    return false
+}
+
 data class CleanArticle(
     val title: String,
     val source: String,
@@ -195,7 +237,27 @@ class ArticleExtractor {
                         } catch (e) {}
                     }
 
-                    // 2. Newspaper-specific and semantic article containers
+                    function isHiddenOrNoise(el) {
+                        if (!el || el.nodeType !== 1) return true;
+                        if (el.closest && el.closest('nav, header, footer, aside, .related-news, .comments, script, style, noscript, template, [hidden], [aria-hidden="true"]')) {
+                            return true;
+                        }
+                        var cur = el;
+                        while (cur && cur.nodeType === 1) {
+                            if (cur.hasAttribute && cur.hasAttribute('hidden')) return true;
+                            var tag = (cur.tagName || '').toUpperCase();
+                            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return true;
+                            if (window.getComputedStyle) {
+                                var cs = window.getComputedStyle(cur);
+                                if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) return true;
+                            }
+                            if (cur === document.body) break;
+                            cur = cur.parentElement;
+                        }
+                        return false;
+                    }
+
+                    // 2. Newspaper-specific and semantic article containers (visible innerText only; never textContent)
                     var selectors = [
                         '.story-element-text',
                         '[itemprop="articleBody"] p',
@@ -216,17 +278,18 @@ class ArticleExtractor {
                         var limit = Math.min(nodes.length, 120);
                         for (var n = 0; n < limit; n++) {
                             var el = nodes[n];
-                            if (el.closest && el.closest('nav, header, footer, aside, .related-news, .comments, script, style')) continue;
-                            addText(el.innerText || el.textContent || '');
+                            if (isHiddenOrNoise(el)) continue;
+                            var visibleText = (typeof el.innerText === 'string') ? el.innerText : '';
+                            if (visibleText) addText(visibleText);
                             if (paras.length >= maxParas || totalChars >= maxChars) break;
                         }
                         if (paras.length >= 4) break;
                     }
 
-                    // 3. Bounded fallback to article or main innerText if paragraphs are still sparse
+                    // 3. Bounded fallback to visible article or main innerText if paragraphs are still sparse
                     if (paras.length < 2) {
                         var mainContainer = document.querySelector('article, [itemprop="articleBody"], main');
-                        if (mainContainer && mainContainer.innerText) {
+                        if (mainContainer && !isHiddenOrNoise(mainContainer) && typeof mainContainer.innerText === 'string' && mainContainer.innerText) {
                             addText(mainContainer.innerText.substring(0, 35000));
                         }
                     }
@@ -244,7 +307,7 @@ class ArticleExtractor {
         """.trimIndent()
 
         /**
-         * Bounded HTML fallback JS that strips heavy non-content nodes inside JS first and caps the
+         * Bounded HTML fallback JS that strips heavy non-content and hidden nodes inside JS first and caps the
          * returned markup to 180 KB so multi-megabyte outerHTML never crosses the JNI/Main-Thread bridge.
          */
         val BOUNDED_ARTICLE_HTML_JS: String = """
@@ -253,7 +316,22 @@ class ArticleExtractor {
                     var root = document.querySelector('article, [itemprop="articleBody"], main') || document.body;
                     if (!root) return '';
                     var clone = root.cloneNode(true);
-                    var noisy = clone.querySelectorAll('script, style, svg, nav, footer, header, iframe, noscript, aside');
+                    if (window.getComputedStyle) {
+                        var liveAll = root.querySelectorAll('*');
+                        var cloneAll = clone.querySelectorAll('*');
+                        if (liveAll.length === cloneAll.length) {
+                            for (var h = liveAll.length - 1; h >= 0; h--) {
+                                var liveEl = liveAll[h];
+                                var cs = window.getComputedStyle(liveEl);
+                                if ((cs && (cs.display === 'none' || cs.visibility === 'hidden')) ||
+                                    (liveEl.hasAttribute && liveEl.hasAttribute('hidden'))) {
+                                    var cNode = cloneAll[h];
+                                    if (cNode && cNode.parentNode) cNode.parentNode.removeChild(cNode);
+                                }
+                            }
+                        }
+                    }
+                    var noisy = clone.querySelectorAll('script, style, svg, nav, footer, header, iframe, noscript, aside, template, [hidden]');
                     for (var i = 0; i < noisy.length; i++) {
                         if (noisy[i].parentNode) noisy[i].parentNode.removeChild(noisy[i]);
                     }
@@ -547,6 +625,7 @@ class ArticleExtractor {
                 }
             }
 
+            paragraphs.removeAll { isMachineDataParagraph(it) }
             if (paragraphs.isEmpty()) return null
 
             CleanArticle(
@@ -565,7 +644,7 @@ class ArticleExtractor {
     fun hasSubstantiveContent(article: CleanArticle?): Boolean {
         if (article == null) return false
         val realParagraphs = article.paragraphs.filter { p ->
-            !isPlaceholderText(p) && p != article.title && p.length > 30
+            !isPlaceholderText(p) && !isMachineDataParagraph(p) && p != article.title && p.length > 30
         }
         return realParagraphs.isNotEmpty()
     }
@@ -921,8 +1000,10 @@ class ArticleExtractor {
             }
         }
 
+        paragraphs.removeAll { isMachineDataParagraph(it) }
+
         if (paragraphs.isEmpty()) {
-            if (safeFallbackTitle.isNotEmpty()) {
+            if (safeFallbackTitle.isNotEmpty() && !isMachineDataParagraph(safeFallbackTitle)) {
                 paragraphs.add(safeFallbackTitle)
             }
             paragraphs.add(PLACEHOLDER_WEBVIEW)
@@ -1132,13 +1213,157 @@ class ArticleExtractor {
      * `<select>`, `<title>`, `<h1>` blocks without allocating multiple full-document copies or
      * risking regex backtracking on unclosed tags.
      */
+    private val rawTextNoiseTags = setOf("script", "style", "title")
+    private val voidHtmlTags = setOf(
+        "meta", "link", "img", "input", "br", "hr", "source", "wbr",
+        "base", "col", "embed", "param", "track", "area"
+    )
+    private val hiddenInlineStyleRegex = Regex(
+        """(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun isTagBoundary(c: Char): Boolean =
+        c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/'
+
+    private fun isHiddenHtmlOpenTag(html: String, attrStart: Int, openEnd: Int): Boolean {
+        var p = attrStart
+        val maxScan = minOf(openEnd, attrStart + 2048)
+        while (p < maxScan) {
+            p = skipAsciiWhitespace(html, p)
+            if (p >= maxScan) break
+            val c = html[p]
+            if (c == '/' || c == '>') break
+            if (!isAsciiAttrStart(c)) {
+                p++
+                continue
+            }
+            var nameEnd = p + 1
+            while (nameEnd < maxScan && isAsciiAttrChar(html[nameEnd])) {
+                nameEnd++
+            }
+            val attrName = html.substring(p, nameEnd)
+            val afterName = skipAsciiWhitespace(html, nameEnd)
+            var attrValue = ""
+            if (afterName < maxScan && html[afterName] == '=') {
+                val valStart = skipAsciiWhitespace(html, afterName + 1)
+                if (valStart < maxScan) {
+                    val q = html[valStart]
+                    if (q == '"' || q == '\'') {
+                        val qEnd = html.indexOf(q, valStart + 1)
+                        if (qEnd != -1 && qEnd < openEnd) {
+                            attrValue = html.substring(valStart + 1, qEnd)
+                            p = qEnd + 1
+                        } else {
+                            attrValue = html.substring(valStart + 1, openEnd)
+                            p = openEnd
+                        }
+                    } else {
+                        var uEnd = valStart
+                        while (uEnd < maxScan && !isAsciiWhitespace(html[uEnd]) && html[uEnd] != '>' && html[uEnd] != '<') {
+                            uEnd++
+                        }
+                        attrValue = html.substring(valStart, uEnd)
+                        p = uEnd
+                    }
+                } else {
+                    p = afterName + 1
+                }
+            } else {
+                p = afterName
+            }
+
+            if (attrName.equals("hidden", ignoreCase = true) && !attrValue.equals("false", ignoreCase = true)) {
+                return true
+            }
+            if (attrName.equals("style", ignoreCase = true) && hiddenInlineStyleRegex.containsMatchIn(attrValue)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun findMatchingCloseTagEnd(html: String, tagName: String, contentStart: Int): Int {
+        val len = html.length
+        val tagLen = tagName.length
+        var depth = 1
+        var pos = contentStart
+
+        while (pos < len) {
+            val lt = html.indexOf('<', pos)
+            if (lt == -1) return len
+
+            if (html.startsWith("<!--", lt)) {
+                val commentEnd = html.indexOf("-->", lt + 4)
+                pos = if (commentEnd != -1) commentEnd + 3 else return len
+                continue
+            }
+            if (html.regionMatches(lt, "<![CDATA[", 0, 9, ignoreCase = true)) {
+                val cdataEnd = html.indexOf("]]>", lt + 9)
+                pos = if (cdataEnd != -1) cdataEnd + 3 else return len
+                continue
+            }
+            if (lt + 7 < len && html.regionMatches(lt + 1, "script", 0, 6, ignoreCase = true) && isTagBoundary(html[lt + 7])) {
+                val closeScript = html.indexOf("</script", lt + 7, ignoreCase = true)
+                if (closeScript == -1) return len
+                val closeEnd = html.indexOf('>', closeScript + 8)
+                pos = if (closeEnd != -1) closeEnd + 1 else return len
+                continue
+            }
+            if (lt + 6 < len && html.regionMatches(lt + 1, "style", 0, 5, ignoreCase = true) && isTagBoundary(html[lt + 6])) {
+                val closeStyle = html.indexOf("</style", lt + 6, ignoreCase = true)
+                if (closeStyle == -1) return len
+                val closeEnd = html.indexOf('>', closeStyle + 7)
+                pos = if (closeEnd != -1) closeEnd + 1 else return len
+                continue
+            }
+
+            if (lt + 2 + tagLen <= len &&
+                html[lt + 1] == '/' &&
+                html.regionMatches(lt + 2, tagName, 0, tagLen, ignoreCase = true) &&
+                (lt + 2 + tagLen == len || isTagBoundary(html[lt + 2 + tagLen]))
+            ) {
+                val closeEnd = html.indexOf('>', lt + 2 + tagLen)
+                depth--
+                if (depth <= 0) {
+                    return if (closeEnd != -1) closeEnd + 1 else len
+                }
+                pos = if (closeEnd != -1) closeEnd + 1 else return len
+                continue
+            }
+
+            if (lt + 1 + tagLen < len &&
+                html.regionMatches(lt + 1, tagName, 0, tagLen, ignoreCase = true) &&
+                isTagBoundary(html[lt + 1 + tagLen])
+            ) {
+                val openEnd = html.indexOf('>', lt + 1 + tagLen)
+                if (openEnd == -1) return len
+                if (html[openEnd - 1] != '/') {
+                    depth++
+                }
+                pos = openEnd + 1
+                continue
+            }
+
+            pos = lt + 1
+        }
+        return len
+    }
+
+    /**
+     * Single-pass O(N) noise remover that strips HTML comments, CDATA blocks, `<script>`, `<style>`,
+     * `<noscript>`, `<template>`, `<nav>`, `<header>`, `<footer>`, `<aside>`, `<iframe>`, `<svg>`,
+     * `<form>`, `<button>`, `<select>`, `<title>`, `<h1>`, and elements with `hidden`,
+     * `display:none`, or `visibility:hidden` without allocating multiple full-document copies or
+     * risking regex backtracking on unclosed tags.
+     */
     internal fun stripNoiseBlocksLinear(html: String): String {
         val len = html.length
         val sb = StringBuilder(minOf(len, 128 * 1024))
         var i = 0
         val noiseTags = arrayOf(
             "script", "style", "nav", "header", "footer", "aside",
-            "iframe", "noscript", "svg", "form", "button", "select", "title", "h1"
+            "iframe", "noscript", "template", "svg", "form", "button", "select", "title", "h1"
         )
 
         while (i < len) {
@@ -1160,13 +1385,22 @@ class ArticleExtractor {
                 continue
             }
 
+            // Check CDATA block <![CDATA[ ... ]]>
+            if (html.regionMatches(lt, "<![CDATA[", 0, 9, ignoreCase = true)) {
+                val cdataEnd = html.indexOf("]]>", lt + 9)
+                if (cdataEnd == -1) break
+                sb.append(' ')
+                i = cdataEnd + 3
+                continue
+            }
+
             // Check whether this opening tag matches any noise block tag
             var matchedNoiseTag: String? = null
             for (tag in noiseTags) {
                 val tagLen = tag.length
                 if (lt + 1 + tagLen < len && html.regionMatches(lt + 1, tag, 0, tagLen, ignoreCase = true)) {
                     val boundaryCh = html[lt + 1 + tagLen]
-                    if (boundaryCh == '>' || boundaryCh == ' ' || boundaryCh == '\t' || boundaryCh == '\n' || boundaryCh == '\r' || boundaryCh == '/') {
+                    if (isTagBoundary(boundaryCh)) {
                         matchedNoiseTag = tag
                         break
                     }
@@ -1181,19 +1415,49 @@ class ArticleExtractor {
                     i = openEnd + 1
                     continue
                 }
-                val closeMarker = "</$matchedNoiseTag"
-                val closeIdx = html.indexOf(closeMarker, openEnd + 1, ignoreCase = true)
-                if (closeIdx == -1) {
-                    // Truncated noise block at the end of bounded stream: stop cleanly without backtracking
-                    break
+                if (matchedNoiseTag in rawTextNoiseTags) {
+                    val closeMarker = "</$matchedNoiseTag"
+                    val closeIdx = html.indexOf(closeMarker, openEnd + 1, ignoreCase = true)
+                    if (closeIdx == -1) {
+                        // Truncated noise block at the end of bounded stream: stop cleanly without backtracking
+                        break
+                    }
+                    val closeEnd = html.indexOf('>', closeIdx + closeMarker.length)
+                    sb.append(' ')
+                    i = if (closeEnd != -1) closeEnd + 1 else len
+                } else {
+                    sb.append(' ')
+                    i = findMatchingCloseTagEnd(html, matchedNoiseTag, openEnd + 1)
                 }
-                val closeEnd = html.indexOf('>', closeIdx + closeMarker.length)
-                sb.append(' ')
-                i = if (closeEnd != -1) closeEnd + 1 else len
-            } else {
-                sb.append('<')
-                i = lt + 1
+                continue
             }
+
+            // Also strip non-void HTML elements marked with `hidden` attribute or inline display:none / visibility:hidden
+            if (lt + 1 < len && isAsciiLetter(html[lt + 1])) {
+                var nameEnd = lt + 2
+                while (nameEnd < len && nameEnd - (lt + 1) < 20 && isAsciiLetterOrDigit(html[nameEnd])) {
+                    nameEnd++
+                }
+                val openTagName = html.substring(lt + 1, nameEnd).lowercase(Locale.ROOT)
+                if (nameEnd < len &&
+                    isTagBoundary(html[nameEnd]) &&
+                    openTagName !in voidHtmlTags
+                ) {
+                    val openEnd = html.indexOf('>', nameEnd)
+                    if (openEnd != -1 && isHiddenHtmlOpenTag(html, nameEnd, openEnd)) {
+                        sb.append(' ')
+                        i = if (html[openEnd - 1] == '/') {
+                            openEnd + 1
+                        } else {
+                            findMatchingCloseTagEnd(html, openTagName, openEnd + 1)
+                        }
+                        continue
+                    }
+                }
+            }
+
+            sb.append('<')
+            i = lt + 1
         }
         return sb.toString()
     }
@@ -1239,7 +1503,7 @@ class ArticleExtractor {
         "video", "audio", "iframe", "table", "thead", "tbody", "tfoot", "tr", "td", "th",
         "caption", "time", "abbr", "address", "details", "summary", "wbr", "ruby", "rt",
         "rp", "bdi", "bdo", "data", "dfn", "kbd", "samp", "var", "html", "head", "body",
-        "meta", "link", "style", "script", "noscript", "svg", "path", "form", "input",
+        "meta", "link", "style", "script", "noscript", "template", "svg", "path", "form", "input",
         "button", "select", "option", "label", "center"
     )
 
@@ -1366,7 +1630,14 @@ class ArticleExtractor {
             return MatchedHtmlTag("!--", endPos, isBlockBreak = false, isClosing = false)
         }
 
-        // 2. <!DOCTYPE ...> or <![CDATA[...]]>
+        // 2. <![CDATA[...]]>
+        if (s.regionMatches(ltIndex, "<![CDATA[", 0, 9, ignoreCase = true)) {
+            val endCdata = s.indexOf("]]>", ltIndex + 9)
+            val endPos = if (endCdata != -1) endCdata + 3 else len
+            return MatchedHtmlTag("!--", endPos, isBlockBreak = false, isClosing = false)
+        }
+
+        // 3. <!DOCTYPE ...> or <?xml ...?>
         if (s[ltIndex + 1] == '!' || s[ltIndex + 1] == '?') {
             val gt = s.indexOf('>', ltIndex + 2)
             if (gt != -1 && gt - ltIndex <= 512) {
@@ -1690,6 +1961,7 @@ class ArticleExtractor {
 
     private fun isValidParagraph(text: String, minLen: Int = 8): Boolean {
         if (text.length < minLen) return false
+        if (isMachineDataParagraph(text)) return false
         if (text.length > 35 && !text.contains(' ')) return false
         var hasLetter = false
         for (i in 0 until text.length) {
