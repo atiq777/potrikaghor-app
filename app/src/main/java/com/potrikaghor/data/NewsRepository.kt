@@ -280,6 +280,7 @@ class HomeFeedPersistentStateHolder(
 class NewsRepository {
     companion object {
         const val DIAG_TAG = "PotrikaImageDiag"
+        const val CATEGORY_DIAG_TAG = "PotrikaCategoryDiag"
         const val BROWSER_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         const val IMAGE_ACCEPT_HEADER = "image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5"
@@ -290,6 +291,16 @@ class NewsRepository {
                     Log.d(DIAG_TAG, message)
                 } catch (_: Throwable) {
                     println("[$DIAG_TAG] $message")
+                }
+            }
+        }
+
+        fun logCategoryDiag(message: String) {
+            if (BuildConfig.DEBUG) {
+                try {
+                    Log.d(CATEGORY_DIAG_TAG, message)
+                } catch (_: Throwable) {
+                    println("[$CATEGORY_DIAG_TAG] $message")
                 }
             }
         }
@@ -1396,19 +1407,38 @@ class NewsRepository {
         val directItems = directDeferred.await()
         val googleItems = googleDeferred.await()
 
+        val resolvedCategory = resolveNewsCategoryKey(q, section)
+        val effectiveCategoryKey = q.ifEmpty { section }
+
         // Filter direct items by category/search query if one was specified
         val filteredDirect = filterDirectItemsByQuery(directItems, q, section, isIntlQuery)
 
+        // For the four problem categories (jobs, business, technology, education),
+        // filter Google News items using the exact same scoring rule before enrichment and merge.
+        val filteredGoogle = if (resolvedCategory != null && resolvedCategory.requireStrongOrMultiKeyword) {
+            filterItemsForCategory(googleItems, effectiveCategoryKey)
+        } else {
+            googleItems
+        }
+
+        if (resolvedCategory != null) {
+            logCategoryDiag(
+                "category=${resolvedCategory.name.lowercase(Locale.ROOT)} | " +
+                    "direct=${directItems.size}->${filteredDirect.size} | " +
+                    "google=${googleItems.size}->${filteredGoogle.size}"
+            )
+        }
+
         // Cross-match Google News RSS items with direct publisher RSS items by headline similarity
         // so Google News items covering the same event inherit verified RSS image URLs!
-        val enrichedGoogleItems = enrichGoogleItemsWithDirectImages(googleItems, directItems)
+        val enrichedGoogleItems = enrichGoogleItemsWithDirectImages(filteredGoogle, directItems)
 
         val combined = mergeDirectAndGoogleItems(filteredDirect, enrichedGoogleItems)
         if (combined.isEmpty() && googleItems.isEmpty() && directItems.isEmpty()) {
             throw Exception("No news items fetched")
         }
 
-        val isKnownCategory = resolveNewsCategoryKey(q, section) != null
+        val isKnownCategory = resolvedCategory != null
         val selectedItems = when {
             combined.isNotEmpty() -> combined
             isKnownCategory -> emptyList()
@@ -1722,7 +1752,7 @@ class NewsRepository {
 
         val category = resolveNewsCategoryKey(q, section)
         if (category != null) {
-            return directItems.filter { item -> matchesNewsCategory(item, category) }
+            return filterItemsForCategory(directItems, q.ifEmpty { section })
         }
 
         val plainKeywords = q.split(whitespaceRegex).filter { it.length >= 2 }
@@ -4082,6 +4112,7 @@ private const val CATEGORY_WEIGHT_STRONG = 3
 private const val CATEGORY_WEIGHT_MEDIUM = 2
 private const val CATEGORY_WEIGHT_WEAK = 1
 private const val CATEGORY_MATCH_THRESHOLD = 3
+private const val CATEGORY_MULTI_MATCH_THRESHOLD = 4
 private const val SPORTS_PENALTY_AMOUNT = 2
 
 private val BENGALI_WORD_ENDINGS = setOf(
@@ -4122,7 +4153,8 @@ private val STRONG_SPORTS_PENALTY_TOKENS: List<List<String>> = listOf(
 internal enum class NewsCategoryKey(
     val cleanCategoryAliases: Set<String>,
     val weightedKeywords: List<WeightedCategoryKeyword>,
-    val applyStrongSportsPenalty: Boolean = false
+    val applyStrongSportsPenalty: Boolean = false,
+    val requireStrongOrMultiKeyword: Boolean = false
 ) {
     JOBS(
         cleanCategoryAliases = setOf("jobs", "job", "চাকরি", "চাকরির খবর"),
@@ -4130,12 +4162,14 @@ internal enum class NewsCategoryKey(
             strong = listOf(
                 "চাকরি", "নিয়োগ", "নিয়োগ বিজ্ঞপ্তি", "বিসিএস", "পিএসসি",
                 "কর্মসংস্থান", "চাকরিপ্রার্থী", "শিক্ষক নিয়োগ", "এনটিআরসিএ",
-                "লোকবল", "সার্কুলার", "ভাইভা"
+                "লোকবল", "নিয়োগ পরীক্ষা", "পদে নিয়োগ"
             ),
-            medium = listOf("বিজ্ঞপ্তি", "আবেদন", "বেতন", "পদে নিয়োগ", "নিয়োগ পরীক্ষা"),
-            weak = listOf("পদে", "পরীক্ষা")
+            weak = listOf(
+                "আবেদন", "বিজ্ঞপ্তি", "বেতন", "পদে", "পরীক্ষা", "সার্কুলার", "ভাইভা"
+            )
         ),
-        applyStrongSportsPenalty = true
+        applyStrongSportsPenalty = true,
+        requireStrongOrMultiKeyword = true
     ),
     BUSINESS(
         cleanCategoryAliases = setOf(
@@ -4149,11 +4183,12 @@ internal enum class NewsCategoryKey(
                 "বিনিয়োগ", "রিজার্ভ", "বাজেট", "এনবিআর", "রাজস্ব", "জিডিপি", "ডিএসই"
             ),
             medium = listOf(
-                "শেয়ার", "ঋণ", "ব্যবসা", "ব্যবসায়ী", "কোম্পানি", "শিল্প",
+                "শেয়ার", "ব্যবসা", "ব্যবসায়ী", "কোম্পানি",
                 "ট্যাক্স", "ভ্যাট", "আয়কর", "পোশাক", "business", "economy", "market"
             ),
-            weak = listOf("টাকা", "বাজার", "দাম")
-        )
+            weak = listOf("টাকা", "বাজার", "দাম", "ঋণ", "শিল্প")
+        ),
+        requireStrongOrMultiKeyword = true
     ),
     TECHNOLOGY(
         cleanCategoryAliases = setOf("tech", "technology", "প্রযুক্তি", "তথ্যপ্রযুক্তি"),
@@ -4163,23 +4198,25 @@ internal enum class NewsCategoryKey(
                 "সফটওয়্যার", "সাইবার", "ডিজিটাল", "ল্যাপটপ", "স্টার্টআপ", "চ্যাটজিপিটি"
             ),
             medium = listOf(
-                "গুগল", "অ্যাপল", "মাইক্রোসফট", "ফেসবুক", "অ্যাপ", "ফোন",
-                "অ্যান্ড্রয়েড", "আইফোন", "স্যামসাং", "শাওমি",
+                "গুগল", "অ্যাপল", "মাইক্রোসফট", "অ্যান্ড্রয়েড", "আইফোন", "স্যামসাং", "শাওমি",
                 "tech", "ai", "apple", "google", "software"
-            )
-        )
+            ),
+            weak = listOf("ফোন", "অ্যাপ", "ফেসবুক")
+        ),
+        requireStrongOrMultiKeyword = true
     ),
     EDUCATION(
         cleanCategoryAliases = setOf("edu", "education", "শিক্ষা", "শিক্ষাঙ্গন", "ক্যাম্পাস"),
         weightedKeywords = buildWeightedKeywords(
             strong = listOf(
                 "শিক্ষা", "শিক্ষার্থী", "শিক্ষক", "বিশ্ববিদ্যালয়", "কলেজ", "স্কুল",
-                "এইচএসসি", "এসএসসি", "ভর্তি", "ক্যাম্পাস", "শিক্ষা মন্ত্রণালয়", "পাঠ্যবই"
+                "এইচএসসি", "এসএসসি", "ভর্তি পরীক্ষা", "ক্যাম্পাস", "শিক্ষা মন্ত্রণালয়", "পাঠ্যবই"
             ),
-            medium = listOf("ঢাবি", "বুয়েট", "বোর্ড", "ফল প্রকাশ"),
-            weak = listOf("পরীক্ষা")
+            medium = listOf("ঢাবি", "বুয়েট"),
+            weak = listOf("ভর্তি", "বোর্ড", "ফল প্রকাশ", "পরীক্ষা")
         ),
-        applyStrongSportsPenalty = true
+        applyStrongSportsPenalty = true,
+        requireStrongOrMultiKeyword = true
     ),
     POLITICS(
         cleanCategoryAliases = setOf("politics", "রাজনীতি"),
@@ -4377,15 +4414,33 @@ internal fun hasCleanPublisherCategory(categoryId: String, category: NewsCategor
     return false
 }
 
-internal fun categoryMatchScore(item: NewsItem, category: NewsCategoryKey): Int {
+private data class CategoryMatchEvaluation(
+    val score: Int,
+    val strongMatchCount: Int,
+    val distinctMatchCount: Int
+)
+
+private fun evaluateCategoryMatch(item: NewsItem, category: NewsCategoryKey): CategoryMatchEvaluation {
     val titleWords = splitIntoCategoryWords(item.title)
     val snippetWords = splitIntoCategoryWords(item.snippet)
     var score = 0
+    var strongMatchCount = 0
+    var distinctMatchCount = 0
     for (kw in category.weightedKeywords) {
-        if (containsKeywordTokens(titleWords, kw.tokens)) {
+        val matched = if (containsKeywordTokens(titleWords, kw.tokens)) {
             score += kw.weight * 2
+            true
         } else if (containsKeywordTokens(snippetWords, kw.tokens)) {
             score += kw.weight
+            true
+        } else {
+            false
+        }
+        if (matched) {
+            distinctMatchCount++
+            if (kw.weight == CATEGORY_WEIGHT_STRONG) {
+                strongMatchCount++
+            }
         }
     }
     if (category.applyStrongSportsPenalty &&
@@ -4393,13 +4448,33 @@ internal fun categoryMatchScore(item: NewsItem, category: NewsCategoryKey): Int 
     ) {
         score -= SPORTS_PENALTY_AMOUNT
     }
-    return score
+    return CategoryMatchEvaluation(
+        score = score,
+        strongMatchCount = strongMatchCount,
+        distinctMatchCount = distinctMatchCount
+    )
+}
+
+internal fun categoryMatchScore(item: NewsItem, category: NewsCategoryKey): Int {
+    return evaluateCategoryMatch(item, category).score
 }
 
 internal fun matchesNewsCategory(item: NewsItem, category: NewsCategoryKey): Boolean {
     if (hasCleanPublisherCategory(item.categoryId, category)) {
         return true
     }
-    return categoryMatchScore(item, category) >= CATEGORY_MATCH_THRESHOLD
+    val eval = evaluateCategoryMatch(item, category)
+    return if (category.requireStrongOrMultiKeyword) {
+        (eval.strongMatchCount >= 1 && eval.score >= CATEGORY_MATCH_THRESHOLD) ||
+            (eval.distinctMatchCount >= 2 && eval.score >= CATEGORY_MULTI_MATCH_THRESHOLD)
+    } else {
+        eval.score >= CATEGORY_MATCH_THRESHOLD
+    }
 }
+
+internal fun filterItemsForCategory(items: List<NewsItem>, categoryKey: String): List<NewsItem> {
+    val category = resolveNewsCategoryKey(categoryKey) ?: return items
+    return items.filter { item -> matchesNewsCategory(item, category) }
+}
+
 

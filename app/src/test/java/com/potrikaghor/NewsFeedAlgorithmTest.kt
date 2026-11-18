@@ -10,6 +10,7 @@ import com.potrikaghor.data.DirectRssFeedSpec
 import com.potrikaghor.data.NewsCategoryKey
 import com.potrikaghor.data.NewsRepository
 import com.potrikaghor.data.categoryMatchScore
+import com.potrikaghor.data.filterItemsForCategory
 import com.potrikaghor.data.isBlockedHost
 import com.potrikaghor.data.isMachineDataParagraph
 import com.potrikaghor.data.matchesNewsCategory
@@ -4211,6 +4212,229 @@ class NewsFeedAlgorithmTest {
         )
         checkEquals(1, filteredJobsResult.size, "Only matching jobs item must be returned")
         checkEquals("চাকরির বাজারে মন্দা", filteredJobsResult.first().title, "Matching jobs title must be preserved")
+    }
+
+    @Test
+    fun test75_categoryMatchingStep1bStrongOrMultiKeywordAndReweighting() {
+        fun item(title: String) = NewsItem(
+            title = title,
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/step1b/${title.hashCode()}",
+            categoryId = "all"
+        )
+
+        // Negative cases: single weak/everyday or single medium word must NEVER match
+        checkFalse(
+            matchesNewsCategory(
+                item("সাবেক মন্ত্রী কামরুল ইসলামকে অ্যাম্বুলেন্সে ট্রাইব্যুনালে আনা-নেওয়ার আবেদন"),
+                NewsCategoryKey.JOBS
+            ),
+            "Court petition 'আবেদন' alone must NOT match jobs"
+        )
+        checkFalse(
+            matchesNewsCategory(
+                item("জরুরি চিকিৎসার জন্য আদালতে আবেদন করেছে পরিবার"),
+                NewsCategoryKey.JOBS
+            ),
+            "Family court petition 'আবেদন' alone must NOT match jobs"
+        )
+        checkFalse(
+            matchesNewsCategory(
+                item("ফোনে কথা বলে মন্ত্রী বিষয়টি নিশ্চিত করেছেন"),
+                NewsCategoryKey.TECHNOLOGY
+            ),
+            "Everyday 'ফোনে' alone must NOT match technology"
+        )
+        checkFalse(
+            matchesNewsCategory(
+                item("হাসপাতালে ভর্তি আছেন সাবেক মন্ত্রী"),
+                NewsCategoryKey.EDUCATION
+            ),
+            "Hospital admission 'ভর্তি' alone must NOT match education"
+        )
+        checkFalse(
+            matchesNewsCategory(
+                item("ক্রিকেট বোর্ডের সভা অনুষ্ঠিত হয়েছে"),
+                NewsCategoryKey.EDUCATION
+            ),
+            "Cricket board meeting 'বোর্ডের' must NOT match education"
+        )
+        checkFalse(
+            matchesNewsCategory(
+                item("গুগল নতুন লোগো উন্মোচন করেছে"),
+                NewsCategoryKey.TECHNOLOGY
+            ),
+            "Single medium brand keyword 'গুগল' alone must NOT match technology"
+        )
+
+        // Positive cases: strong keyword or >= 2 distinct keywords with score >= 4
+        checkTrue(
+            matchesNewsCategory(
+                item("ঢাকা বিশ্ববিদ্যালয়ে ভর্তি পরীক্ষার ফল প্রকাশ"),
+                NewsCategoryKey.EDUCATION
+            ),
+            "University admission exam result headline must match education"
+        )
+        checkTrue(
+            matchesNewsCategory(
+                item("বিসিএসে ১০০০ পদে নিয়োগ বিজ্ঞপ্তি প্রকাশ"),
+                NewsCategoryKey.JOBS
+            ),
+            "BCS recruitment circular headline must match jobs"
+        )
+        checkTrue(
+            matchesNewsCategory(
+                item("শিক্ষক নিয়োগে এনটিআরসিএর নতুন সুপারিশ"),
+                NewsCategoryKey.JOBS
+            ),
+            "NTRCA teacher recruitment headline must match jobs"
+        )
+        checkTrue(
+            matchesNewsCategory(
+                item("চাকরির বাজারে মন্দা"),
+                NewsCategoryKey.JOBS
+            ),
+            "Jobs market slowdown headline must match jobs"
+        )
+        checkTrue(
+            matchesNewsCategory(
+                item("গুগল নতুন এআই ফিচার চালু করেছে"),
+                NewsCategoryKey.TECHNOLOGY
+            ),
+            "Google AI feature headline must match technology"
+        )
+        checkTrue(
+            matchesNewsCategory(
+                item("ডলারের দাম বেড়ে ১২৫ টাকা, ব্যাংকে সংকট"),
+                NewsCategoryKey.BUSINESS
+            ),
+            "Dollar price and bank crisis headline must match business"
+        )
+    }
+
+    @Test
+    fun test76_filterItemsForCategoryHelperJobsTechAndNonCategoryPassThrough() {
+        fun item(title: String, snippet: String = "") = NewsItem(
+            title = title,
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/step1c/${title.hashCode()}",
+            categoryId = "all",
+            snippet = snippet
+        )
+
+        val jobsInput = listOf(
+            item("বিসিএসে ১০০০ পদে নিয়োগ বিজ্ঞপ্তি প্রকাশ"),
+            item("চাকরির বাজারে মন্দা"),
+            item("সাবেক মন্ত্রী কামরুল ইসলামকে অ্যাম্বুলেন্সে ট্রাইব্যুনালে আনা-নেওয়ার আবেদন"),
+            item("পুলিশ তিনজনকে গ্রেপ্তার করেছে")
+        )
+        val filteredJobs = filterItemsForCategory(jobsInput, "চাকরি")
+        checkEquals(
+            listOf("বিসিএসে ১০০০ পদে নিয়োগ বিজ্ঞপ্তি প্রকাশ", "চাকরির বাজারে মন্দা"),
+            filteredJobs.map { it.title },
+            "Jobs category must keep valid jobs items and drop court petition / arrest items"
+        )
+
+        val techInput = listOf(
+            item("গুগল নতুন এআই ফিচার চালু করেছে"),
+            item("ফোনে কথা বলে মন্ত্রী বিষয়টি নিশ্চিত করেছেন")
+        )
+        val filteredTech = filterItemsForCategory(techInput, "প্রযুক্তি")
+        checkEquals(
+            listOf("গুগল নতুন এআই ফিচার চালু করেছে"),
+            filteredTech.map { it.title },
+            "Technology category must keep Google AI item and drop 'ফোনে কথা বলে...' item"
+        )
+
+        // Non-category queries (user-typed search, Bangladesh, empty) must pass all items unchanged
+        val freeSearchResult = filterItemsForCategory(jobsInput, "পদ্মা সেতু")
+        checkEquals(jobsInput, freeSearchResult, "User-typed search query must pass all items through unchanged")
+
+        val bangladeshResult = filterItemsForCategory(jobsInput, "বাংলাদেশ")
+        checkEquals(jobsInput, bangladeshResult, "Bangladesh query must pass all items through unchanged")
+
+        val emptyQueryResult = filterItemsForCategory(jobsInput, "")
+        checkEquals(jobsInput, emptyQueryResult, "Empty query must pass all items through unchanged")
+    }
+
+    @Test
+    fun test77_performFetchNewsFiltersGoogleItemsForFourProblemCategoriesOnly() = runBlocking {
+        val repo = NewsRepository()
+        val now = System.currentTimeMillis()
+        fun gItem(title: String, id: String) = NewsItem(
+            title = title,
+            source = "যুগান্তর",
+            sourceUrl = "https://www.jugantor.com",
+            link = "https://news.google.com/rss/articles/$id",
+            time = now - 60_000L,
+            categoryId = "all"
+        )
+
+        // 1. Problem category ("চাকরি"): Google items are filtered with the same scoring rule
+        val jobsGoogleInput = listOf(
+            gItem("বিসিএসে ১০০০ পদে নিয়োগ বিজ্ঞপ্তি প্রকাশ", "j1"),
+            gItem("সাবেক মন্ত্রী কামরুল ইসলামকে অ্যাম্বুলেন্সে ট্রাইব্যুনালে আনা-নেওয়ার আবেদন", "j2"),
+            gItem("পুলিশ তিনজনকে গ্রেপ্তার করেছে", "j3")
+        )
+        val jobsFetched = repo.fetchNewsInternal(
+            query = "চাকরি",
+            intl = false,
+            forceRefresh = true,
+            directFeedFetcher = { emptyList() },
+            googleRssFetcher = { _, _, _ -> jobsGoogleInput }
+        )
+        checkEquals(
+            listOf("বিসিএসে ১০০০ পদে নিয়োগ বিজ্ঞপ্তি প্রকাশ"),
+            jobsFetched.map { it.title },
+            "Google News items for Jobs must be filtered before enrichment and merge"
+        )
+
+        // 2. When both directItems and googleItems are non-empty raw but both filter down to empty -> return emptyList
+        val unrelatedDirect = listOf(
+            NewsItem(
+                title = "মন্ত্রী পদত্যাগ করলেন",
+                source = "প্রথম আলো",
+                sourceUrl = "https://www.prothomalo.com",
+                link = "https://www.prothomalo.com/unrel-1",
+                time = now - 30_000L,
+                categoryId = "all"
+            )
+        )
+        val unrelatedGoogle = listOf(
+            gItem("পুলিশ তিনজনকে গ্রেপ্তার করেছে", "g_unrel")
+        )
+        val bothEmptyAfterFilter = repo.fetchNewsInternal(
+            query = "চাকরি",
+            intl = false,
+            forceRefresh = true,
+            directFeedFetcher = { spec ->
+                if (spec.sourceBn == "প্রথম আলো") unrelatedDirect else emptyList()
+            },
+            googleRssFetcher = { _, _, _ -> unrelatedGoogle }
+        )
+        checkTrue(
+            bothEmptyAfterFilter.isEmpty(),
+            "When both direct and Google lists filter to empty for a known category, fetchNews must return emptyList"
+        )
+
+        // 3. Non-problem category ("খেলাধুলা") & user search ("মেট্রোরেল"): Google items are NOT dropped by 4-category filter
+        val sportsGoogleInput = listOf(
+            gItem("বিশেষ সাক্ষাৎকার: মাঠের বাইরের গল্প", "s1")
+        )
+        val sportsFetched = repo.fetchNewsInternal(
+            query = "খেলাধুলা",
+            intl = false,
+            forceRefresh = true,
+            directFeedFetcher = { emptyList() },
+            googleRssFetcher = { _, _, _ -> sportsGoogleInput }
+        )
+        checkEquals(
+            1,
+            sportsFetched.size,
+            "Google News items for categories outside the four problem categories must NOT be filtered by this rule"
+        )
     }
 
     companion object {
