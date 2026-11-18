@@ -7,9 +7,13 @@ import com.potrikaghor.data.ArticleExtractor
 import com.potrikaghor.data.CachedCoverageResult
 import com.potrikaghor.data.CleanArticle
 import com.potrikaghor.data.DirectRssFeedSpec
+import com.potrikaghor.data.NewsCategoryKey
 import com.potrikaghor.data.NewsRepository
+import com.potrikaghor.data.categoryMatchScore
 import com.potrikaghor.data.isBlockedHost
 import com.potrikaghor.data.isMachineDataParagraph
+import com.potrikaghor.data.matchesNewsCategory
+import com.potrikaghor.data.splitIntoCategoryWords
 import com.potrikaghor.model.Coverage
 import com.potrikaghor.model.HomeFeedMode
 import com.potrikaghor.model.NewsItem
@@ -4021,6 +4025,192 @@ class NewsFeedAlgorithmTest {
             source = "দেশ রূপান্তর"
         )
         checkTrue(liveParsed == null, "parseLiveDomJson must return null when only machine data paragraphs exist")
+    }
+
+    @Test
+    fun test71_categoryWordSplitterPreservesBengaliVowelSignsHasantaAndZwj() {
+        checkEquals(
+            listOf("বিশ্ববিদ্যালয়ে"),
+            splitIntoCategoryWords("বিশ্ববিদ্যালয়ে"),
+            "Bengali word with vowel signs and hasanta must remain a single word"
+        )
+        checkEquals(
+            listOf("বাংলাদেশ", "ভারত"),
+            splitIntoCategoryWords("বাংলাদেশ-ভারত"),
+            "Hyphenated words must split into separate words"
+        )
+        checkEquals(
+            listOf("র\u200D্যাবের", "কৃত্রিম", "বুদ্ধিমত্তা"),
+            splitIntoCategoryWords("র\u200D্যাবের কৃত্রিম বুদ্ধিমত্তা!"),
+            "Word splitter must keep ZWJ/hasanta inside words and strip trailing punctuation"
+        )
+    }
+
+    @Test
+    fun test72_categoryMatchingPrecisionNoFalsePositivesAndTruePositives() {
+        fun item(title: String, snippet: String = "", categoryId: String = "all") = NewsItem(
+            title = title,
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/test/${title.hashCode()}",
+            categoryId = categoryId,
+            snippet = snippet
+        )
+
+        val stepsItem = item("কঠোর পদক্ষেপ নেবে")
+        checkFalse(matchesNewsCategory(stepsItem, NewsCategoryKey.JOBS), "'কঠোর পদক্ষেপ নেবে' must NOT match jobs")
+
+        val resignItem = item("মন্ত্রী পদত্যাগ করলেন")
+        checkFalse(matchesNewsCategory(resignItem, NewsCategoryKey.JOBS), "'মন্ত্রী পদত্যাগ করলেন' must NOT match jobs")
+        checkFalse(matchesNewsCategory(resignItem, NewsCategoryKey.BUSINESS), "'মন্ত্রী পদত্যাগ করলেন' must NOT match business")
+
+        val policeItem = item("পুলিশ গ্রেপ্তার করেছে")
+        checkFalse(matchesNewsCategory(policeItem, NewsCategoryKey.BUSINESS), "'পুলিশ গ্রেপ্তার করেছে' must NOT match business")
+
+        val testSeriesItem = item("বাংলাদেশ-ভারত টেস্ট সিরিজের পরীক্ষা শুরু আজ")
+        checkFalse(matchesNewsCategory(testSeriesItem, NewsCategoryKey.JOBS), "Sports test series headline must NOT match jobs")
+        checkFalse(matchesNewsCategory(testSeriesItem, NewsCategoryKey.EDUCATION), "Sports test series headline must NOT match education")
+
+        val googleAiItem = item("গুগল নতুন এআই ফিচার চালু করেছে")
+        checkTrue(matchesNewsCategory(googleAiItem, NewsCategoryKey.TECHNOLOGY), "Google AI headline must match technology")
+        checkFalse(matchesNewsCategory(googleAiItem, NewsCategoryKey.BUSINESS), "Google AI headline must NOT match business via 'করেছে'")
+
+        val jobsMarketItem = item("চাকরির বাজারে মন্দা")
+        checkTrue(matchesNewsCategory(jobsMarketItem, NewsCategoryKey.JOBS), "'চাকরির বাজারে মন্দা' must match jobs")
+        checkFalse(matchesNewsCategory(jobsMarketItem, NewsCategoryKey.BUSINESS), "Weak word 'বাজারে' alone must NOT match business")
+
+        val dollarBankItem = item("ডলারের দাম বেড়ে ১২৫ টাকা, ব্যাংকে সংকট")
+        checkTrue(matchesNewsCategory(dollarBankItem, NewsCategoryKey.BUSINESS), "Dollar/bank crisis headline must match business")
+
+        val duAdmissionItem = item("ঢাকা বিশ্ববিদ্যালয়ে ভর্তি পরীক্ষার ফল প্রকাশ")
+        checkTrue(matchesNewsCategory(duAdmissionItem, NewsCategoryKey.EDUCATION), "DU admission result headline must match education")
+        checkFalse(matchesNewsCategory(duAdmissionItem, NewsCategoryKey.JOBS), "DU admission result headline must NOT match jobs")
+
+        val banksLossItem = item("ব্যাংকগুলোর লোকসান বেড়েছে")
+        checkTrue(matchesNewsCategory(banksLossItem, NewsCategoryKey.BUSINESS), "'ব্যাংকগুলোর লোকসান বেড়েছে' must match business via 'গুলোর' ending")
+
+        // Weak-word-only headlines below threshold 3 must not match
+        checkFalse(matchesNewsCategory(item("বাজারে নতুন পণ্য এসেছে"), NewsCategoryKey.BUSINESS), "Single weak word 'বাজারে' in title (score 2) must NOT match business")
+        checkFalse(matchesNewsCategory(item("টাকা নিয়ে বিবাদ"), NewsCategoryKey.BUSINESS), "Single weak word 'টাকা' in title (score 2) must NOT match business")
+        checkFalse(matchesNewsCategory(item("পরীক্ষা শুরু হয়েছে"), NewsCategoryKey.JOBS), "Single weak word 'পরীক্ষা' in title (score 2) must NOT match jobs")
+        checkFalse(matchesNewsCategory(item("পরীক্ষা শুরু হয়েছে"), NewsCategoryKey.EDUCATION), "Single weak word 'পরীক্ষা' in title (score 2) must NOT match education")
+        checkFalse(matchesNewsCategory(item("পদে পদে বিপদ"), NewsCategoryKey.JOBS), "Repeated single weak word 'পদে' counts once (score 2 < 3)")
+    }
+
+    @Test
+    fun test73_categoryIdCleanAcceptanceAndNoiseIsolation() {
+        val cleanBizItem = NewsItem(
+            title = "নতুন নীতিমালা জারি",
+            source = "অর্থসূচক",
+            sourceUrl = "https://www.arthosuchak.com",
+            link = "https://www.arthosuchak.com/policy-1",
+            categoryId = "biz"
+        )
+        checkTrue(matchesNewsCategory(cleanBizItem, NewsCategoryKey.BUSINESS), "Clean categoryId 'biz' must match business directly")
+
+        val noisyCategoryItem = NewsItem(
+            title = "রাজধানীতে নতুন মেলা শুরু",
+            source = "দৈনিক ইত্তেফাক",
+            sourceUrl = "https://www.ittefaq.com.bd",
+            link = "https://www.ittefaq.com.bd/fair-1",
+            categoryId = "সর্বশেষ জাতীয় পদ কর"
+        )
+        checkFalse(matchesNewsCategory(noisyCategoryItem, NewsCategoryKey.JOBS), "Messy categoryId containing 'পদ' must NOT match jobs")
+        checkFalse(matchesNewsCategory(noisyCategoryItem, NewsCategoryKey.BUSINESS), "Messy categoryId containing 'কর' must NOT match business")
+
+        val snippetStrongItem = NewsItem(
+            title = "সপ্তাহের শেষ দিনে নতুন তথ্য",
+            snippet = "পুঁজিবাজারে আজ বড় উত্থান দেখা গেছে",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/biz-snippet",
+            categoryId = "all"
+        )
+        checkEquals(3, categoryMatchScore(snippetStrongItem, NewsCategoryKey.BUSINESS), "Strong keyword in snippet alone must score 3")
+        checkTrue(matchesNewsCategory(snippetStrongItem, NewsCategoryKey.BUSINESS), "Strong keyword in snippet alone reaches threshold 3")
+
+        val snippetMediumItem = NewsItem(
+            title = "নতুন উদ্যোগের সূচনা",
+            snippet = "নতুন কোম্পানির কার্যক্রম শুরু হয়েছে",
+            source = "প্রথম আলো",
+            sourceUrl = "https://www.prothomalo.com",
+            link = "https://www.prothomalo.com/biz-med-snippet",
+            categoryId = "all"
+        )
+        checkEquals(2, categoryMatchScore(snippetMediumItem, NewsCategoryKey.BUSINESS), "Single medium keyword in snippet alone must score 2")
+        checkFalse(matchesNewsCategory(snippetMediumItem, NewsCategoryKey.BUSINESS), "Single medium keyword in snippet alone must NOT reach threshold 3")
+    }
+
+    @Test
+    fun test74_performFetchNewsCategoryEmptyDoesNotFallbackToAllDirectItems() = runBlocking {
+        val repo = NewsRepository()
+        val now = System.currentTimeMillis()
+        val unrelatedDirectItems = listOf(
+            NewsItem(
+                title = "পুলিশ গ্রেপ্তার করেছে",
+                source = "প্রথম আলো",
+                sourceUrl = "https://www.prothomalo.com",
+                link = "https://www.prothomalo.com/unrelated-1",
+                time = now - 60_000L,
+                categoryId = "all"
+            ),
+            NewsItem(
+                title = "বাংলাদেশ-ভারত টেস্ট সিরিজের পরীক্ষা শুরু আজ",
+                source = "যুগান্তর",
+                sourceUrl = "https://www.jugantor.com",
+                link = "https://www.jugantor.com/unrelated-2",
+                time = now - 120_000L,
+                categoryId = "all"
+            )
+        )
+
+        // 1. Category query with unrelated directItems and empty Google RSS must return emptyList (never all directItems)
+        val emptyJobsResult = repo.fetchNewsInternal(
+            query = "চাকরি",
+            intl = false,
+            forceRefresh = true,
+            directFeedFetcher = { spec ->
+                if (spec.sourceBn == "প্রথম আলো") unrelatedDirectItems else emptyList()
+            },
+            googleRssFetcher = { _, _, _ -> emptyList() }
+        )
+        checkTrue(emptyJobsResult.isEmpty(), "Jobs category with no matching items must return emptyList instead of falling back to all directItems")
+
+        // 2. When BOTH directItems and googleItems are empty, exception must still be thrown
+        var caughtWhenNothingFetched: Exception? = null
+        try {
+            repo.fetchNewsInternal(
+                query = "চাকরি",
+                intl = false,
+                forceRefresh = true,
+                directFeedFetcher = { emptyList() },
+                googleRssFetcher = { _, _, _ -> emptyList() }
+            )
+        } catch (e: Exception) {
+            caughtWhenNothingFetched = e
+        }
+        checkNotNull(caughtWhenNothingFetched, "When nothing at all is fetched, 'No news items fetched' exception must still be thrown")
+
+        // 3. Matching jobs item IS returned while unrelated item is excluded
+        val mixedDirectItems = unrelatedDirectItems + NewsItem(
+            title = "চাকরির বাজারে মন্দা",
+            source = "কালের কণ্ঠ",
+            sourceUrl = "https://www.kalerkantho.com",
+            link = "https://www.kalerkantho.com/jobs-1",
+            time = now - 30_000L,
+            categoryId = "all"
+        )
+        val filteredJobsResult = repo.fetchNewsInternal(
+            query = "চাকরি",
+            intl = false,
+            forceRefresh = true,
+            directFeedFetcher = { spec ->
+                if (spec.sourceBn == "প্রথম আলো") mixedDirectItems else emptyList()
+            },
+            googleRssFetcher = { _, _, _ -> emptyList() }
+        )
+        checkEquals(1, filteredJobsResult.size, "Only matching jobs item must be returned")
+        checkEquals("চাকরির বাজারে মন্দা", filteredJobsResult.first().title, "Matching jobs title must be preserved")
     }
 
     companion object {

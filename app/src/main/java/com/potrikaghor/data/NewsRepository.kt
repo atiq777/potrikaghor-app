@@ -35,6 +35,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.net.URI
+import java.text.Normalizer
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -1407,9 +1408,14 @@ class NewsRepository {
             throw Exception("No news items fetched")
         }
 
-        val finalItems = filterBlockedNewsItems(
-            if (combined.isNotEmpty()) combined else directItems
-        )
+        val isKnownCategory = resolveNewsCategoryKey(q, section) != null
+        val selectedItems = when {
+            combined.isNotEmpty() -> combined
+            isKnownCategory -> emptyList()
+            else -> directItems
+        }
+
+        val finalItems = filterBlockedNewsItems(selectedItems)
         logFeedSummaryDiagnostics(q, finalItems)
         finalItems
     }
@@ -1714,44 +1720,17 @@ class NewsRepository {
             return directItems
         }
 
-        val keywords = expandedQueryKeywords(q, section)
-        if (keywords.isEmpty()) return directItems
-
-        val matched = directItems.filter { item ->
-            val haystack = "${item.title} ${item.snippet} ${item.categoryId}".lowercase(Locale.ROOT)
-            keywords.any { kw -> haystack.contains(kw.lowercase(Locale.ROOT)) }
+        val category = resolveNewsCategoryKey(q, section)
+        if (category != null) {
+            return directItems.filter { item -> matchesNewsCategory(item, category) }
         }
 
-        // If a specific custom search query matched items, return them; if it's a broad home category
-        // with few keyword hits, still include matched items.
-        return matched
-    }
+        val plainKeywords = q.split(whitespaceRegex).filter { it.length >= 2 }
+        if (plainKeywords.isEmpty()) return directItems
 
-    private fun expandedQueryKeywords(query: String, section: String): List<String> {
-        val key = (query.ifEmpty { section }).lowercase(Locale.ROOT)
-        return when {
-            key.contains("রাজনীতি") -> listOf("রাজনীতি", "দল", "নির্বাচন", "সরকার", "বিএনপি", "আওয়ামী", "জামায়াত", "সংসদ", "উপদেষ্টা", "মন্ত্রী", "সমাবেশ")
-            key.contains("খেলা") || key.contains("ক্রিকেট") || key == "sports" ->
-                listOf("খেলা", "ক্রিকেট", "ফুটবল", "ম্যাচ", "গোল", "রানের", "উইকেট", "বিসিবি", "ফিফা", "লিগ", "টেস্ট", "ওয়ানডে", "টি-টোয়েন্টি", "sport", "cricket", "football")
-            key.contains("অর্থনীতি") || key.contains("ব্যবসা") || key == "business" ->
-                listOf("অর্থনীতি", "ব্যাংক", "শেয়ার", "বাজার", "টাকা", "ডলার", "রপ্তানি", "আমদানি", "মূল্যস্ফীতি", "বাণিজ্য", "শিল্প", "গার্মেন্টস", "পোশাক", "কর", "ঋণ", "business", "economy", "market")
-            key.contains("প্রযুক্তি") || key == "technology" ->
-                listOf("প্রযুক্তি", "এআই", "ইন্টারনেট", "স্মার্টফোন", "গুগল", "অ্যাপল", "মেটা", "সাইবার", "ডিজিটাল", "প্রযুক্তির", "সফটওয়্যার", "tech", "ai", "apple", "google", "software")
-            key.contains("বিনোদন") || key == "entertainment" ->
-                listOf("বিনোদন", "সিনেমা", "চলচ্চিত্র", "নাটক", "গান", "অভিনেতা", "অভিনেত্রী", "বলিউড", "হলিউড", "ঢালিউড", "তারকা", "শাকিব", "গায়ক")
-            key.contains("বিজ্ঞান") || key == "science" ->
-                listOf("বিজ্ঞান", "গবেষণা", "মহাকাশ", "নাসা", "জলবায়ু", "উদ্ভাবন", "চাঁদ", "গ্রহ", "বিজ্ঞানী", "science", "space", "climate")
-            key.contains("চাকরি") ->
-                listOf("চাকরি", "নিয়োগ", "বিসিএস", "পরীক্ষা", "পিএসসি", "পদ", "বিজ্ঞপ্তি", "কর্মসংস্থান")
-            key.contains("স্বাস্থ্য") || key == "health" ->
-                listOf("স্বাস্থ্য", "হাসপাতাল", "চিকিৎসা", "রোগ", "ডেঙ্গু", "ওষুধ", "চিকিৎসক", "ডাক্তার", "স্বাস্থ্যসেবা", "health", "medical")
-            key.contains("শিক্ষা") ->
-                listOf("শিক্ষা", "স্কুল", "কলেজ", "বিশ্ববিদ্যালয়", "শিক্ষার্থী", "পরীক্ষা", "এইচএসসি", "এসএসসি", "ভর্তি", "শিক্ষক", "ক্যাম্পাস")
-            key.contains("আবহাওয়া") ->
-                listOf("আবহাওয়া", "বৃষ্টি", "ঘূর্ণিঝড়", "তাপমাত্রা", "গরম", "শীত", "বন্যা", "ঝড়", "লঘুচাপ")
-            key.contains("আন্তর্জাতিক") || key == "world" ->
-                listOf("বিশ্ব", "আন্তর্জাতিক", "ভারত", "যুক্তরাষ্ট্র", "ট্রাম্প", "রাশিয়া", "ইউক্রেন", "ইসরায়েল", "গাজা", "ইরান", "চীন", "পাকিস্তান", "যুক্তরাজ্য", "ইউরোপ")
-            else -> query.split(whitespaceRegex).filter { it.length >= 2 }
+        return directItems.filter { item ->
+            val haystack = "${item.title} ${item.snippet} ${item.categoryId}".lowercase(Locale.ROOT)
+            plainKeywords.any { kw -> haystack.contains(kw.lowercase(Locale.ROOT)) }
         }
     }
 
@@ -4098,3 +4077,329 @@ class NewsRepository {
         }
     }
 }
+
+private const val CATEGORY_WEIGHT_STRONG = 3
+private const val CATEGORY_WEIGHT_MEDIUM = 2
+private const val CATEGORY_WEIGHT_WEAK = 1
+private const val CATEGORY_MATCH_THRESHOLD = 3
+private const val SPORTS_PENALTY_AMOUNT = 2
+
+private val BENGALI_WORD_ENDINGS = setOf(
+    "র", "ের", "ে", "য়", "য়ে", "তে", "কে",
+    "ও", "ই", "টি", "টা", "টির", "গুলো", "গুলোর", "দের", "রা"
+).mapTo(LinkedHashSet()) { Normalizer.normalize(it, Normalizer.Form.NFC) }
+
+internal data class WeightedCategoryKeyword(
+    val tokens: List<String>,
+    val weight: Int
+)
+
+private fun buildWeightedKeywords(
+    strong: List<String> = emptyList(),
+    medium: List<String> = emptyList(),
+    weak: List<String> = emptyList()
+): List<WeightedCategoryKeyword> {
+    val seen = HashSet<List<String>>()
+    val out = ArrayList<WeightedCategoryKeyword>(strong.size + medium.size + weak.size)
+    fun addAll(words: List<String>, weight: Int) {
+        for (raw in words) {
+            val tokens = splitIntoCategoryWords(raw)
+            if (tokens.isNotEmpty() && seen.add(tokens)) {
+                out.add(WeightedCategoryKeyword(tokens = tokens, weight = weight))
+            }
+        }
+    }
+    addAll(strong, CATEGORY_WEIGHT_STRONG)
+    addAll(medium, CATEGORY_WEIGHT_MEDIUM)
+    addAll(weak, CATEGORY_WEIGHT_WEAK)
+    return out
+}
+
+private val STRONG_SPORTS_PENALTY_TOKENS: List<List<String>> = listOf(
+    "ক্রিকেট", "ম্যাচ", "ফুটবল", "টেস্ট", "উইকেট"
+).map { splitIntoCategoryWords(it) }
+
+internal enum class NewsCategoryKey(
+    val cleanCategoryAliases: Set<String>,
+    val weightedKeywords: List<WeightedCategoryKeyword>,
+    val applyStrongSportsPenalty: Boolean = false
+) {
+    JOBS(
+        cleanCategoryAliases = setOf("jobs", "job", "চাকরি", "চাকরির খবর"),
+        weightedKeywords = buildWeightedKeywords(
+            strong = listOf(
+                "চাকরি", "নিয়োগ", "নিয়োগ বিজ্ঞপ্তি", "বিসিএস", "পিএসসি",
+                "কর্মসংস্থান", "চাকরিপ্রার্থী", "শিক্ষক নিয়োগ", "এনটিআরসিএ",
+                "লোকবল", "সার্কুলার", "ভাইভা"
+            ),
+            medium = listOf("বিজ্ঞপ্তি", "আবেদন", "বেতন", "পদে নিয়োগ", "নিয়োগ পরীক্ষা"),
+            weak = listOf("পদে", "পরীক্ষা")
+        ),
+        applyStrongSportsPenalty = true
+    ),
+    BUSINESS(
+        cleanCategoryAliases = setOf(
+            "biz", "business", "economy", "অর্থনীতি", "ব্যবসা", "বাণিজ্য",
+            "ব্যবসা/অর্থনীতি", "শেয়ারবাজার"
+        ),
+        weightedKeywords = buildWeightedKeywords(
+            strong = listOf(
+                "অর্থনীতি", "ব্যাংক", "শেয়ারবাজার", "পুঁজিবাজার", "ডলার",
+                "রপ্তানি", "আমদানি", "মূল্যস্ফীতি", "বাণিজ্য", "গার্মেন্টস",
+                "বিনিয়োগ", "রিজার্ভ", "বাজেট", "এনবিআর", "রাজস্ব", "জিডিপি", "ডিএসই"
+            ),
+            medium = listOf(
+                "শেয়ার", "ঋণ", "ব্যবসা", "ব্যবসায়ী", "কোম্পানি", "শিল্প",
+                "ট্যাক্স", "ভ্যাট", "আয়কর", "পোশাক", "business", "economy", "market"
+            ),
+            weak = listOf("টাকা", "বাজার", "দাম")
+        )
+    ),
+    TECHNOLOGY(
+        cleanCategoryAliases = setOf("tech", "technology", "প্রযুক্তি", "তথ্যপ্রযুক্তি"),
+        weightedKeywords = buildWeightedKeywords(
+            strong = listOf(
+                "প্রযুক্তি", "এআই", "কৃত্রিম বুদ্ধিমত্তা", "স্মার্টফোন", "ইন্টারনেট",
+                "সফটওয়্যার", "সাইবার", "ডিজিটাল", "ল্যাপটপ", "স্টার্টআপ", "চ্যাটজিপিটি"
+            ),
+            medium = listOf(
+                "গুগল", "অ্যাপল", "মাইক্রোসফট", "ফেসবুক", "অ্যাপ", "ফোন",
+                "অ্যান্ড্রয়েড", "আইফোন", "স্যামসাং", "শাওমি",
+                "tech", "ai", "apple", "google", "software"
+            )
+        )
+    ),
+    EDUCATION(
+        cleanCategoryAliases = setOf("edu", "education", "শিক্ষা", "শিক্ষাঙ্গন", "ক্যাম্পাস"),
+        weightedKeywords = buildWeightedKeywords(
+            strong = listOf(
+                "শিক্ষা", "শিক্ষার্থী", "শিক্ষক", "বিশ্ববিদ্যালয়", "কলেজ", "স্কুল",
+                "এইচএসসি", "এসএসসি", "ভর্তি", "ক্যাম্পাস", "শিক্ষা মন্ত্রণালয়", "পাঠ্যবই"
+            ),
+            medium = listOf("ঢাবি", "বুয়েট", "বোর্ড", "ফল প্রকাশ"),
+            weak = listOf("পরীক্ষা")
+        ),
+        applyStrongSportsPenalty = true
+    ),
+    POLITICS(
+        cleanCategoryAliases = setOf("politics", "রাজনীতি"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "রাজনীতি", "নির্বাচন", "সরকার", "বিএনপি", "আওয়ামী",
+                "জামায়াত", "সংসদ", "উপদেষ্টা", "মন্ত্রী", "সমাবেশ"
+            )
+        )
+    ),
+    SPORTS(
+        cleanCategoryAliases = setOf("sports", "sport", "খেলা", "খেলাধুলা", "ক্রিকেট", "cricket"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "খেলা", "ক্রিকেট", "ফুটবল", "ম্যাচ", "গোল", "রানের",
+                "উইকেট", "বিসিবি", "ফিফা", "টেস্ট", "ওয়ানডে", "টি-টোয়েন্টি",
+                "sport", "cricket", "football"
+            )
+        )
+    ),
+    ENTERTAINMENT(
+        cleanCategoryAliases = setOf("ent", "entertainment", "বিনোদন", "শোবিজ"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "বিনোদন", "সিনেমা", "চলচ্চিত্র", "নাটক", "অভিনেতা", "অভিনেত্রী",
+                "বলিউড", "হলিউড", "ঢালিউড", "তারকা", "শাকিব", "গায়ক"
+            )
+        )
+    ),
+    SCIENCE(
+        cleanCategoryAliases = setOf("science", "বিজ্ঞান"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "বিজ্ঞান", "গবেষণা", "মহাকাশ", "নাসা", "জলবায়ু",
+                "উদ্ভাবন", "বিজ্ঞানী", "science", "space", "climate"
+            )
+        )
+    ),
+    HEALTH(
+        cleanCategoryAliases = setOf("health", "স্বাস্থ্য"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "স্বাস্থ্য", "হাসপাতাল", "চিকিৎসা", "ডেঙ্গু", "ওষুধ",
+                "চিকিৎসক", "ডাক্তার", "স্বাস্থ্যসেবা", "health", "medical"
+            )
+        )
+    ),
+    WEATHER(
+        cleanCategoryAliases = setOf("weather", "আবহাওয়া"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "আবহাওয়া", "বৃষ্টি", "ঘূর্ণিঝড়", "তাপমাত্রা", "গরম",
+                "শীত", "বন্যা", "ঝড়", "লঘুচাপ"
+            )
+        )
+    ),
+    INTERNATIONAL(
+        cleanCategoryAliases = setOf("intl", "international", "world", "আন্তর্জাতিক", "বিশ্ব"),
+        weightedKeywords = buildWeightedKeywords(
+            medium = listOf(
+                "বিশ্ব", "আন্তর্জাতিক", "ভারত", "যুক্তরাষ্ট্র", "ট্রাম্প",
+                "রাশিয়া", "ইউক্রেন", "ইসরায়েল", "গাজা", "ইরান",
+                "চীন", "পাকিস্তান", "যুক্তরাজ্য", "ইউরোপ"
+            )
+        )
+    )
+}
+
+private val CATEGORY_QUERY_LOOKUP: Map<String, NewsCategoryKey> = mapOf(
+    "চাকরি" to NewsCategoryKey.JOBS,
+    "jobs" to NewsCategoryKey.JOBS,
+    "অর্থনীতি" to NewsCategoryKey.BUSINESS,
+    "ব্যবসা" to NewsCategoryKey.BUSINESS,
+    "ব্যবসা/অর্থনীতি" to NewsCategoryKey.BUSINESS,
+    "business" to NewsCategoryKey.BUSINESS,
+    "প্রযুক্তি" to NewsCategoryKey.TECHNOLOGY,
+    "technology" to NewsCategoryKey.TECHNOLOGY,
+    "শিক্ষা" to NewsCategoryKey.EDUCATION,
+    "education" to NewsCategoryKey.EDUCATION,
+    "রাজনীতি" to NewsCategoryKey.POLITICS,
+    "politics" to NewsCategoryKey.POLITICS,
+    "খেলা" to NewsCategoryKey.SPORTS,
+    "খেলাধুলা" to NewsCategoryKey.SPORTS,
+    "ক্রিকেট" to NewsCategoryKey.SPORTS,
+    "sports" to NewsCategoryKey.SPORTS,
+    "বিনোদন" to NewsCategoryKey.ENTERTAINMENT,
+    "entertainment" to NewsCategoryKey.ENTERTAINMENT,
+    "বিজ্ঞান" to NewsCategoryKey.SCIENCE,
+    "science" to NewsCategoryKey.SCIENCE,
+    "স্বাস্থ্য" to NewsCategoryKey.HEALTH,
+    "health" to NewsCategoryKey.HEALTH,
+    "আবহাওয়া" to NewsCategoryKey.WEATHER,
+    "weather" to NewsCategoryKey.WEATHER,
+    "আন্তর্জাতিক" to NewsCategoryKey.INTERNATIONAL,
+    "বিশ্ব" to NewsCategoryKey.INTERNATIONAL,
+    "world" to NewsCategoryKey.INTERNATIONAL
+).mapKeys { (k, _) -> Normalizer.normalize(k, Normalizer.Form.NFC) }
+
+internal fun resolveNewsCategoryKey(query: String, section: String = ""): NewsCategoryKey? {
+    val raw = query.trim().ifEmpty { section.trim() }
+    if (raw.isEmpty()) return null
+    val normalized = Normalizer.normalize(raw, Normalizer.Form.NFC).lowercase(Locale.ROOT)
+    return CATEGORY_QUERY_LOOKUP[normalized]
+}
+
+private fun isCategoryWordChar(ch: Char): Boolean {
+    if (ch == '\u200C' || ch == '\u200D') return true
+    if (Character.isLetter(ch) || Character.isDigit(ch)) return true
+    val type = Character.getType(ch)
+    return type == Character.NON_SPACING_MARK.toInt() ||
+        type == Character.COMBINING_SPACING_MARK.toInt() ||
+        type == Character.ENCLOSING_MARK.toInt()
+}
+
+internal fun splitIntoCategoryWords(text: String): List<String> {
+    if (text.isEmpty()) return emptyList()
+    val normalized = Normalizer.normalize(text, Normalizer.Form.NFC)
+    val words = ArrayList<String>()
+    val current = StringBuilder()
+    for (ch in normalized) {
+        if (isCategoryWordChar(ch)) {
+            current.append(ch)
+        } else if (current.isNotEmpty()) {
+            words.add(current.toString())
+            current.setLength(0)
+        }
+    }
+    if (current.isNotEmpty()) {
+        words.add(current.toString())
+    }
+    return words
+}
+
+private fun isAsciiToken(token: String): Boolean {
+    for (ch in token) {
+        if (ch.code >= 128) return false
+    }
+    return true
+}
+
+private fun wordMatchesSingleKeyword(word: String, keywordToken: String): Boolean {
+    if (isAsciiToken(keywordToken)) {
+        return word.equals(keywordToken, ignoreCase = true)
+    }
+    if (word == keywordToken) return true
+    if (word.length > keywordToken.length && word.startsWith(keywordToken)) {
+        val ending = word.substring(keywordToken.length)
+        return ending in BENGALI_WORD_ENDINGS
+    }
+    return false
+}
+
+private fun exactWordMatches(word: String, keywordToken: String): Boolean {
+    return if (isAsciiToken(keywordToken)) {
+        word.equals(keywordToken, ignoreCase = true)
+    } else {
+        word == keywordToken
+    }
+}
+
+private fun containsKeywordTokens(words: List<String>, keywordTokens: List<String>): Boolean {
+    if (keywordTokens.isEmpty() || words.size < keywordTokens.size) return false
+    if (keywordTokens.size == 1) {
+        val target = keywordTokens[0]
+        return words.any { wordMatchesSingleKeyword(it, target) }
+    }
+    val maxStart = words.size - keywordTokens.size
+    for (start in 0..maxStart) {
+        var matched = true
+        for (j in 0 until keywordTokens.lastIndex) {
+            if (!exactWordMatches(words[start + j], keywordTokens[j])) {
+                matched = false
+                break
+            }
+        }
+        if (matched && wordMatchesSingleKeyword(words[start + keywordTokens.lastIndex], keywordTokens.last())) {
+            return true
+        }
+    }
+    return false
+}
+
+private val CATEGORY_ID_SPLIT_REGEX = Regex("[\\s,/|;]+")
+
+internal fun hasCleanPublisherCategory(categoryId: String, category: NewsCategoryKey): Boolean {
+    val raw = Normalizer.normalize(categoryId.trim(), Normalizer.Form.NFC).lowercase(Locale.ROOT)
+    if (raw.isEmpty() || raw == "all") return false
+    if (raw in category.cleanCategoryAliases) return true
+    val parts = raw.split(CATEGORY_ID_SPLIT_REGEX)
+    for (part in parts) {
+        if (part.isNotEmpty() && part in category.cleanCategoryAliases) {
+            return true
+        }
+    }
+    return false
+}
+
+internal fun categoryMatchScore(item: NewsItem, category: NewsCategoryKey): Int {
+    val titleWords = splitIntoCategoryWords(item.title)
+    val snippetWords = splitIntoCategoryWords(item.snippet)
+    var score = 0
+    for (kw in category.weightedKeywords) {
+        if (containsKeywordTokens(titleWords, kw.tokens)) {
+            score += kw.weight * 2
+        } else if (containsKeywordTokens(snippetWords, kw.tokens)) {
+            score += kw.weight
+        }
+    }
+    if (category.applyStrongSportsPenalty &&
+        STRONG_SPORTS_PENALTY_TOKENS.any { containsKeywordTokens(titleWords, it) }
+    ) {
+        score -= SPORTS_PENALTY_AMOUNT
+    }
+    return score
+}
+
+internal fun matchesNewsCategory(item: NewsItem, category: NewsCategoryKey): Boolean {
+    if (hasCleanPublisherCategory(item.categoryId, category)) {
+        return true
+    }
+    return categoryMatchScore(item, category) >= CATEGORY_MATCH_THRESHOLD
+}
+
